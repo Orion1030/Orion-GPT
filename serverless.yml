@@ -1,0 +1,163 @@
+service: core-api
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-2
+  memorySize: 256
+  timeout: 30
+  stage: ${opt:stage, 'dev'}
+  environment:
+    # General
+    NODE_ENV: ${self:provider.stage}
+    NODE_PATH: /opt/node_modules
+    IS_LAMBDA: true
+    APP_URL: ${self:custom.appURL.${self:provider.stage}}
+    SUPPORT_EMAIL: fancyai@fancyawesome.com
+    APP_MONGO_URI: ${self:custom.appMongoURL.${self:provider.stage}}
+    SPONSORED_MONGO_URI: ${self:custom.sponsoredMongoURL.${self:provider.stage}}
+    WORKERS_MONGO_URI: ${self:custom.workersMongoURL.${self:provider.stage}}
+    ENGINE_MONGO_URI: ${self:custom.engineMongoURL.${self:provider.stage}}
+    SERVERLESS_ACCESS_KEY: AKypT6g6C6HdxSNxnprOvPlTRG5D15Bk7ym7iGzfvZjq0
+    
+    # Google
+    GOOGLE_CLIENT_ID: 1031000066589-88fdhflv7q1a6vn6a731ebjlo4ql1r2e.apps.googleusercontent.com
+    GOOGLE_CLIENT_SECRET: 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
+    GOOGLE_REDIRECT_URI: ${self:custom.apiURL.${self:provider.stage}}/api/auth/google/callback
+
+    # Github
+    GITHUB_CLIENT_ID: 7ed4d8411d44f00dcc84
+    GITHUB_CLIENT_SECRET: 702f5d14080ed33f3f973b723cf69baa0c552f63
+    GITHUB_REDIRECT_URI: ${self:custom.apiURL.${self:provider.stage}}/api/auth/github/callback
+
+    # Linkedin
+    LINKEDIN_KEY: 782p14toxmy2bu
+    LINKEDIN_SECRET: EKdLrbaJNcGU2IyC
+
+    # Microsoft
+    MICRSOFT_CLIENT_ID: 71952569-4948-492e-8579-24a8417f6457
+    MICROSOFT_CLIENT_SECRET: 6uB8Q~I2bqhuhnhF1ALyvNpnrGFN662fKP76Jcvi
+    MICROSOFT_REDIRECT_URI: ${self:custom.apiURL.${self:provider.stage}}/api/auth/microsoft/callback
+
+    # Shopify
+    SHOPIFY_CLIENT_ID: 913522bc3851cfa2551352628834988e
+    SHOPIFY_CLIENT_SECRET: 46fcb63d856e7d45d9f076600a7a0fe4
+    SHOPIFY_REDIRECT_URI: ${self:custom.appURL.${self:provider.stage}}/shopify/auth/callback
+
+    # AWS
+    AWS_S3_BUCKET_NAME: fancy-ai-data
+    S3_SNAPSHOT_BUCKET: fancyai-screenshots
+    STRATEGY_QUEUE_NAME: ${self:custom.strategyQueueName.${self:provider.stage}}
+
+    # JWT secret and expiry
+    JWT_SECRET: FANCYAWESOME
+    JWT_EXPIRE: 1d
+
+    # Sendgrid
+    SENDGRID_API_KEY: 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
+    SENDGRID_MAIL: noreply@getfancy.ai
+    SENDGRID_PASSWORD_RESET_TEMPLATEID: d-628672fd0b25464eae3f1b790891d3c0
+    SENDGRID_SIGNUP_CONFIRMATION_TEMPLATEID: d-bd688b9691124f24a70d609c69adc461
+    SENDGRID_VERIFY_CODE_TEMPLATEID: d-c17cd9c8860647d893a924ded3d56276
+    SENDGRID_COMPANY_INVITE_TEMPLATEID: d-4ad9ca0b7aca4314a11c1b877ef999da
+    SENDGRID_SITE_INVITE_TEMPLATEID: d-f27366dca2654fc4893f39a45c373f78
+    SENDGRID_CHANGE_EMAIL_TEMPLATEID: d-14bf797d072749c3ac3bb0bc34605588
+    SENDGRID_CHANGE_2FA_DISABLE_TEMPLATE_ID: d-85ec618dee0144b99f76cf6a5985e3d5
+
+    # Stripe
+    STRIPE_SECRET_KEY: ${self:custom.stripeSecret.${self:provider.stage}}
+    STRIPE_LITE_PRICEID: price_1NvUUqLzzKwUqHThtJ0F1HZ5
+    STRIPE_PRO_PRICEID: price_1NvUUqLzzKwUqHThtJ0F1HZ5
+    STRIPE_BUSINESS_PRICEID: price_1NvUUqLzzKwUqHThtJ0F1HZ5
+    STRIPE_ENTERPRISE_PRICEID: price_1NvUUqLzzKwUqHThtJ0F1HZ5
+
+    # Paypal
+    PAYPAL_USER: ${self:custom.paypalUser.${self:provider.stage}}
+    PAYPAL_PWD: ${self:custom.paypalPwd.${self:provider.stage}}
+    PAYPAL_SIGNATURE: ${self:custom.paypalSignature.${self:provider.stage}}
+
+    # Billing Plan
+    LITE_PLAN_PRICE: 499
+    PRO_PLAN_PRICE: 1249
+    BUSINESS_PLAN_PRICE: 2499
+    ENTERPRISE_PLAN_PRICE: 4999
+
+    GOOGLE_PAGESPEED_API_KEY: "AIzaSyDnVgt8d6NqVoXBOQ7S9SrHFiYJTho-6EQ"
+    GOOGLE_PAGE_SPEED_API_ENDPOINT: "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
+    OPENAI_API_KEY: ${self:custom.openAIKey.${self:provider.stage}}
+
+    # SEMRUSH
+    SEMRUSH_API_KEY: "e970076ff543e6741ad60e6afc13a767"
+    SEMRUSH_BASE_URL: "https://api.semrush.com/"
+    SERPSTAT_API_ENDPOINT: "https://api.serpstat.com/v4"
+    SERPSTAT_API_KEY: "cbb831c452210bd34ba2ab633672ac43"
+
+    # ZENDESK
+    ZENDESK_SECRET: "FeunkwI9Rnfg7h3BRIbZVPtCLX4WpRODJbtm3dLcUjWMKKT6"
+    ZENDESK_WEB_WIDGET_SECRET: "If7hp7TEWz2zfh5pRSCStfeWCLB6LAQXDLgBGKgFqiuxKOBlFdD6WNtn3STiMeSZdurrPfaRibbZvvEB7RpCnw"
+    ZENDESK_KEY_ID: "app_65fdc36317b4affece5aa052"
+
+    # ZENDESK API
+    ZENDESK_USERNAME: "accounts@getfancy.ai"
+    ZENDESK_TOKEN: "sS8lCjcsH65wsUBe3gJ1eMdKFuRVc3fJ0KiI4unM"
+    ZENDESK_SUBDOMAIN: "fancyai"
+
+    # NEW RELIC
+    NEW_RELIC_LICENSE_KEY: ${self:custom.newRelicLicenseKey.${self:provider.stage}}
+    NEW_RELIC_APP_NAME: ${self:custom.newRelicAppName.${self:provider.stage}}
+
+custom:
+  appURL:
+    staging: https://staging-app.getfancy.ai
+    beta: https://beta.getfancy.ai
+  apiURL:
+    staging: https://staging-api.getfancy.ai
+    beta: https://beta-api.getfancy.ai
+  appMongoURL:
+    staging: mongodb+srv://developer:xmJHWT3LMr1Q2xKJ@cluster0.hzuzj2w.mongodb.net/FancyAI-Web?retryWrites=true&w=majority
+    beta: mongodb+srv://web-beta:1YsBwq2wQRAWmkUG@cluster0.hzuzj2w.mongodb.net/FancyAI-Web-Beta?retryWrites=true&w=majority
+  sponsoredMongoURL:
+    staging: mongodb+srv://content:OqrldG26fbtcfwrk@cluster0.hzuzj2w.mongodb.net/FancyAI-Content?retryWrites=true&w=majority
+    beta: mongodb+srv://content:OqrldG26fbtcfwrk@cluster0.hzuzj2w.mongodb.net/FancyAI-Content?retryWrites=true&w=majority
+  workersMongoURL:
+    staging: mongodb+srv://workers:JJCMdzrj6D1PEbuQ@cluster0.hzuzj2w.mongodb.net/FancyAI-Workers?retryWrites=true&w=majority
+    beta: mongodb+srv://workers:JJCMdzrj6D1PEbuQ@cluster0.hzuzj2w.mongodb.net/FancyAI-Workers-Beta?retryWrites=true&w=majority
+  engineMongoURL:
+    staging: mongodb+srv://engine:BCD4XhCsSOUgzSt9@cluster0.hzuzj2w.mongodb.net/FancyAI-Engine?retryWrites=true&w=majority
+    beta: mongodb+srv://engine:BCD4XhCsSOUgzSt9@cluster0.hzuzj2w.mongodb.net/FancyAI-Engine-Beta?retryWrites=true&w=majority
+  stripeSecret:
+    staging: sk_test_51Nui6tLzzKwUqHThls7QRfv9X59VZgM0m2kQsO5TU9rVNHFh3bI5qrRXoVqbLkuPXg4P3pKBMS1W6aPoRx2oaCVR00bSCJUflT
+    beta: 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
+  paypalUser:
+    staging: sb-fqwgt27615476_api1.business.example.com
+    beta: jacob_api1.getfancy.ai
+  paypalPwd: 
+    staging: QXPSJX2NHDGAEXKA
+    beta: NRQ994EG3US9LGBD
+  paypalSignature:
+    staging: AtlkGVkE1mRqssmRPwZSR8d90zk0ADUprBpwphZiAnAa7q6l9G33WokZ
+    beta: Aea3S-zQp8Wqw4vgMOI6c015u53PAkNVe2Xg1rcq-4RF96gZLFZHVJ9S
+  strategyQueueName:
+    staging: StrategyQueue
+    beta: Beta_StrategyQueue
+  openAIKey:
+    staging: sk-proj-Gf1u6P8aUfedcMHqoNEtT3BlbkFJwHv3PAXcIoaBjCYPtV9H
+    beta: sk-proj-Dm0w5CYMUeW9YcHfDArZT3BlbkFJ6Q8L8SE6SAF8hRK5y7p3
+  newRelicLicenseKey:
+    staging: 67c21f0ed408c723caad5089197bb973FFFFNRAL
+    beta: 24bc22fabd2f2f11930ff61690dbd8f1FFFFNRAL
+  newRelicAppName:
+    staging: CoreAPI-Staging
+    beta: CoreAPI-Beta
+  
+functions:
+  app:
+    handler: server.handler
+    events: 
+      - http: 
+          path: /
+          method: ANY
+          cors: true
+      - http: 
+          path: /{proxy+}
+          method: ANY
+          cors: true
