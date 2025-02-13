@@ -1,8 +1,8 @@
-require('dotenv').config()
-const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
-const { UserModel } = require('../dbModels')
-const { sendJsonResult } = require('../utils')
-const { AWS_S3_BUCKET_NAME, APP_URL, SENDGRID_CHANGE_EMAIL_TEMPLATEID, SENDGRID_CHANGE_2FA_DISABLE_TEMPLATE_ID, SUPPORT_EMAIL } = process.env
+require("dotenv").config();
+const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
+const { UserModel } = require("../dbModels");
+const { sendJsonResult } = require("../utils");
+const { APP_URL } = process.env;
 
 // exports.getAuthUserInfo = asyncErrorHandler(async (req, res, next) => {
 //   const { user } = req
@@ -84,18 +84,26 @@ const { AWS_S3_BUCKET_NAME, APP_URL, SENDGRID_CHANGE_EMAIL_TEMPLATEID, SENDGRID_
 // })
 
 exports.changePassword = asyncErrorHandler(async (req, res, next) => {
-  const { newPassword, confirmPassword, oldPassword } = req.body
-  const { user } = req
+  const { newPassword, confirmPassword, oldPassword } = req.body;
+  const { user } = req;
   if (!user) {
-    return sendJsonResult(res, { success: false, msg: 'User not found' }, 400)
+    return sendJsonResult(res, false, null, "User not found", 400);
   }
-  if (!newPassword) return sendJsonResult(res, { success: false, msg: 'Enter new password' }, 400)
-  if (newPassword !== confirmPassword) return sendJsonResult(res, { success: false, msg: "New password and confirm password doesn't match" }, 400)
-  const isPasswordMatched = await user.comparePassword(oldPassword)
-  if (isPasswordMatched) user.password = newPassword
+  if (!newPassword)
+    return sendJsonResult(res, false, "Enter new password", 400);
+  if (newPassword !== confirmPassword)
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      "New password and confirm password doesn't match",
+      400,
+    );
+  const isPasswordMatched = await user.comparePassword(oldPassword);
+  if (isPasswordMatched) user.password = newPassword;
   else {
-    return sendJsonResult(res, { success: false, msg: 'Incorrect old password' }, 400)
+    return sendJsonResult(res, false, null, "Incorrect old password", 400);
   }
-  await user.save()
-  return sendJsonResult(res, { success: true, msg: 'Password changed successfully' })
-})
+  await user.save();
+  return sendJsonResult(res, true, null, "Password changed successfully");
+});
