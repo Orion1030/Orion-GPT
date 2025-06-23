@@ -1,26 +1,20 @@
 const mongoose = require('mongoose')
-const validator = require('validator')
 const bcrypt = require('bcryptjs')
-const { ObjectId } = require('mongodb')
 const { RoleLevels } = require('../utils/constants')
 
 const userSchema = new mongoose.Schema(
   {
     name: {
-      type: String
-    },
-    email: {
       type: String,
       required: true,
-      unique: true,
-      validate: {
-        validator: (value) => {
-          return validator.isEmail(value)
-        },
-        message: 'Email address should be a valid email address format'
-      }
+      trim: true
     },
-    password: {
+    team: {
+      type: String,
+      default: '', // optional
+      trim: true
+    },
+    passwordHash: {
       type: String,
       minlength: 8,
       validate: {
@@ -30,12 +24,20 @@ const userSchema = new mongoose.Schema(
         message: 'Password should contain at least 1 capital or 1 special character, be a minimum length of 8, and not contain spaces'
       }
     },
-    signupConfirmed: {
+    token: {
+      type: String,
+      default: ''
+    },
+    lastLogin: {
+      type: Date
+    },
+    isActive: {
       type: Boolean,
       default: false
     },
     role: {
-      type: Number,
+      type: String,
+      required: true,
       default: RoleLevels.MEMBER
     }
   },
@@ -43,15 +45,16 @@ const userSchema = new mongoose.Schema(
 )
 
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
-    next()
+  if (this.isModified('passwordHash')) {
+    this.passwordHash = await bcrypt.hash(this.passwordHash, 10)
   }
-  this.password = await bcrypt.hash(this.password, 10)
+  next()
 })
 
+// Password check method
 userSchema.methods.comparePassword = async function (enteredPassword) {
-  if (!this.password) return false
-  return await bcrypt.compare(enteredPassword, this.password)
+  if (!this.passwordHash) return false
+  return await bcrypt.compare(enteredPassword, this.passwordHash)
 }
 
 module.exports = mongoose.model('User', userSchema)

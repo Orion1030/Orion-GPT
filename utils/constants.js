@@ -1,7 +1,8 @@
 const RoleLevels = {
   ADMIN: 1,
-  MEMBER: 2,
-  GUEST: 3,
+  Manager: 2,
+  User: 3,
+  GUEST: 0,
 };
 
 const RequestTypes = {
@@ -14,4 +15,15 @@ const Environments = {
   DEV: "development",
   LOCAL: "local",
 };
-module.exports = { RoleLevels, RequestTypes, Environments };
+const StatusCodes = {
+  SUCCESS: 200,
+  CREATED: 201,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  INTERNAL_SERVER_ERROR: 500,
+  ACTIVE: 1,
+  INACTIVE: 0,
+};
+module.exports = { RoleLevels, RequestTypes, Environments, StatusCodes };
