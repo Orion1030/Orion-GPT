@@ -1,6 +1,6 @@
 const mongoose = require('mongoose')
 
-const stackSchema = new mongoose.Schema(
+const applicationSchema = new mongoose.Schema(
   {
     userId:  {
       type: mongoose.Schema.Types.ObjectId,
@@ -44,7 +44,7 @@ const stackSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
-    notes: {
+    note: {
       type: String,
       default: '',
     }
@@ -52,4 +52,4 @@ const stackSchema = new mongoose.Schema(
   { timestamps: true }
 )
 
-module.exports = mongoose.model('Stack', stackSchema)
+module.exports = mongoose.model('Application', applicationSchema)

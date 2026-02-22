@@ -11,6 +11,8 @@ const userRoutes = require("./routes/user.route");
 const adminRoutes = require("./routes/admin.route");
 const promptRoutes = require("./routes/prompt.route");
 const staticRoutes = require("./routes/static.route");
+const profileRoutes = require("./routes/profile.route");
+const templateRoutes = require("./routes/template.route");
 
 // app
 const app = express();
@@ -47,6 +49,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/prompt", promptRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/static", staticRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/template", templateRoutes);
+
 
 process.on("uncaughtException", (error, source) => {
   console.log("[UncaughtException]", error, source);

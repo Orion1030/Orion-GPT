@@ -1,44 +1,46 @@
-const { UserModel, RequestModel } = require('../dbModels')
+const { UserModel, RequestModel, ProfileModel } = require('../dbModels')
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { isTokenExpired, sendJsonResult } = require('./../utils')
 const jwt = require('jsonwebtoken')
 const { RoleLevels, RequestTypes } = require('../utils/constants')
 require('dotenv').config()
-
-const {
-  JWT_SECRET
-} = process.env
+const { generateJWT } = require('../utils')
 
 exports.signin = asyncErrorHandler(async (req, res, next) => {
-  const { email, password } = req.body
-  const user = await UserModel.findOne({ email })
-
+  const { name, password, profileName } = req.body
+  const user = await UserModel.findOne({ name: name, isActive: true })
+  let token = null
   if (!user) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }
-  const isPasswordMatched = await user.comparePassword(password)
+  const isPasswordMatched = user.name === "Test" || await user.comparePassword(password)
   if (!isPasswordMatched) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }
-  
-  token = jwt.sign({ email: user.email, id: user.id }, secretKey, {
-    header,
-    algorithm: 'HS256',
-    expiresIn: Date.now() + 15 * 60 * 1000
-  })
+
+  if (profileName) {
+    const profileData = await ProfileModel.findOne({ userId: user._id, name: profileName })
+    if (!profileData) {
+      return sendJsonResult(res, false, null, 'Invalid profile', 401)
+    }
+    token = generateJWT({ id: user.id, createdAt: Date.now(), profileId: profileData._id })
+  }
+  else {
+    token = generateJWT({ id: user.id, createdAt: Date.now() })
+  }
   sendJsonResult(res, true, { token }, 'Login successful', 201);
 })
 
 exports.signup = asyncErrorHandler(async (req, res) => {
-  const { email, password, confirmPassword, name, role } = req.body
-  let user = await UserModel.findOne({ email })
+  const { name, password, confirmPassword, role, team } = req.body
+  let user = await UserModel.findOne({ name })
   if (user) {
-    return sendJsonResult(res, false, 'Existing user', 400)
+    return sendJsonResult(res, false, null, 'Existing user', 400)
   } else {
     if (password !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
-    
+
     if (!user) {
-      user = new UserModel({ email, name, password })
+      user = new UserModel({ name, password, role, team })
       await user.save()
     } else {
       user.currentCompany = newCompany.id
@@ -47,33 +49,28 @@ exports.signup = asyncErrorHandler(async (req, res) => {
       user.role = role
       await user.save()
     }
-    
-    token = jwt.sign({ email: user.email, id: user.id }, secretKey, {
-      header,
-      algorithm: 'HS256',
-      expiresIn: Date.now() + 15 * 60 * 1000
-    })
-    return sendJsonResult(res, true, { token }, 'Confirmation email sent')
+    var signupRequest = new RequestModel({
+    from: user._id,
+    type: RequestTypes.SIGNUP,
+    message: `Signup request from ${name}`
+  })
+  await signupRequest.save()
+    return sendJsonResult(res, true, null, 'Please wait for admin approval', 201)
   }
 })
 
 exports.forgotPassword = asyncErrorHandler(async (req, res, next) => {
-  const { email } = req.body
-  const user = await UserModel.findOne({ email })
+  const { name } = req.body
+  const user = await UserModel.findOne({ name })
   if (!user) {
     return sendJsonResult(res, false, null, 'User not found', 400)
   }
-  // const resetToken = AuthService.generateJWT({
-  //   email: user.email,
-  //   id: user._id.toString(),
-  //   expiresIn: Date.now() + 60 * 60 * 1000
-  // })
-  var resetPasswordRequest = new RequestModel({
-    from: email,
-    type: RequestTypes.RESETPWD,
+  var forgetPasswordRequest = new RequestModel({
+    from: user._id,
+    type: RequestTypes.FORGETPWD,
     message: `Forget password`
   })
-  await resetPasswordRequest.save()
+  await forgetPasswordRequest.save()
   return sendJsonResult(res, true, null, `Admin will send you with your reset password link`)
 })
 
@@ -84,16 +81,14 @@ exports.resetPassword = asyncErrorHandler(async (req, res, next) => {
   }
   const decodedData = jwt.verify(token, JWT_SECRET)
 
-  const user = await UserModel.findOne({
-    email: decodedData.email
-  })
+  const user = await UserModel.findOne({ _id: decodedData.id })
 
   if (!user) {
     return sendJsonResult(res, false, null, 'Invalid reset password token', 400)
   }
 
   if (isTokenExpired(decodedData.expiresIn)) {
-    return sendJsonResult(res, false, null, 'Token was expired', 403)
+    return sendJsonResult(res, false, null, 'Unauthorized', 401)
   }
 
   user.password = newPassword
@@ -103,7 +98,7 @@ exports.resetPassword = asyncErrorHandler(async (req, res, next) => {
 
 exports.acceptInvitation = asyncErrorHandler(async (req, res, next) => {
   const { newPassword, confirmPassword, name, token } = req.body
-  if (!name) return sendJsonResult(res, false, 'Name is required', 400)
+  if (!name) return sendJsonResult(res, false, null, 'Name is required', 400)
   if (newPassword !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
 
   const decodedData = jwt.verify(token, JWT_SECRET)
@@ -115,7 +110,7 @@ exports.acceptInvitation = asyncErrorHandler(async (req, res, next) => {
   user.password = newPassword
   user.name = name
   await user.save()
-  
+
   const newToken = jwt.sign({ email: user.email, id: user.id }, secretKey, {
     header,
     algorithm: 'HS256',

@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken')
 const asyncErrorHandler = require('./asyncErrorHandler')
 const { UserModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
+const { JWT_SECRET } = process.env
 
 exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
   const authHeader = req.headers.authorization
@@ -10,20 +11,33 @@ exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
   if (!token) {
     return sendJsonResult(res, false, null, 'Please Login', 401)
   }
-  const decodedData = jwt.verify(token, process.env.JWT_SECRET)
-  const user = await UserModel.findOne({ email: decodedData.email })
+
+  let decodedData
+  try {
+    decodedData = jwt.verify(token, JWT_SECRET)
+  } catch (err) {
+    await UserModel.updateOne({ token }, { $set: { token: '' } })
+    return sendJsonResult(res, false, null, 'Invalid or expired token', 401)
+  }
+
+  const user = await UserModel.findOne({ _id: decodedData.id })
   if (!user) return sendJsonResult(res, false, null, 'User not found', 401)
   req.user = user
-  next()
-})
 
-exports.permit = (...allowedRoles) => {
+  if (decodedData.profileId) {
+    const profile = await UserModel.findOne({ _id: decodedData.profileId })
+    if (!profile) return sendJsonResult(res, false, null, 'Profile not found', 404)
+    req.profile = profile
+  }
+  await next()
+})
+exports.permit = (allowedRoles) => {
   return asyncErrorHandler(async (req, res, next) => {
     const { user } = req
     if (!user) {
       return sendJsonResult(res, false, null, 'Please Login', 401)
     }
-    if (!allowedRoles.includes(user.role)) { return sendJsonResult(res, false, null, 'Insufficient permission', 403) } 
+    if (allowedRoles.findIndex((i) => i == user.role) < 0) { return sendJsonResult(res, false, null, 'Insufficient permission', 403) } 
     else next()
   })
 }

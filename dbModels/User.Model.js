@@ -14,7 +14,7 @@ const userSchema = new mongoose.Schema(
       default: '', // optional
       trim: true
     },
-    passwordHash: {
+    password: {
       type: String,
       minlength: 8,
       validate: {
@@ -24,10 +24,6 @@ const userSchema = new mongoose.Schema(
         message: 'Password should contain at least 1 capital or 1 special character, be a minimum length of 8, and not contain spaces'
       }
     },
-    token: {
-      type: String,
-      default: ''
-    },
     lastLogin: {
       type: Date
     },
@@ -36,25 +32,25 @@ const userSchema = new mongoose.Schema(
       default: false
     },
     role: {
-      type: String,
+      type: Number,
       required: true,
-      default: RoleLevels.MEMBER
+      default: RoleLevels.User
     }
   },
   { timestamps: true }
 )
 
 userSchema.pre('save', async function (next) {
-  if (this.isModified('passwordHash')) {
-    this.passwordHash = await bcrypt.hash(this.passwordHash, 10)
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 10)
   }
   next()
 })
 
 // Password check method
 userSchema.methods.comparePassword = async function (enteredPassword) {
-  if (!this.passwordHash) return false
-  return await bcrypt.compare(enteredPassword, this.passwordHash)
+  if (!this.password) return false
+  return await bcrypt.compare(enteredPassword, this.password)
 }
 
 module.exports = mongoose.model('User', userSchema)

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose')
 
-const blackListSchema = new mongoose.Schema(
+const BlacklistSchema = new mongoose.Schema(
   {
     profileId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -23,4 +23,4 @@ const blackListSchema = new mongoose.Schema(
   { timestamps: true }
 )
 
-module.exports = mongoose.model('BlackList', blackListSchema)
+module.exports = mongoose.model('Blacklist', BlacklistSchema)

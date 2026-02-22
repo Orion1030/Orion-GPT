@@ -19,3 +19,13 @@ exports.changeMemberPassword = asyncErrorHandler(async (req, res, next) => {
   await user.save()
   return sendJsonResult(res, true, null, 'Password changed successfully')
 })
+exports.allowMember = asyncErrorHandler(async (req, res, next) => {
+  const { userId } = req.body
+  const user = await UserModel.findOne({ _id: userId })
+  if (!user) {
+    return sendJsonResult(res, false, null, 'User not found', 400)
+  }
+  user.isActive = true
+  await user.save()
+  return sendJsonResult(res, true, null, 'User Activated successfully')
+})

@@ -90,7 +90,7 @@ exports.changePassword = asyncErrorHandler(async (req, res, next) => {
     return sendJsonResult(res, false, null, "User not found", 400);
   }
   if (!newPassword)
-    return sendJsonResult(res, false, "Enter new password", 400);
+    return sendJsonResult(res, false, null, "Enter new password", 400);
   if (newPassword !== confirmPassword)
     return sendJsonResult(
       res,

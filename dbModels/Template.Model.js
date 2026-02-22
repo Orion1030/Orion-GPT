@@ -1,6 +1,6 @@
 const mongoose = require('mongoose')
 
-const resumeTemplateSchema = new mongoose.Schema(
+const templateSchema = new mongoose.Schema(
   {
     name: {
       type: String,
@@ -10,7 +10,7 @@ const resumeTemplateSchema = new mongoose.Schema(
       type: String,
       required: true
     },
-    description: {
+    note: {
       type: String,
       default: ''
     }
@@ -18,4 +18,4 @@ const resumeTemplateSchema = new mongoose.Schema(
   { timestamps: true }
 )
 
-module.exports = mongoose.model('ResumeTemplate', resumeTemplateSchema)
+module.exports = mongoose.model('Template', templateSchema)

@@ -1,7 +1,11 @@
 const mongoose = require('mongoose')
 
-const whiteListSchema = new mongoose.Schema(
+const whitelistSchema = new mongoose.Schema(
   {
+    creater: {
+      type: String,
+      required: true
+    },
     siteName: {
       type: String,
       required: true
@@ -20,7 +24,7 @@ const whiteListSchema = new mongoose.Schema(
       type: Boolean,
       default: true
     },
-    description: {
+    note: {
       type: String,
       default: ''
     }
@@ -28,4 +32,4 @@ const whiteListSchema = new mongoose.Schema(
   { timestamps: true }
 )
 
-module.exports = mongoose.model('WhiteList', whiteListSchema)
+module.exports = mongoose.model('Whitelist', whitelistSchema)

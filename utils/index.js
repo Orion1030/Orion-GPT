@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken')
+const { JWT_SECRET } = process.env
 exports.isTokenExpired = (expirationDate) => {
   return new Date() > expirationDate
 }
@@ -16,8 +17,8 @@ exports.sendJsonResult = (res, status, data = null, message = null, statusCode =
   return res.status(statusCode).json(returnData);
 }
 
-exports.generateJWT = (payload, secretKey = JWT_SECRET, header = {}) => {
-  return jwt.sign(payload, secretKey, {
+exports.generateJWT = (payload, header = {}) => {
+  return jwt.sign(payload, JWT_SECRET, {
     header,
     algorithm: 'HS256',
     expiresIn: Date.now() + 15 * 60 * 1000

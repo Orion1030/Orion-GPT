@@ -2,27 +2,28 @@ const mongoose = require('mongoose')
 const { StatusCodes } = require('../utils/constants')
 
 const contactInfoSchema = new mongoose.Schema({
-  email: { type: String, trim: true },
-  linkedin: { type: String, trim: true },
-  phone: { type: String, trim: true },
-  address: { type: String, trim: true }
+  email: { type: String },
+  linkedin: { type: String },
+  phone: { type: String },
+  address: { type: String }
 }, { _id: false })
 
 const experienceSchema = new mongoose.Schema({
   companyName: { type: String, required: true },
   roleTitle: { type: String, required: true },
   startDate: { type: Date, required: true },
-  endDate: { type: Date },
-  location: { type: String },
-  description: { type: String }
+  endDate: { type: Date, required: true },
+  companySummary: { type: String, maxlength: 3000 },
+  keyPoints: [{ type: String }]
 }, { _id: false })
 
 const educationSchema = new mongoose.Schema({
   universityName: { type: String, required: true },
   degreeLevel: { type: String, required: true },
-  major: { type: String },
-  startDate: { type: Date },
-  endDate: { type: Date }
+  major: { type: String, required: true },
+  startDate: { type: Date, required: true },
+  endDate: { type: Date, required: true },
+  note: { type: String }
 }, { _id: false })
 
 const profileSchema = new mongoose.Schema(
@@ -36,19 +37,23 @@ const profileSchema = new mongoose.Schema(
       type: String,
       required: true
     },
-    stackId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Stack',
-      required: true
+    mainStack: {
+      type: String,
+      required: true,
+      trim: true
     },
     title: {
       type: String,
       required: true,
       trim: true
     },
+    link: {
+      type: String,
+      trim: true
+    },
     contactInfo: contactInfoSchema,
     experiences: [experienceSchema],
-    education: [educationSchema],
+    educations: [educationSchema],
     status: {
       type: Number,
       default: StatusCodes.INACTIVE

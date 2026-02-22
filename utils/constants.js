@@ -6,8 +6,9 @@ const RoleLevels = {
 };
 
 const RequestTypes = {
-  RESETPWD: 1,
+  FORGETPWD: 1,
   CONTACT: 2,
+  SIGNUP: 0
 };
 
 const Environments = {

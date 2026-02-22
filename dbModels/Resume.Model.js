@@ -21,17 +21,12 @@ const resumeSchema = new mongoose.Schema(
       ref: 'Stack',
       required: true
     },
-    resumeTemplateId: {
+    templateId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'ResumeTemplate',
+      ref: 'template',
       required: true
     },
-    content: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    fileUrl: {
+    note: {
       type: String,
       required: true
     }
