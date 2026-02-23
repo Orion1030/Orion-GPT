@@ -13,6 +13,7 @@ const promptRoutes = require("./routes/prompt.route");
 const staticRoutes = require("./routes/static.route");
 const profileRoutes = require("./routes/profile.route");
 const templateRoutes = require("./routes/template.route");
+const resumeRoutes = require("./routes/resume.route");
 
 // app
 const app = express();
@@ -51,6 +52,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/static", staticRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/template", templateRoutes);
+app.use("/api/resume", resumeRoutes);
 
 
 process.on("uncaughtException", (error, source) => {

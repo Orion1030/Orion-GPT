@@ -3,12 +3,36 @@ const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { sendPdfResume, sendHtmlResume, sendDocResume } = require("../utils/resumeUtils");
+function mapPayloadToModel(payload, userId) {
+  const profileId = payload.profile?.id ?? payload.profileId;
+  const templateId = payload.template?.id ?? payload.templateId;
+  const stackId = payload.stack?.id ?? payload.stackId;
+  return {
+    userId: userId,
+    name: payload.name || 'Untitled Resume',
+    profileId: profileId || null,
+    stackId: stackId || null,
+    templateId: templateId || null,
+    note: payload.note ?? '',
+    summary: payload.summary ?? '',
+    content: {
+      experienceStrings: payload.content?.experienceStrings ?? {},
+      skillsContent: payload.content?.skillsContent ?? ''
+    }
+  };
+}
+
 exports.createResume = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
-  const { resume } = req.body;
-  const newResume = new ResumeModel({ userId: user._id, resume });
+  const payload = req.body.resume ?? req.body;
+  const data = mapPayloadToModel(payload, user._id);
+  const newResume = new ResumeModel(data);
   await newResume.save();
-  return sendJsonResult(res, true, newResume, "Resume created successfully", 201);
+  const populated = await ResumeModel.findById(newResume._id)
+    .populate('profileId')
+    .populate('templateId')
+    .populate('stackId');
+  return sendJsonResult(res, true, populated, "Resume created successfully", 201);
 });
 exports.getResume = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
@@ -23,12 +47,17 @@ exports.getResume = asyncErrorHandler(async (req, res, next) => {
 exports.updateResume = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { resumeId } = req.params;
-  const { resume, templateId,  } = req.body;
+  const payload = req.body.resume ?? req.body;
+  const data = mapPayloadToModel(payload, user._id);
+  delete data.userId;
   const updatedResume = await ResumeModel.findOneAndUpdate(
     { userId: user._id, _id: resumeId },
-    { resume, templateId },
+    { $set: data },
     { new: true },
-  );
+  )
+    .populate('profileId')
+    .populate('templateId')
+    .populate('stackId');
   if (!updatedResume) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
@@ -72,7 +101,12 @@ exports.clearResume = asyncErrorHandler(async (req, res, next) => {
 });
 
 exports.getAllResumes = asyncErrorHandler(async (req, res, next) => {
-  const resumes = await ResumeModel.find({});
+  const { user } = req;
+  const resumes = await ResumeModel.find({ userId: user._id })
+    .populate('profileId')
+    .populate('templateId')
+    .populate('stackId')
+    .sort({ updatedAt: -1 });
   return sendJsonResult(res, true, resumes);
 });
 exports.downloadResume = asyncErrorHandler(async (req, res, next) => {
@@ -80,7 +114,9 @@ exports.downloadResume = asyncErrorHandler(async (req, res, next) => {
   const { resumeId } = req.params;
   const { fileType } = req.query;
 
-  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id }).populate('templateId');
+  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id })
+    .populate('templateId')
+    .populate('profileId');
   if (!resume) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }

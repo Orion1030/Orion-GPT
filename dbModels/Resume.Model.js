@@ -19,16 +19,24 @@ const resumeSchema = new mongoose.Schema(
     stackId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Stack',
-      required: true
+      required: false
     },
     templateId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'template',
-      required: true
+      ref: 'Template',
+      required: false
     },
     note: {
       type: String,
-      required: true
+      default: ''
+    },
+    summary: {
+      type: String,
+      default: ''
+    },
+    content: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({ experienceStrings: {}, skillsContent: '' })
     }
   },
   { timestamps: true }
