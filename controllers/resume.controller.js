@@ -26,6 +26,11 @@ exports.createResume = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const payload = req.body.resume ?? req.body;
   const data = mapPayloadToModel(payload, user._id);
+
+  if (!data.profileId) {
+    return sendJsonResult(res, false, null, "A profile must be selected to create a resume", 400);
+  }
+
   const newResume = new ResumeModel(data);
   await newResume.save();
   const populated = await ResumeModel.findById(newResume._id)
@@ -50,6 +55,11 @@ exports.updateResume = asyncErrorHandler(async (req, res, next) => {
   const payload = req.body.resume ?? req.body;
   const data = mapPayloadToModel(payload, user._id);
   delete data.userId;
+
+  if (!data.profileId) {
+    return sendJsonResult(res, false, null, "A profile must be selected for the resume", 400);
+  }
+
   const updatedResume = await ResumeModel.findOneAndUpdate(
     { userId: user._id, _id: resumeId },
     { $set: data },
