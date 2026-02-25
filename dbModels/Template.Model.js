@@ -13,6 +13,19 @@ const templateSchema = new mongoose.Schema(
     note: {
       type: String,
       default: ''
+    },
+    isBuiltIn: {
+      type: Boolean,
+      default: false
+    },
+    description: {
+      type: String,
+      default: ''
+    },
+    layoutMode: {
+      type: String,
+      enum: ['single', 'hybrid'],
+      default: 'single'
     }
   },
   { timestamps: true }

@@ -18,7 +18,8 @@ function mapPayloadToModel(payload, userId) {
     content: {
       experienceStrings: payload.content?.experienceStrings ?? {},
       skillsContent: payload.content?.skillsContent ?? ''
-    }
+    },
+    pageFrameConfig: payload.pageFrameConfig ?? null,
   };
 }
 

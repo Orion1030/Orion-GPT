@@ -37,6 +37,14 @@ const resumeSchema = new mongoose.Schema(
     content: {
       type: mongoose.Schema.Types.Mixed,
       default: () => ({ experienceStrings: {}, skillsContent: '' })
+    },
+    builtInTemplateId: {
+      type: String,
+      default: null
+    },
+    pageFrameConfig: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
     }
   },
   { timestamps: true }

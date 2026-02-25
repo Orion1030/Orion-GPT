@@ -1,27 +1,51 @@
 const puppeteer = require('puppeteer');
 
-const DEFAULT_TEMPLATE = `<!DOCTYPE html>
+const MARGIN_PRESETS = {
+    compact: { top: 36, bottom: 36, left: 36, right: 36 },
+    standard: { top: 54, bottom: 54, left: 54, right: 54 },
+    wide: { top: 72, bottom: 72, left: 72, right: 72 },
+};
+
+const DEFAULT_CONFIG = {
+    marginPreset: 'standard',
+    fontFamily: 'Arial, sans-serif',
+    fontSize: 10,
+    lineHeight: 1.4,
+    accentColor: '#2563eb',
+    layoutMode: 'single',
+    sectionOrder: ['summary', 'experience', 'education', 'skills'],
+    sectionLabels: {
+        summary: 'Professional Summary',
+        experience: 'Experience',
+        education: 'Education',
+        skills: 'Skills',
+    },
+    hiddenSections: [],
+};
+
+const FALLBACK_TEMPLATE = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: #fff; }
-  .resume { max-width: 800px; margin: 0 auto; }
-  .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 30px; text-align: center; }
-  .header h1 { font-size: 2.5em; margin-bottom: 10px; font-weight: 300; }
-  .header .title { font-size: 1.3em; margin-bottom: 20px; opacity: 0.9; }
-  .contact-info { display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; font-size: 0.9em; }
-  .content { padding: 30px; }
-  .section { margin-bottom: 30px; }
-  .section h2 { color: #667eea; font-size: 1.4em; margin-bottom: 15px; padding-bottom: 5px; border-bottom: 2px solid #667eea; }
-  .summary { font-size: 1.05em; line-height: 1.7; color: #555; }
-  .experience-item, .education-item { margin-bottom: 20px; padding-left: 20px; border-left: 3px solid #667eea; }
-  .experience-item h3, .education-item h3 { color: #333; font-size: 1.2em; margin-bottom: 5px; }
-  .company, .university { color: #667eea; font-weight: 600; margin-bottom: 5px; }
-  .date-location { color: #888; font-size: 0.9em; margin-bottom: 10px; }
-  .description ul { list-style-type: disc; padding-left: 18px; margin-top: 4px; }
-  .description li { margin-bottom: 3px; line-height: 1.5; font-size: 0.95em; }
-  .skills-list { display: flex; flex-wrap: wrap; gap: 10px; }
-  .skill-tag { background: #667eea; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.9em; }
+  html, body { width: 100%; background: #fff; }
+  .resume { font-family: var(--font-family); font-size: var(--font-size); line-height: var(--line-height); color: #1f2937; max-width: 800px; margin: 0 auto; }
+  .section { margin-bottom: 14px; }
+  .section h2 { font-size: calc(var(--font-size) + 2pt); margin-bottom: 6px; padding-bottom: 3px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent); border-bottom: 1px solid var(--accent); }
+  .description ul { padding-left: 16px; margin-top: 3px; }
+  .description li { margin-bottom: 2px; }
+  .header { text-align: center; margin-bottom: 12px; border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+  .header h1 { font-size: calc(var(--font-size) + 8pt); color: #111827; }
+  .header .title { font-size: calc(var(--font-size) + 1pt); color: #4b5563; margin-bottom: 6px; }
+  .contact-info { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; font-size: calc(var(--font-size) - 0.5pt); color: #6b7280; }
+  .exp-item { margin-bottom: 10px; }
+  .exp-header { display: flex; justify-content: space-between; align-items: baseline; }
+  .exp-header h3 { font-size: calc(var(--font-size) + 0.5pt); }
+  .exp-company { color: var(--accent); font-weight: 600; }
+  .exp-date { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
+  .edu-item { margin-bottom: 6px; }
+  .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
+  .skills-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .skill-tag { background: #f3f4f6; color: #374151; padding: 2px 8px; border-radius: 3px; font-size: calc(var(--font-size) - 0.5pt); border: 1px solid #e5e7eb; }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -31,33 +55,60 @@ const DEFAULT_TEMPLATE = `<!DOCTYPE html>
       <span>{{email}}</span><span>{{phone}}</span><span>{{linkedin}}</span><span>{{address}}</span>
     </div>
   </header>
-  <div class="content">
-    <section class="section"><h2>Professional Summary</h2><div class="summary">{{summary}}</div></section>
-    <section class="section"><h2>Experience</h2>
-      {{#each experiences}}
-      <div class="experience-item">
-        <h3>{{roleTitle}}</h3>
-        <div class="company">{{companyName}}</div>
-        <div class="date-location">{{startDate}} - {{endDate}}</div>
-        <div class="description"><ul>{{description}}</ul></div>
-      </div>
-      {{/each}}
-    </section>
-    <section class="section"><h2>Education</h2>
-      {{#each education}}
-      <div class="education-item">
-        <h3>{{degreeLevel}} in {{major}}</h3>
-        <div class="university">{{universityName}}</div>
-        <div class="date-location">{{startDate}} - {{endDate}}</div>
-      </div>
-      {{/each}}
-    </section>
-    <section class="section"><h2>Skills</h2>
-      <div class="skills-list">{{#each skills}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
-    </section>
-  </div>
+  {{#section summary}}
+  <section class="section section-summary"><h2>{{label:summary:Professional Summary}}</h2><div class="summary">{{summary}}</div></section>
+  {{/section}}
+  {{#section experience}}
+  <section class="section section-experience"><h2>{{label:experience:Experience}}</h2>
+    {{#each experiences}}<div class="exp-item"><div class="exp-header"><h3>{{roleTitle}}</h3><span class="exp-date">{{startDate}} – {{endDate}}</span></div><div class="exp-company">{{companyName}}</div><div class="description"><ul>{{description}}</ul></div></div>{{/each}}
+  </section>
+  {{/section}}
+  {{#section education}}
+  <section class="section section-education"><h2>{{label:education:Education}}</h2>
+    {{#each education}}<div class="edu-item"><h3>{{degreeLevel}} in {{major}}</h3><div class="edu-meta">{{universityName}} | {{startDate}} – {{endDate}}</div></div>{{/each}}
+  </section>
+  {{/section}}
+  {{#section skills}}
+  <section class="section section-skills"><h2>{{label:skills:Skills}}</h2>
+    <div class="skills-list">{{#each skills}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+  </section>
+  {{/section}}
 </div>
 </body></html>`;
+
+function getConfig(resume) {
+    if (resume.pageFrameConfig && typeof resume.pageFrameConfig === 'object') {
+        return { ...DEFAULT_CONFIG, ...resume.pageFrameConfig };
+    }
+    return DEFAULT_CONFIG;
+}
+
+function getMargins(config) {
+    return MARGIN_PRESETS[config.marginPreset] || MARGIN_PRESETS.standard;
+}
+
+function cssVarsBlock(config) {
+    const m = getMargins(config);
+    return `<style>:root {
+    --font-family: ${config.fontFamily};
+    --font-size: ${config.fontSize}pt;
+    --line-height: ${config.lineHeight};
+    --accent: ${config.accentColor};
+    --margin-top: ${m.top}px;
+    --margin-bottom: ${m.bottom}px;
+    --margin-left: ${m.left}px;
+    --margin-right: ${m.right}px;
+  }</style>`;
+}
+
+function injectCssVars(html, config) {
+    html = html.replace(/<style>\s*:root\s*\{[^}]*\}\s*<\/style>/i, '');
+    const injection = cssVarsBlock(config);
+    if (html.includes('</head>')) {
+        return html.replace('</head>', injection + '</head>');
+    }
+    return injection + html;
+}
 
 function escapeHtml(text) {
     return String(text)
@@ -86,10 +137,6 @@ function parseSkillsList(content) {
         .filter(Boolean);
 }
 
-/**
- * Builds render data from a populated resume document.
- * Expects resume.profileId to be populated (Profile doc) and resume.content to hold experienceStrings/skillsContent.
- */
 function buildRenderData(resume) {
     const profile = resume.profileId && typeof resume.profileId === 'object' ? resume.profileId : {};
     const contactInfo = profile.contactInfo || {};
@@ -99,7 +146,17 @@ function buildRenderData(resume) {
 
     const experiences = (profile.experiences || []).map(exp => {
         const key = `${exp.roleTitle}@${exp.companyName}`;
-        const points = experienceStrings[key] || exp.keyPoints || [];
+        const raw = experienceStrings[key];
+        let points;
+        if (typeof raw === 'string' && raw.trim()) {
+            points = raw.split('\n')
+                .map(line => line.replace(/^[\s\-*•]+/, '').trim())
+                .filter(Boolean);
+        } else if (Array.isArray(raw)) {
+            points = raw;
+        } else {
+            points = exp.keyPoints || [];
+        }
         const descriptionHtml = points
             .filter(p => String(p).trim())
             .map(p => `<li>${escapeHtml(p)}</li>`)
@@ -138,11 +195,50 @@ function buildRenderData(resume) {
     };
 }
 
-/**
- * Renders a Mustache-like HTML template with the given data object.
- * Supports: {{field}}, {{#each items}}...{{/each}}, {{this}}.
- */
-function renderTemplate(templateHtml, data) {
+function applySectionConfig(html, config) {
+    const hidden = new Set(config.hiddenSections || []);
+    const labels = config.sectionLabels || {};
+
+    let result = html.replace(
+        /\{\{#section (\w+)\}\}([\s\S]*?)\{\{\/section\}\}/g,
+        (_match, sectionId, content) => {
+            if (hidden.has(sectionId)) return '';
+            return `<!--section:${sectionId}-->${content}<!--/section:${sectionId}-->`;
+        },
+    );
+
+    result = result.replace(
+        /\{\{label:(\w+):([^}]*)\}\}/g,
+        (_match, sectionId, defaultLabel) => labels[sectionId] || defaultLabel,
+    );
+
+    const sectionOrder = config.sectionOrder || DEFAULT_CONFIG.sectionOrder;
+    const sectionRegex = /<!--section:(\w+)-->([\s\S]*?)<!--\/section:\1-->/g;
+    const sections = {};
+    let match;
+    while ((match = sectionRegex.exec(result)) !== null) {
+        sections[match[1]] = match[2];
+    }
+
+    if (Object.keys(sections).length > 0) {
+        let reordered = '';
+        for (const id of sectionOrder) {
+            if (sections[id]) reordered += sections[id];
+        }
+        for (const id of Object.keys(sections)) {
+            if (!sectionOrder.includes(id)) reordered += sections[id];
+        }
+        result = result.replace(
+            /<!--section:\w+-->[\s\S]*?<!--\/section:\w+-->/g,
+            () => { const next = reordered; reordered = ''; return next; },
+        );
+    }
+
+    result = result.replace(/<!--\/?section:\w+-->/g, '');
+    return result;
+}
+
+function renderTemplate(templateHtml, data, config) {
     let html = templateHtml;
 
     html = html.replace(/\{\{fullName\}\}/g, data.fullName);
@@ -153,7 +249,6 @@ function renderTemplate(templateHtml, data) {
     html = html.replace(/\{\{address\}\}/g, data.address);
     html = html.replace(/\{\{summary\}\}/g, data.summary);
 
-    // {{#each experiences}} ... {{/each}}
     const expMatch = html.match(/\{\{#each experiences\}\}([\s\S]*?)\{\{\/each\}\}/);
     if (expMatch) {
         const block = expMatch[1];
@@ -169,7 +264,6 @@ function renderTemplate(templateHtml, data) {
         html = html.replace(/\{\{#each experiences\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
     }
 
-    // {{#each education}} ... {{/each}}
     const eduMatch = html.match(/\{\{#each education\}\}([\s\S]*?)\{\{\/each\}\}/);
     if (eduMatch) {
         const block = eduMatch[1];
@@ -184,7 +278,6 @@ function renderTemplate(templateHtml, data) {
         html = html.replace(/\{\{#each education\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
     }
 
-    // {{#each skills}} ... {{/each}}
     const skillMatch = html.match(/\{\{#each skills\}\}([\s\S]*?)\{\{\/each\}\}/);
     if (skillMatch) {
         const block = skillMatch[1];
@@ -192,19 +285,27 @@ function renderTemplate(templateHtml, data) {
         html = html.replace(/\{\{#each skills\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
     }
 
+    if (config) {
+        html = applySectionConfig(html, config);
+    }
+
     return html;
 }
 
-/**
- * Builds the full rendered HTML from a resume with populated templateId and profileId.
- */
-function buildResumeHtml(resume) {
+function resolveTemplateHtml(resume) {
     const template = resume.templateId && typeof resume.templateId === 'object'
         ? resume.templateId
         : null;
-    const templateHtml = template?.data || DEFAULT_TEMPLATE;
+    if (template?.data) return template.data;
+    return FALLBACK_TEMPLATE;
+}
+
+function buildResumeHtml(resume) {
+    const config = getConfig(resume);
+    let templateHtml = resolveTemplateHtml(resume);
+    templateHtml = injectCssVars(templateHtml, config);
     const data = buildRenderData(resume);
-    return renderTemplate(templateHtml, data);
+    return renderTemplate(templateHtml, data, config);
 }
 
 function sendHtmlResume(resume, res) {
@@ -218,6 +319,9 @@ function sendHtmlResume(resume, res) {
 
 async function sendPdfResume(resume, res) {
     const html = buildResumeHtml(resume);
+    const config = getConfig(resume);
+    const m = getMargins(config);
+    const marginPx = (val) => `${val}px`;
 
     let browser;
     try {
@@ -228,9 +332,14 @@ async function sendPdfResume(resume, res) {
         const page = await browser.newPage();
         await page.setContent(html, { waitUntil: 'networkidle0' });
         const pdfBuffer = await page.pdf({
-            format: 'A4',
+            format: 'Letter',
             printBackground: true,
-            margin: { top: '0', right: '0', bottom: '0', left: '0' },
+            margin: {
+                top: marginPx(m.top),
+                right: marginPx(m.right),
+                bottom: marginPx(m.bottom),
+                left: marginPx(m.left),
+            },
         });
         await browser.close();
         browser = null;
@@ -249,11 +358,17 @@ async function sendPdfResume(resume, res) {
 
 function sendDocResume(resume, res) {
     const bodyHtml = buildResumeHtml(resume);
+    const config = getConfig(resume);
+    const m = getMargins(config);
+    const toCm = (px) => (px / 96 * 2.54).toFixed(2);
     const docContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office'
         xmlns:w='urn:schemas-microsoft-com:office:word'
         xmlns='http://www.w3.org/TR/REC-html40'>
     <head><meta charset="utf-8">
     <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+    <style>
+      @page { margin: ${toCm(m.top)}cm ${toCm(m.right)}cm ${toCm(m.bottom)}cm ${toCm(m.left)}cm; }
+    </style>
     </head><body>${bodyHtml}</body></html>`;
     res.set({
         'Content-Type': 'application/msword',
@@ -266,4 +381,8 @@ module.exports = {
     sendHtmlResume,
     sendPdfResume,
     sendDocResume,
+    injectCssVars,
+    FALLBACK_TEMPLATE,
+    DEFAULT_CONFIG,
+    MARGIN_PRESETS,
 };
