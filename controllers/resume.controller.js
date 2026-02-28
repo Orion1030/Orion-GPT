@@ -2,7 +2,7 @@ require("dotenv").config();
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
-const { sendPdfResume, sendHtmlResume, sendDocResume } = require("../utils/resumeUtils");
+const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml } = require("../utils/resumeUtils");
 function mapPayloadToModel(payload, userId) {
   const profileId = payload.profile?.id ?? payload.profileId;
   const templateId = payload.template?.id ?? payload.templateId;
@@ -138,6 +138,39 @@ exports.downloadResume = asyncErrorHandler(async (req, res, next) => {
       return sendHtmlResume(resume, res);
     case 'doc':
       return sendDocResume(resume, res);
+    default:
+      return sendJsonResult(res, false, null, "Invalid file type", 400);
+  }
+});
+
+exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res, next) => {
+  const { user } = req;
+  const { resumeId } = req.params;
+  const { fileType, html, name } = req.body;
+
+  // Basic auth + ownership check: ensure resume exists for this user (keeps parity with GET)
+  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id })
+    .populate('templateId')
+    .populate('profileId');
+  if (!resume) {
+    return sendJsonResult(res, false, null, "Resume not found", 404);
+  }
+
+  if (!html || typeof html !== 'string') {
+    return sendJsonResult(res, false, null, "Missing html payload", 400);
+  }
+
+  switch (fileType) {
+    case 'pdf':
+      return sendPdfFromHtml(html, res, { name });
+    case 'doc':
+      return sendDocFromHtml(html, res, { name });
+    case 'html':
+      res.set({
+        'Content-Type': 'text/html',
+        'Content-Disposition': `attachment; filename="${(name || 'resume').replace(/"/g, '')}.html"`,
+      });
+      return res.send(html);
     default:
       return sendJsonResult(res, false, null, "Invalid file type", 400);
   }

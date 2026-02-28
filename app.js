@@ -38,8 +38,9 @@ app.set("view engine", "ejs");
 // middlewares
 app.use(morgan("dev"));
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+// Increase JSON body size to allow sending rendered HTML for server-side PDF generation
+app.use(bodyParser.json({ limit: '2mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
 app.use(cors(corsOptions));
 
