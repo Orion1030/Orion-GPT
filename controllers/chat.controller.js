@@ -1,6 +1,6 @@
 require('dotenv').config()
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
-const { ChatSessionModel, ChatMessageModel } = require('../dbModels')
+const { ChatSessionModel, ChatMessageModel, ProfileModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
 
 const DEFAULT_TITLE = 'New Chat'
@@ -10,11 +10,19 @@ exports.listSessions = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
   const sessions = await ChatSessionModel.find({ userId })
     .sort({ updatedAt: -1 })
+    .populate('profileId')
     .lean()
   const list = sessions.map((s) => ({
     id: s._id.toString(),
     title: s.title,
-    createdAt: s.createdAt ? new Date(s.createdAt).getTime() : Date.now()
+    createdAt: s.createdAt ? new Date(s.createdAt).getTime() : Date.now(),
+    profile: s.profileId
+      ? {
+          id: s.profileId._id?.toString ? s.profileId._id.toString() : s.profileId._id,
+          fullName: s.profileId.fullName || s.profileId.name || null,
+          title: s.profileId.title || null
+        }
+      : null
   }))
   return sendJsonResult(res, true, list, null, 200)
 })
@@ -22,12 +30,22 @@ exports.listSessions = asyncErrorHandler(async (req, res) => {
 /** Create a new chat session */
 exports.createSession = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
-  const session = new ChatSessionModel({ userId, title: DEFAULT_TITLE })
+  const { profileId } = req.body || {}
+  let profileRef = null
+  if (profileId) {
+    const profile = await ProfileModel.findOne({ _id: profileId, userId })
+    if (!profile) {
+      return sendJsonResult(res, false, null, 'Profile not found', 404)
+    }
+    profileRef = profile._id
+  }
+  const session = new ChatSessionModel({ userId, profileId: profileRef, title: DEFAULT_TITLE })
   await session.save()
   return sendJsonResult(res, true, {
     id: session._id.toString(),
     title: session.title,
-    createdAt: session.createdAt ? new Date(session.createdAt).getTime() : Date.now()
+    createdAt: session.createdAt ? new Date(session.createdAt).getTime() : Date.now(),
+    profile: profileRef ? { id: profileRef.toString() } : null
   }, 'Chat created', 201)
 })
 
@@ -35,7 +53,7 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
 exports.getSession = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
   const { sessionId } = req.params
-  const session = await ChatSessionModel.findOne({ _id: sessionId, userId }).lean()
+  const session = await ChatSessionModel.findOne({ _id: sessionId, userId }).populate('profileId').lean()
   if (!session) {
     return sendJsonResult(res, false, null, 'Session not found', 404)
   }
@@ -43,7 +61,14 @@ exports.getSession = asyncErrorHandler(async (req, res) => {
   const sessionPayload = {
     id: session._id.toString(),
     title: session.title,
-    createdAt: session.createdAt ? new Date(session.createdAt).getTime() : null
+    createdAt: session.createdAt ? new Date(session.createdAt).getTime() : null,
+    profile: session.profileId
+      ? {
+          id: session.profileId._id?.toString ? session.profileId._id.toString() : session.profileId._id,
+          fullName: session.profileId.fullName || session.profileId.name || null,
+          title: session.profileId.title || null
+        }
+      : null
   }
   const messagesPayload = messages.map((m) => ({
     id: m._id.toString(),
@@ -81,12 +106,17 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
 exports.deleteSession = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
   const { sessionId } = req.params
-  const session = await ChatSessionModel.findOneAndDelete({ _id: sessionId, userId })
-  if (!session) {
-    return sendJsonResult(res, false, null, 'Session not found', 404)
-  }
+  // Use deleteOne to make the operation idempotent: if the session doesn't exist
+  // or already deleted, return success to the client to avoid noisy 404s on repeated deletes.
+  const result = await ChatSessionModel.deleteOne({ _id: sessionId, userId })
+  // Remove any messages tied to this session regardless.
   await ChatMessageModel.deleteMany({ sessionId })
-  return sendJsonResult(res, true, null, 'Session deleted', 200)
+  if (result && result.deletedCount && result.deletedCount > 0) {
+    return sendJsonResult(res, true, null, 'Session deleted', 200)
+  } else {
+    // Session not found / already deleted — still return success for idempotency.
+    return sendJsonResult(res, true, null, 'Session deleted', 200)
+  }
 })
 
 /** Send a message: append user message, generate assistant reply, append and return updated messages */
