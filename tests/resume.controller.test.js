@@ -46,5 +46,26 @@ describe('parseTextResume controller', () => {
     expect(payload.data).toBeDefined();
     expect(payload.data.parsed.profile.fullName).toBe('Jane Doe');
   });
+
+  it('maps payload to model including experiences and skills', () => {
+    const controller = require('../controllers/resume.controller');
+    const payload = {
+      name: 'Test Resume',
+      profileId: 'p1',
+      experiences: [
+        { title: 'Engineer', companyName: 'Acme', descriptions: ['Did stuff'], startDate: '2020-01-01', endDate: '2021-01-01' }
+      ],
+      skills: [
+        { title: 'Skills', items: ['JS', 'Node'] }
+      ]
+    };
+    const out = controller._mapPayloadToModel(payload, 'user1');
+    expect(out.userId).toBe('user1');
+    expect(out.name).toBe('Test Resume');
+    expect(Array.isArray(out.experiences)).toBe(true);
+    expect(Array.isArray(out.skills)).toBe(true);
+    expect(out.experiences[0].title).toBe('Engineer');
+    expect(out.skills[0].items).toContain('JS');
+  });
 });
 

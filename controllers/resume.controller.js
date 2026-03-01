@@ -17,10 +17,9 @@ function mapPayloadToModel(payload, userId) {
     templateId: templateId || null,
     note: payload.note ?? '',
     summary: payload.summary ?? '',
-    content: {
-      experienceStrings: payload.content?.experienceStrings ?? {},
-      skillsContent: payload.content?.skillsContent ?? ''
-    },
+    // Accept structured experiences/skills if provided
+    experiences: Array.isArray(payload.experiences) ? payload.experiences : undefined,
+    skills: Array.isArray(payload.skills) ? payload.skills : undefined,
     pageFrameConfig: payload.pageFrameConfig ?? null,
   };
 }
@@ -380,3 +379,6 @@ exports.parseTextResume = asyncErrorHandler(async (req, res, next) => {
 
   return sendJsonResult(res, true, { parsed, bestMatch: best, createNewProfileSuggested });
 });
+
+// Expose helper for tests
+exports._mapPayloadToModel = mapPayloadToModel;

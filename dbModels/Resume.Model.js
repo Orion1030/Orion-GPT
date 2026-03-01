@@ -34,9 +34,29 @@ const resumeSchema = new mongoose.Schema(
       type: String,
       default: ''
     },
-    content: {
-      type: mongoose.Schema.Types.Mixed,
-      default: () => ({ experienceStrings: {}, skillsContent: '' })
+    // New structured fields for resume-specific data
+    experiences: {
+      type: [
+        {
+          title: { type: String, default: '' },
+          companyName: { type: String, default: '' },
+          companyLocation: { type: String, default: '' },
+          summary: { type: String, default: '' },
+          descriptions: { type: [String], default: [] },
+          startDate: { type: String, default: '' },
+          endDate: { type: String, default: '' },
+        },
+      ],
+      default: [],
+    },
+    skills: {
+      type: [
+        {
+          title: { type: String, default: 'Skills' },
+          items: { type: [String], default: [] },
+        },
+      ],
+      default: [],
     },
     builtInTemplateId: {
       type: String,

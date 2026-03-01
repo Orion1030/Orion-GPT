@@ -336,32 +336,39 @@ function parseSkillsList(content) {
 function buildRenderData(resume) {
     const profile = resume.profileId && typeof resume.profileId === 'object' ? resume.profileId : {};
     const contactInfo = profile.contactInfo || {};
-    const content = resume.content || {};
-    const experienceStrings = content.experienceStrings || {};
-    const skillsContent = content.skillsContent || '';
+    // Prefer resume.experiences (new structured field); fallback to profile.experiences
+    const sourceExperiences = Array.isArray(resume.experiences) && resume.experiences.length
+        ? resume.experiences
+        : (profile.experiences || []);
 
-    const experiences = (profile.experiences || []).map(exp => {
-        const key = `${exp.roleTitle}@${exp.companyName}`;
-        const raw = experienceStrings[key];
-        let points;
-        if (typeof raw === 'string' && raw.trim()) {
-            points = raw.split('\n')
-                .map(line => line.replace(/^[\s\-*•]+/, '').trim())
-                .filter(Boolean);
-        } else if (Array.isArray(raw)) {
-            points = raw;
+    const experiences = sourceExperiences.map(exp => {
+        // exp may be from resume.experiences (fields: title, companyName, descriptions, summary, startDate, endDate)
+        // or from profile.experiences (fields: roleTitle, companyName, keyPoints, companySummary)
+        const roleTitle = exp.roleTitle || exp.title || '';
+        const companyName = exp.companyName || '';
+        const start = exp.startDate || '';
+        const end = exp.endDate || '';
+
+        // descriptions may be stored as exp.descriptions (new schema) or exp.keyPoints (profile schema)
+        let points = [];
+        if (Array.isArray(exp.descriptions) && exp.descriptions.length) {
+            points = exp.descriptions;
+        } else if (exp.keyPoints && Array.isArray(exp.keyPoints) && exp.keyPoints.length) {
+            points = exp.keyPoints;
         } else {
-            points = exp.keyPoints || [];
+            points = [];
         }
+
         const descriptionHtml = points
             .filter(p => String(p).trim())
             .map(p => `<li>${escapeHtml(p)}</li>`)
             .join('');
+
         return {
-            roleTitle: exp.roleTitle || '',
-            companyName: exp.companyName || '',
-            startDate: formatDate(exp.startDate),
-            endDate: formatDate(exp.endDate),
+            roleTitle: roleTitle || '',
+            companyName: companyName || '',
+            startDate: formatDate(start),
+            endDate: formatDate(end),
             location: '',
             description: descriptionHtml,
         };
@@ -375,7 +382,19 @@ function buildRenderData(resume) {
         endDate: formatDate(edu.endDate),
     }));
 
-    const skills = parseSkillsList(skillsContent);
+    // Prefer resume.skills (new structured field) -> flatten to simple skill list
+    let skills = [];
+    if (Array.isArray(resume.skills) && resume.skills.length) {
+        for (const s of resume.skills) {
+            if (Array.isArray(s.items) && s.items.length) {
+                skills = skills.concat(s.items.map(i => String(i).trim()).filter(Boolean));
+            } else if (typeof s === 'string' && s.trim()) {
+                skills.push(s.trim());
+            }
+        }
+    } else {
+        skills = [];
+    }
 
     return {
         fullName: profile.fullName || resume.name || 'Resume',
