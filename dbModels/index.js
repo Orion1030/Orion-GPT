@@ -1,12 +1,19 @@
 
 const mongoose = require("mongoose");
-const { MONGO_URI } = process.env;
+
+// Determine MongoDB URI from environment with sensible fallbacks
+const uri =
+  process.env.MONGO_URI ||
+  process.env.MONGODB_URI ||
+  process.env.DB_URI ||
+  "mongodb://localhost:27017/jobsy";
+
+if (!uri || typeof uri !== "string") {
+  throw new Error("Missing or invalid MongoDB URI. Set MONGO_URI env var.");
+}
 
 const options = {
-  // useNewUrlParser: true,
-  // useUnifiedTopology: true,
-  // useCreateIndex: true,
-  // useFindAndModify: false
+  // keep options here if you need to enable them later
 };
 
 const UserModel = require("./User.Model");
@@ -21,7 +28,7 @@ const TemplateModel = require("./Template.Model");
 const StackModel = require("./Stack.Model");
 
 // Create connection to mongodb
-const DBConnection = mongoose.createConnection(MONGO_URI, options);
+const DBConnection = mongoose.createConnection(uri, options);
 
 // Bind models for App
 const UserModelForApp = DBConnection.model("User", UserModel.schema);

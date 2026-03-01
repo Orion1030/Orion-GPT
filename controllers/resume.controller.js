@@ -350,34 +350,62 @@ exports.parseTextResume = asyncErrorHandler(async (req, res, next) => {
     return inter / union;
   }
 
-  let best = { score: 0, profileId: null, profileSnapshot: null };
-  for (const p of profiles) {
-    let score = 0;
-    // exact email match strong
+  // Strict matching logic:
+  // - same experiences count
+  // - same companies of experiences (company name normalized, start year, end year)
+  const yearOf = (d) => {
+    if (!d) return "";
     try {
-      const parsedEmail = parsed.profile?.contactInfo?.email;
-      if (parsedEmail && p.contactInfo && parsedEmail.toLowerCase() === (p.contactInfo.email || '').toLowerCase()) {
-        score = Math.max(score, 0.95);
-      }
-    } catch (e) { }
-    // name similarity
-    const nameSim = tokenOverlap(parsed.profile?.fullName, p.fullName);
-    score = Math.max(score, nameSim * 0.8);
-    // experience/company overlap
-    const parsedCompanies = (parsed.profile?.experiences || []).map((e) => (e.companyName || '').toLowerCase());
-    const profCompanies = (p.experiences || []).map((e) => (e.companyName || '').toLowerCase());
-    const companyInter = parsedCompanies.filter(c => c && profCompanies.includes(c)).length;
-    const companyScore = profCompanies.length ? companyInter / profCompanies.length : 0;
-    score = Math.max(score, companyScore * 0.7);
+      const dt = new Date(d);
+      if (!isNaN(dt.getTime())) return dt.getUTCFullYear().toString();
+    } catch { }
+    const m = String(d).match(/(\d{4})/);
+    const yearString = m ? m[1] : String(d || "").trim();
+    return yearString.toLowerCase() === "present" ? new Date().getFullYear().toString() : yearString;
+  };
 
-    if (score > best.score) {
-      best = { score, profileId: p._id, profileSnapshot: p };
+  const normalizeCompany = (s) => normalizeName(String(s || ""));
+
+  const parsedExps = Array.isArray(parsed.profile?.experiences) ? parsed.profile.experiences : [];
+  const parsedKeys = new Set(parsedExps.map((e) => `${normalizeCompany(e.companyName)}|${yearOf(e.startDate)}|${yearOf(e.endDate)}`));
+
+  const strictMatches = [];
+  for (const p of profiles) {
+    const pExps = Array.isArray(p.experiences) ? p.experiences : [];
+    if (pExps.length !== parsedExps.length) continue;
+    const pKeys = new Set(pExps.map((e) => `${normalizeCompany(e.companyName)}|${yearOf(e.startDate)}|${yearOf(e.endDate)}`));
+    if (pKeys.size !== parsedKeys.size) continue;
+    let allPresent = true;
+    for (const k of parsedKeys) {
+      if (!pKeys.has(k)) { allPresent = false; break; }
     }
+    if (allPresent) strictMatches.push(p);
   }
 
-  const createNewProfileSuggested = !(best && best.score >= 0.7);
+  // If no strict matches, suggest creating a new profile only.
+  if (!strictMatches.length) {
+    return sendJsonResult(res, true, { parsed, bestMatch: null, matches: [], createNewProfileSuggested: true });
+  }
 
-  return sendJsonResult(res, true, { parsed, bestMatch: best, createNewProfileSuggested });
+  // If we have strict matches, check for exact identity via email or fullName
+  const incomingEmail = (parsed.profile?.contactInfo?.email || "").trim().toLowerCase();
+  const incomingName = (parsed.profile?.fullName || "").trim().toLowerCase();
+  let best = { score: 0, profileId: null, profileSnapshot: null };
+  for (const m of strictMatches) {
+    let score = 0;
+    try {
+      if (incomingEmail && m.contactInfo && (m.contactInfo.email || "").trim().toLowerCase() === incomingEmail) {
+        score = 1.0;
+      }
+    } catch (e) { }
+    if (!score && incomingName && (m.fullName || "").trim().toLowerCase() === incomingName) {
+      score = 0.95;
+    }
+    if (score > best.score) best = { score, profileId: m._id, profileSnapshot: m };
+  }
+
+  // Return parsed data, array of strict matches, and optionally a bestMatch (if email/name matched)
+  return sendJsonResult(res, true, { parsed, bestMatch: best.profileId ? best : null, matches: strictMatches, createNewProfileSuggested: false });
 });
 
 // Expose helper for tests
