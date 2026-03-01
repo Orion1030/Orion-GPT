@@ -26,6 +26,8 @@ const WhitelistModel = require("./Whitelist.Model");
 const ResumeModel = require("./Resume.Model");
 const TemplateModel = require("./Template.Model");
 const StackModel = require("./Stack.Model");
+const ChatSessionModel = require("./ChatSession.Model");
+const ChatMessageModel = require("./ChatMessage.Model");
 
 // Create connection to mongodb
 const DBConnection = mongoose.createConnection(uri, options);
@@ -41,6 +43,8 @@ const WhitelistModelForApp = DBConnection.model("Whitelist", WhitelistModel.sche
 const ResumeModelForApp = DBConnection.model("Resume", ResumeModel.schema);
 const TemplateModelForApp = DBConnection.model("Template", TemplateModel.schema);
 const StackModelForApp = DBConnection.model("Stack", StackModel.schema);
+const ChatSessionModelForApp = DBConnection.model("ChatSession", ChatSessionModel.schema);
+const ChatMessageModelForApp = DBConnection.model("ChatMessage", ChatMessageModel.schema);
 
 module.exports = {
   DBConnection,
@@ -54,4 +58,6 @@ module.exports = {
   ResumeModel: ResumeModelForApp,
   TemplateModel: TemplateModelForApp,
   StackModel: StackModelForApp,
+  ChatSessionModel: ChatSessionModelForApp,
+  ChatMessageModel: ChatMessageModelForApp,
 };
