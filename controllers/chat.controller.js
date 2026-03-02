@@ -86,7 +86,8 @@ exports.getSession = asyncErrorHandler(async (req, res) => {
   const messagesPayload = messages.map((m) => ({
     id: m._id.toString(),
     role: m.role,
-    content: m.content
+    content: m.content,
+    structuredAssistantPayload: m.structuredAssistantPayload ? m.structuredAssistantPayload : null
   }))
   return sendJsonResult(res, true, { session: sessionPayload, messages: messagesPayload }, null, 200)
 })

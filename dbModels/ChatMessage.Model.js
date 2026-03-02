@@ -17,6 +17,12 @@ const chatMessageSchema = new mongoose.Schema(
       required: true,
       default: ''
     }
+  ,
+  structuredAssistantPayload: {
+    type: mongoose.Schema.Types.Mixed,
+    required: false,
+    default: null
+  }
   },
   { timestamps: true }
 )

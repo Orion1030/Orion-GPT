@@ -15,6 +15,8 @@ const profileRoutes = require("./routes/profile.route");
 const templateRoutes = require("./routes/template.route");
 const resumeRoutes = require("./routes/resume.route");
 const chatRoutes = require("./routes/chat.route");
+const messageRoutes = require("./routes/message.route");
+const agentRoutes = require("./routes/agent.route");
 
 // app
 const app = express();
@@ -56,6 +58,8 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/template", templateRoutes);
 app.use("/api/resume", resumeRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/messages", messageRoutes);
+app.use("/api/agent", agentRoutes);
 
 
 process.on("uncaughtException", (error, source) => {

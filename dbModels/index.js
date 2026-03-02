@@ -29,6 +29,7 @@ const StackModel = require("./Stack.Model");
 const ChatSessionModel = require("./ChatSession.Model");
 const ChatMessageModel = require("./ChatMessage.Model");
 const JobDescriptionModel = require("./JobDescription.Model");
+const JobModel = require("./Job.Model");
 
 // Create connection to mongodb
 const DBConnection = mongoose.createConnection(uri, options);
@@ -47,6 +48,7 @@ const StackModelForApp = DBConnection.model("Stack", StackModel.schema);
 const ChatSessionModelForApp = DBConnection.model("ChatSession", ChatSessionModel.schema);
 const ChatMessageModelForApp = DBConnection.model("ChatMessage", ChatMessageModel.schema);
 const JobDescriptionModelForApp = DBConnection.model("JobDescription", JobDescriptionModel.schema);
+const JobModelForApp = DBConnection.model("Job", JobModel.schema);
 
 module.exports = {
   DBConnection,
@@ -63,4 +65,5 @@ module.exports = {
   ChatSessionModel: ChatSessionModelForApp,
   ChatMessageModel: ChatMessageModelForApp,
   JobDescriptionModel: JobDescriptionModelForApp,
+  JobModel: JobModelForApp,
 };
