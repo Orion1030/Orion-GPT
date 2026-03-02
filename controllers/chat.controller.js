@@ -1,6 +1,6 @@
 require('dotenv').config()
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
-const { ChatSessionModel, ChatMessageModel, ProfileModel } = require('../dbModels')
+const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
 
 const DEFAULT_TITLE = 'New Chat'
@@ -22,7 +22,8 @@ exports.listSessions = asyncErrorHandler(async (req, res) => {
           fullName: s.profileId.fullName || s.profileId.name || null,
           title: s.profileId.title || null
         }
-      : null
+      : null,
+    jobDescriptionId: s.jobDescriptionId ? s.jobDescriptionId.toString() : null
   }))
   return sendJsonResult(res, true, list, null, 200)
 })
@@ -30,7 +31,7 @@ exports.listSessions = asyncErrorHandler(async (req, res) => {
 /** Create a new chat session */
 exports.createSession = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
-  const { profileId } = req.body || {}
+  const { profileId, jobDescriptionId } = req.body || {}
   let profileRef = null
   if (profileId) {
     const profile = await ProfileModel.findOne({ _id: profileId, userId })
@@ -39,13 +40,24 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
     }
     profileRef = profile._id
   }
-  const session = new ChatSessionModel({ userId, profileId: profileRef, title: DEFAULT_TITLE })
+  let jdRef = null
+  if (jobDescriptionId) {
+    const jd = await JobDescriptionModel.findOne({ _id: jobDescriptionId, userId })
+    if (jd) jdRef = jd._id
+  }
+  const session = new ChatSessionModel({
+    userId,
+    profileId: profileRef,
+    title: DEFAULT_TITLE,
+    jobDescriptionId: jdRef
+  })
   await session.save()
   return sendJsonResult(res, true, {
     id: session._id.toString(),
     title: session.title,
     createdAt: session.createdAt ? new Date(session.createdAt).getTime() : Date.now(),
-    profile: profileRef ? { id: profileRef.toString() } : null
+    profile: profileRef ? { id: profileRef.toString() } : null,
+    jobDescriptionId: jdRef ? jdRef.toString() : null
   }, 'Chat created', 201)
 })
 
@@ -68,7 +80,8 @@ exports.getSession = asyncErrorHandler(async (req, res) => {
           fullName: session.profileId.fullName || session.profileId.name || null,
           title: session.profileId.title || null
         }
-      : null
+      : null,
+    jobDescriptionId: session.jobDescriptionId ? session.jobDescriptionId.toString() : null
   }
   const messagesPayload = messages.map((m) => ({
     id: m._id.toString(),
@@ -78,27 +91,58 @@ exports.getSession = asyncErrorHandler(async (req, res) => {
   return sendJsonResult(res, true, { session: sessionPayload, messages: messagesPayload }, null, 200)
 })
 
-/** Rename a session */
+/** Rename a session (and optionally update profileId, jobDescriptionId) */
 exports.renameSession = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
   const { sessionId } = req.params
-  const { title } = req.body
+  const { title, profileId, jobDescriptionId } = req.body || {}
+  const updates = {}
   const trimmed = typeof title === 'string' ? title.trim() : ''
-  if (!trimmed) {
-    return sendJsonResult(res, false, null, 'Title is required', 400)
+  if (trimmed) updates.title = trimmed
+  if (profileId !== undefined) {
+    if (profileId === null || profileId === '') {
+      updates.profileId = null
+    } else {
+      const profile = await ProfileModel.findOne({ _id: profileId, userId })
+      if (!profile) {
+        return sendJsonResult(res, false, null, 'Profile not found', 404)
+      }
+      updates.profileId = profile._id
+    }
+  }
+  if (jobDescriptionId !== undefined) {
+    if (jobDescriptionId === null || jobDescriptionId === '') {
+      updates.jobDescriptionId = null
+    } else {
+      const jd = await JobDescriptionModel.findOne({ _id: jobDescriptionId, userId })
+      if (jd) updates.jobDescriptionId = jd._id
+    }
+  }
+  if (Object.keys(updates).length === 0) {
+    return sendJsonResult(res, false, null, 'No updates provided', 400)
   }
   const session = await ChatSessionModel.findOneAndUpdate(
     { _id: sessionId, userId },
-    { $set: { title: trimmed } },
+    { $set: updates },
     { new: true }
-  ).lean()
+  )
+    .populate('profileId')
+    .lean()
   if (!session) {
     return sendJsonResult(res, false, null, 'Session not found', 404)
   }
   return sendJsonResult(res, true, {
     id: session._id.toString(),
     title: session.title,
-    createdAt: session.createdAt ? new Date(session.createdAt).getTime() : null
+    createdAt: session.createdAt ? new Date(session.createdAt).getTime() : null,
+    profile: session.profileId
+      ? {
+          id: session.profileId._id.toString(),
+          fullName: session.profileId.fullName || null,
+          title: session.profileId.title || null
+        }
+      : null,
+    jobDescriptionId: session.jobDescriptionId ? session.jobDescriptionId.toString() : null
   }, null, 200)
 })
 

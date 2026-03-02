@@ -17,6 +17,12 @@ const chatSessionSchema = new mongoose.Schema(
       type: String,
       required: true,
       default: 'New Chat'
+    },
+    jobDescriptionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'JobDescription',
+      required: false,
+      default: null
     }
   },
   { timestamps: true }
