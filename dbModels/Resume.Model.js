@@ -58,6 +58,15 @@ const resumeSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    // Cloud / indexing fields
+    cloudPrimary: {
+      type: String,
+      default: ''
+    },
+    cloudSecondary: {
+      type: [String],
+      default: []
+    },
     builtInTemplateId: {
       type: String,
       default: null

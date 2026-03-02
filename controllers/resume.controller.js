@@ -21,6 +21,9 @@ function mapPayloadToModel(payload, userId) {
     experiences: Array.isArray(payload.experiences) ? payload.experiences : undefined,
     skills: Array.isArray(payload.skills) ? payload.skills : undefined,
     pageFrameConfig: payload.pageFrameConfig ?? null,
+    // Cloud indexing fields
+    cloudPrimary: payload.cloudPrimary ?? (payload.cloudPrimary === '' ? '' : undefined),
+    cloudSecondary: Array.isArray(payload.cloudSecondary) ? payload.cloudSecondary : undefined,
   };
 }
 
