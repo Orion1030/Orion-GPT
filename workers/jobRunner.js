@@ -21,28 +21,26 @@ exports.start = () => {
       log('picked job', job._id.toString(), job.type)
       const handler = handlers[job.type]
       if (!handler) {
-        job.status = 'failed'
-        job.error = `No handler for job type ${job.type}`
-        await job.save()
+        await JobModel.findByIdAndUpdate(job._id, { $set: { status: 'failed', error: `No handler for job type ${job.type}` } });
         return
       }
       try {
         // run handler with simple progress updater
         const updateProgress = async (p, partialResult) => {
+          const upd = { progress: p }
+          if (partialResult !== undefined) upd.result = partialResult
+          // Use atomic update to avoid parallel saves on the same document
+          await JobModel.findByIdAndUpdate(job._id, { $set: upd })
+          // keep local doc in sync for handlers that inspect job after progress updates
           job.progress = p
           if (partialResult !== undefined) job.result = partialResult
-          await job.save()
         }
         const result = await handler(job, updateProgress)
-        job.status = 'completed'
-        job.progress = 100
-        job.result = result === undefined ? job.result : result
-        await job.save()
+        // finalize using atomic update
+        await JobModel.findByIdAndUpdate(job._id, { $set: { status: 'completed', progress: 100, result: result === undefined ? job.result : result } })
         log('completed job', job._id.toString())
       } catch (e) {
-        job.status = 'failed'
-        job.error = String(e)
-        await job.save()
+        await JobModel.findByIdAndUpdate(job._id, { $set: { status: 'failed', error: String(e) } })
         log('job failed', job._id.toString(), e)
       }
     } catch (e) {

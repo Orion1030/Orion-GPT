@@ -74,6 +74,10 @@ const resumeSchema = new mongoose.Schema(
     pageFrameConfig: {
       type: mongoose.Schema.Types.Mixed,
       default: null
+    },
+    embedding: {
+      type: [Number],
+      default: null
     }
   },
   { timestamps: true }

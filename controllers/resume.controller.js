@@ -201,129 +201,13 @@ exports.parseTextResume = asyncErrorHandler(async (req, res, next) => {
     return sendJsonResult(res, false, null, "LLM provider not configured", 500);
   }
 
-  // Use OpenAI function-calling to request structured JSON output
+  // Delegate parsing to shared util to keep parsing logic in one place
   let parsed = null;
   try {
-    const functions = [
-      {
-        name: "parse_resume",
-        description: "Return a strict JSON object representing extracted resume sections.",
-        parameters: {
-          type: "object",
-          properties: {
-            profile: {
-              type: "object",
-              properties: {
-                fullName: { type: ["string", "null"] },
-                title: { type: ["string", "null"] },
-                contactInfo: {
-                  type: "object",
-                  properties: {
-                    email: { type: ["string", "null"] },
-                    phone: { type: ["string", "null"] },
-                    linkedin: { type: ["string", "null"] },
-                    address: { type: ["string", "null"] },
-                  },
-                  additionalProperties: true,
-                },
-                experiences: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      roleTitle: { type: ["string", "null"] },
-                      companyName: { type: ["string", "null"] },
-                      startDate: { type: ["string", "null"] },
-                      endDate: { type: ["string", "null"] },
-                      keyPoints: { type: "array", items: { type: "string" } },
-                    },
-                    additionalProperties: true,
-                  },
-                },
-                educations: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      universityName: { type: ["string", "null"] },
-                      degreeLevel: { type: ["string", "null"] },
-                      major: { type: ["string", "null"] },
-                      startDate: { type: ["string", "null"] },
-                      endDate: { type: ["string", "null"] },
-                    },
-                    additionalProperties: true,
-                  },
-                },
-              },
-              additionalProperties: true,
-            },
-            summary: { type: ["string", "null"] },
-            skills: { type: "array", items: { type: "string" } },
-            meta: {
-              type: "object",
-              properties: {
-                confidence: { type: "number" },
-                missingFields: { type: "array", items: { type: "string" } },
-              },
-              additionalProperties: true,
-            },
-          },
-          required: ["profile"],
-          additionalProperties: true,
-        },
-      },
-    ];
-
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.0,
-        max_tokens: 2000,
-        functions,
-        function_call: { name: "parse_resume" },
-      }),
-    });
-
-    const body = await resp.json();
-    const msg = body?.choices?.[0]?.message;
-    // function-calling responses place the JSON in message.function_call.arguments
-    const funcArgs = msg?.function_call?.arguments;
-    if (funcArgs) {
-      try {
-        parsed = JSON.parse(funcArgs);
-      } catch (e) {
-        // If JSON parsing fails, return raw and error for debugging
-        return sendJsonResult(res, false, { raw: funcArgs }, "Failed to parse function_call.arguments as JSON", 502);
-      }
-    } else if (msg?.content) {
-      // Fallback: try to parse message content (in case function calling wasn't used)
-      const content = msg.content;
-      try {
-        parsed = JSON.parse(content);
-      } catch (e) {
-        // Attempt to extract a JSON substring as a last resort
-        const m = String(content).match(/\{[\s\S]*\}$/);
-        if (m) {
-          try {
-            parsed = JSON.parse(m[0]);
-          } catch (ee) {
-            return sendJsonResult(res, false, { raw: content }, "Failed to parse LLM output as JSON", 502);
-          }
-        } else {
-          return sendJsonResult(res, false, { raw: content }, "Failed to parse LLM output as JSON", 502);
-        }
-      }
-    } else {
-      return sendJsonResult(res, false, null, "LLM returned empty response", 502);
+    const { parseResumeTextWithLLM } = require('../utils/parseResume');
+    parsed = await parseResumeTextWithLLM(text);
+    if (!parsed) {
+      return sendJsonResult(res, false, null, "Failed to parse resume text", 502);
     }
   } catch (e) {
     return sendJsonResult(res, false, null, "LLM request failed", 502);

@@ -1,5 +1,6 @@
 const express = require('express')
 const { isAuthenticatedUser } = require('../middlewares/auth.middleware')
+const { requireNoRunningJob } = require('../middlewares/requireNoRunningJob')
 const {
   listSessions,
   createSession,
@@ -12,6 +13,7 @@ const {
   parseJD,
   storeJD,
   findTopResumes,
+  importJdAndMatch,
   generateResumeFromJD,
   refineResume
 } = require('../controllers/jd.controller')
@@ -28,10 +30,12 @@ router.delete('/:sessionId', deleteSession)
 router.post('/:sessionId/messages', sendMessage)
 
 // JD flow endpoints (must be before :sessionId to avoid conflict)
-router.post('/jd/parse', parseJD)
+// Block these when a job is already running so frontend doesn't send duplicate requests
+router.post('/jd/parse', requireNoRunningJob, parseJD)
 router.post('/jd/store', storeJD)
-router.post('/jd/find-resumes', findTopResumes)
-router.post('/jd/generate-resume', generateResumeFromJD)
-router.post('/jd/refine-resume', refineResume)
+router.post('/jd/find-resumes', requireNoRunningJob, findTopResumes)
+router.post('/jd/import-and-match', requireNoRunningJob, importJdAndMatch)
+router.post('/jd/generate-resume', requireNoRunningJob, generateResumeFromJD)
+router.post('/jd/refine-resume', requireNoRunningJob, refineResume)
 
 module.exports = router

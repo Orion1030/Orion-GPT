@@ -46,6 +46,8 @@ async function generateWithOpenAI(prompt) {
   return body?.choices?.[0]?.message?.content || ''
 }
 
+const { parseResumeTextWithLLM } = require('../utils/parseResume');
+
 module.exports = async function resumeGenerator(job, updateProgress) {
   const { jdId, profileId, baseResumeId } = job.payload || {}
   if (!jdId || !profileId) throw new Error('jdId and profileId are required')
@@ -60,15 +62,47 @@ module.exports = async function resumeGenerator(job, updateProgress) {
   updateProgress(30)
   const content = await generateWithOpenAI(prompt)
   updateProgress(90, { content })
+  // attempt to parse generated content into structured resume (experiences + skills)
+  let parsedResume = null
+  try {
+    parsedResume = await parseResumeTextWithLLM(content)
+  } catch (e) {
+    parsedResume = null
+  }
+
   // create assistant message with structured payload if sessionId provided
   if (job.payload && job.payload.sessionId) {
     try {
       const safe = sanitizeGeneratedContent(content)
+      // create Resume document populated with parsed structure when available
+      const resumeData = {
+        userId: job.userId,
+        name: `Generated Resume - ${profile.fullName || 'Candidate'}`,
+        profileId: profileId,
+        summary: parsedResume?.summary || safe,
+        experiences: Array.isArray(parsedResume?.experiences)
+          ? parsedResume.experiences.map((e) => ({
+              title: sanitizeGeneratedContent(e.title || ''),
+              companyName: sanitizeGeneratedContent(e.companyName || ''),
+              companyLocation: sanitizeGeneratedContent(e.companyLocation || ''),
+              summary: '',
+              descriptions: Array.isArray(e.descriptions) ? e.descriptions.map(d => sanitizeGeneratedContent(d)) : [],
+              startDate: e.startDate || '',
+              endDate: e.endDate || '',
+            }))
+          : [],
+        skills: Array.isArray(parsedResume?.skills) && parsedResume.skills.length
+          ? [{ title: 'Skills', items: parsedResume.skills.map(s => sanitizeGeneratedContent(s)) }]
+          : (Array.isArray(jd.skills) && jd.skills.length ? [{ title: 'Skills', items: jd.skills.map(s => sanitizeGeneratedContent(s)) }] : []),
+        pageFrameConfig: {},
+      }
+      const created = new ResumeModel(resumeData)
+      await created.save()
       await ChatMessageModel.create({
         sessionId: job.payload.sessionId,
         role: 'assistant',
         content: safe,
-        structuredAssistantPayload: { type: 'generated_resume', content: safe }
+        structuredAssistantPayload: { type: 'generated_resume', resumeId: created._id.toString(), resumeName: created.name, profileName: profile.fullName || null }
       })
     } catch (e) {
       // ignore write errors

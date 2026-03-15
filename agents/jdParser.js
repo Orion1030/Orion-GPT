@@ -1,6 +1,8 @@
 const fetch = global.fetch || require('node-fetch')
 const sanitizeHtml = require('sanitize-html')
 const { JobDescriptionModel, ChatMessageModel } = require('../dbModels')
+const { getEmbedding } = require('../utils/embedding')
+const { normalizeSkills } = require('../utils/skillNormalizer')
 
 async function parseWithOpenAI(text) {
   const openaiKey = process.env.OPENAI_API_KEY
@@ -49,11 +51,20 @@ module.exports = async function jdParser(job, updateProgress) {
   const strip = (s) => sanitizeHtml(String(s || ''), { allowedTags: [], allowedAttributes: {} }).trim()
   parsed.title = strip(parsed.title || 'Job')
   parsed.company = strip(parsed.company || '')
-  parsed.skills = Array.isArray(parsed.skills) ? parsed.skills.map(s => strip(s)) : []
+  const rawSkills = Array.isArray(parsed.skills) ? parsed.skills.map(s => strip(s)) : []
+  parsed.skills = normalizeSkills(rawSkills)
   parsed.requirements = Array.isArray(parsed.requirements) ? parsed.requirements.map(r => strip(r)) : []
   parsed.responsibilities = Array.isArray(parsed.responsibilities) ? parsed.responsibilities.map(r => strip(r)) : []
+  updateProgress(50)
+  // JD embedding for semantic matching
+  let embedding = null
+  if (process.env.OPENAI_API_KEY) {
+    const textForEmbedding = [parsed.title, parsed.company, parsed.skills.join(' '), (parsed.requirements || []).join(' '), (parsed.responsibilities || []).join(' ')].filter(Boolean).join('\n')
+    try {
+      embedding = await getEmbedding(textForEmbedding, process.env.OPENAI_API_KEY)
+    } catch (e) {}
+  }
   updateProgress(60)
-  // store in DB
   const jd = new JobDescriptionModel({
     userId: job.userId,
     title: parsed.title,
@@ -61,7 +72,8 @@ module.exports = async function jdParser(job, updateProgress) {
     skills: parsed.skills,
     requirements: parsed.requirements,
     responsibilities: parsed.responsibilities,
-    rawText: text
+    rawText: text,
+    embedding: embedding || undefined
   })
   await jd.save()
   // create assistant message in session for conversational flow if sessionId provided

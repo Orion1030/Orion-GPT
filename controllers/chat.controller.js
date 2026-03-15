@@ -1,4 +1,5 @@
 require('dotenv').config()
+const fetch = global.fetch
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
@@ -23,15 +24,18 @@ exports.listSessions = asyncErrorHandler(async (req, res) => {
           title: s.profileId.title || null
         }
       : null,
-    jobDescriptionId: s.jobDescriptionId ? s.jobDescriptionId.toString() : null
+    jobDescriptionId: s.jobDescriptionId ? s.jobDescriptionId.toString() : null,
+    chatType: s.chatType || 'normal'
   }))
   return sendJsonResult(res, true, list, null, 200)
 })
 
+const VALID_CHAT_TYPES = ['normal', 'jd', 'existing_resume']
+
 /** Create a new chat session */
 exports.createSession = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
-  const { profileId, jobDescriptionId } = req.body || {}
+  const { profileId, jobDescriptionId, chatType } = req.body || {}
   let profileRef = null
   if (profileId) {
     const profile = await ProfileModel.findOne({ _id: profileId, userId })
@@ -45,11 +49,13 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
     const jd = await JobDescriptionModel.findOne({ _id: jobDescriptionId, userId })
     if (jd) jdRef = jd._id
   }
+  const sessionChatType = VALID_CHAT_TYPES.includes(chatType) ? chatType : 'normal'
   const session = new ChatSessionModel({
     userId,
     profileId: profileRef,
     title: DEFAULT_TITLE,
-    jobDescriptionId: jdRef
+    jobDescriptionId: jdRef,
+    chatType: sessionChatType
   })
   await session.save()
   return sendJsonResult(res, true, {
@@ -57,7 +63,8 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
     title: session.title,
     createdAt: session.createdAt ? new Date(session.createdAt).getTime() : Date.now(),
     profile: profileRef ? { id: profileRef.toString() } : null,
-    jobDescriptionId: jdRef ? jdRef.toString() : null
+    jobDescriptionId: jdRef ? jdRef.toString() : null,
+    chatType: session.chatType || 'normal'
   }, 'Chat created', 201)
 })
 
@@ -81,7 +88,8 @@ exports.getSession = asyncErrorHandler(async (req, res) => {
           title: session.profileId.title || null
         }
       : null,
-    jobDescriptionId: session.jobDescriptionId ? session.jobDescriptionId.toString() : null
+    jobDescriptionId: session.jobDescriptionId ? session.jobDescriptionId.toString() : null,
+    chatType: session.chatType || 'normal'
   }
   const messagesPayload = messages.map((m) => ({
     id: m._id.toString(),
@@ -92,11 +100,11 @@ exports.getSession = asyncErrorHandler(async (req, res) => {
   return sendJsonResult(res, true, { session: sessionPayload, messages: messagesPayload }, null, 200)
 })
 
-/** Rename a session (and optionally update profileId, jobDescriptionId) */
+/** Rename a session (and optionally update profileId, jobDescriptionId, chatType) */
 exports.renameSession = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
   const { sessionId } = req.params
-  const { title, profileId, jobDescriptionId } = req.body || {}
+  const { title, profileId, jobDescriptionId, chatType } = req.body || {}
   const updates = {}
   const trimmed = typeof title === 'string' ? title.trim() : ''
   if (trimmed) updates.title = trimmed
@@ -118,6 +126,9 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
       const jd = await JobDescriptionModel.findOne({ _id: jobDescriptionId, userId })
       if (jd) updates.jobDescriptionId = jd._id
     }
+  }
+  if (chatType !== undefined && VALID_CHAT_TYPES.includes(chatType)) {
+    updates.chatType = chatType
   }
   if (Object.keys(updates).length === 0) {
     return sendJsonResult(res, false, null, 'No updates provided', 400)
@@ -143,7 +154,8 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
           title: session.profileId.title || null
         }
       : null,
-    jobDescriptionId: session.jobDescriptionId ? session.jobDescriptionId.toString() : null
+    jobDescriptionId: session.jobDescriptionId ? session.jobDescriptionId.toString() : null,
+    chatType: session.chatType || 'normal'
   }, null, 200)
 })
 
@@ -164,11 +176,32 @@ exports.deleteSession = asyncErrorHandler(async (req, res) => {
   }
 })
 
-/** Send a message: append user message, generate assistant reply, append and return updated messages */
+/** Build system context from session (profile, JD, resume) for AI assistant */
+async function buildSessionContext(session, userId) {
+  const parts = ['You are a helpful resume and career assistant. Help the user improve their resume, tailor it to job descriptions, and answer questions about their career.']
+  if (session.profileId) {
+    const profile = await ProfileModel.findOne({ _id: session.profileId, userId }).lean()
+    if (profile) {
+      parts.push(`\nCurrent profile: ${profile.fullName || profile.name || 'Candidate'}, Title: ${profile.title || 'N/A'}.`)
+      if (profile.experiences && profile.experiences.length) {
+        parts.push(' Experiences: ' + profile.experiences.slice(0, 3).map(e => `${e.roleTitle} at ${e.companyName}`).join('; ') + '.')
+      }
+    }
+  }
+  if (session.jobDescriptionId) {
+    const jd = await JobDescriptionModel.findOne({ _id: session.jobDescriptionId, userId }).lean()
+    if (jd) {
+      parts.push(`\nJob context: ${jd.title} at ${jd.company || 'Company'}. Skills: ${(jd.skills || []).slice(0, 10).join(', ')}.`)
+    }
+  }
+  return parts.join('')
+}
+
+/** Send a message: append user message (or update and re-send if editMessageId), then generate assistant reply unless commandResend */
 exports.sendMessage = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
   const { sessionId } = req.params
-  const { content } = req.body
+  const { content, editMessageId, commandResend, sessionUpdates } = req.body || {}
   const text = typeof content === 'string' ? content.trim() : ''
   if (!text) {
     return sendJsonResult(res, false, null, 'Message content is required', 400)
@@ -179,10 +212,81 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'Session not found', 404)
   }
 
-  const userMsg = new ChatMessageModel({ sessionId, role: 'user', content: text })
-  await userMsg.save()
+  let userMsg
+  if (editMessageId) {
+    const existing = await ChatMessageModel.findOne({ _id: editMessageId, sessionId }).lean()
+    if (!existing) {
+      return sendJsonResult(res, false, null, 'Message not found', 404)
+    }
+    if (existing.role !== 'user') {
+      return sendJsonResult(res, false, null, 'Can only edit user messages', 400)
+    }
+    await ChatMessageModel.updateOne({ _id: editMessageId }, { $set: { content: text } })
+    await ChatMessageModel.deleteMany({
+      sessionId,
+      createdAt: { $gt: existing.createdAt }
+    })
+    userMsg = { _id: existing._id, sessionId, role: 'user', content: text, createdAt: existing.createdAt }
 
-  const assistantContent = 'This is a placeholder reply. Connect your AI backend to get real responses.'
+    if (commandResend) {
+      const sessionSet = {}
+      if (sessionUpdates && sessionUpdates.profileId) sessionSet.profileId = sessionUpdates.profileId
+      if (sessionUpdates && sessionUpdates.jobDescriptionId !== undefined) sessionSet.jobDescriptionId = sessionUpdates.jobDescriptionId
+      if (sessionUpdates && sessionUpdates.chatType && VALID_CHAT_TYPES.includes(sessionUpdates.chatType)) sessionSet.chatType = sessionUpdates.chatType
+      if (Object.keys(sessionSet).length > 0) {
+        await ChatSessionModel.updateOne({ _id: sessionId, userId }, { $set: sessionSet })
+      }
+      const messages = await ChatMessageModel.find({ sessionId }).sort({ createdAt: 1 }).lean()
+      const messagesPayload = messages.map((m) => ({
+        id: m._id.toString(),
+        role: m.role,
+        content: m.content,
+        structuredAssistantPayload: m.structuredAssistantPayload || null
+      }))
+      return sendJsonResult(res, true, { messages: messagesPayload, commandResend: true }, null, 200)
+    }
+  } else {
+    const newMsg = new ChatMessageModel({ sessionId, role: 'user', content: text })
+    await newMsg.save()
+    userMsg = newMsg
+  }
+
+  let assistantContent = 'I couldn\'t generate a reply right now. Please try again.'
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (openaiKey) {
+    const systemContext = await buildSessionContext(session, userId)
+    const recentMessages = await ChatMessageModel.find({ sessionId })
+      .sort({ createdAt: 1 })
+      .lean()
+    const chatMessages = recentMessages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role, content: m.content || '' }))
+    const apiMessages = [
+      { role: 'system', content: systemContext },
+      ...chatMessages.slice(-20)
+    ]
+    try {
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openaiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: apiMessages,
+          temperature: 0.6,
+          max_tokens: 1024
+        })
+      })
+      const body = await resp.json()
+      const reply = body?.choices?.[0]?.message?.content
+      if (reply && typeof reply === 'string') assistantContent = reply.trim()
+    } catch (e) {
+      assistantContent = 'Sorry, I had trouble responding. Please try again.'
+    }
+  }
+
   const assistantMsg = new ChatMessageModel({ sessionId, role: 'assistant', content: assistantContent })
   await assistantMsg.save()
 
@@ -195,7 +299,8 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
   const messagesPayload = messages.map((m) => ({
     id: m._id.toString(),
     role: m.role,
-    content: m.content
+    content: m.content,
+    structuredAssistantPayload: m.structuredAssistantPayload || null
   }))
 
   return sendJsonResult(res, true, { messages: messagesPayload }, null, 200)
