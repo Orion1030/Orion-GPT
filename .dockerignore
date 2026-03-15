@@ -1,0 +1,11 @@
+node_modules
+.env
+.env.*
+!.env.example
+.git
+*.md
+__tests__
+*.test.js
+*.spec.js
+coverage
+.gitignore
