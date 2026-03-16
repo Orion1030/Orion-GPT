@@ -1,7 +1,9 @@
+# syntax=docker/dockerfile:1
 # Orion-GPT API (Puppeteer/Chrome deps for headless browser)
 FROM node:22.14.0-bookworm-slim
 
 # Install runtime deps for Puppeteer/Chrome (Debian Bookworm)
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
   fonts-liberation \
@@ -54,4 +56,5 @@ RUN npm install --omit=dev
 COPY . .
 EXPOSE 5050
 
+# Production: use node (not npm run server / nodemon). Do not override in Railway.
 CMD ["node", "server.js"]
