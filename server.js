@@ -1,7 +1,5 @@
 require("dotenv").config();
-if (!process.env.JWT_SECRET) {
-  throw new Error("JWT_SECRET must be set in the environment (e.g. in Railway Variables).");
-}
+
 const { Environments } = require("./utils/constants");
 const serverless = require("serverless-http");
 const { DBConnection, UserModel } = require("./dbModels");
