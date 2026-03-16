@@ -1,8 +1,7 @@
 const jwt = require('jsonwebtoken')
 const asyncErrorHandler = require('./asyncErrorHandler')
 const { UserModel } = require('../dbModels')
-const { sendJsonResult } = require('../utils')
-const { JWT_SECRET } = process.env
+const { sendJsonResult, getJwtSecret } = require('../utils')
 
 exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
   const authHeader = req.headers.authorization
@@ -14,7 +13,7 @@ exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
 
   let decodedData
   try {
-    decodedData = jwt.verify(token, JWT_SECRET)
+    decodedData = jwt.verify(token, getJwtSecret())
   } catch (err) {
     await UserModel.updateOne({ token }, { $set: { token: '' } })
     return sendJsonResult(res, false, null, 'Invalid or expired token', 401)

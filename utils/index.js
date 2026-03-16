@@ -1,5 +1,13 @@
 const jwt = require('jsonwebtoken')
-const { JWT_SECRET } = process.env
+
+exports.getJwtSecret = function getJwtSecret() {
+  const secret = process.env.JWT_SECRET
+  if (!secret || !String(secret).trim()) {
+    throw new Error('JWT_SECRET is not set or is empty. Set it in your environment (e.g. Railway Variables).')
+  }
+  return secret
+}
+
 exports.isTokenExpired = (expirationDate) => {
   return new Date() > expirationDate
 }
@@ -18,7 +26,7 @@ exports.sendJsonResult = (res, status, data = null, message = null, statusCode =
 }
 
 exports.generateJWT = (payload, header = {}) => {
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, exports.getJwtSecret(), {
     header,
     algorithm: 'HS256',
     expiresIn: Date.now() + 15 * 60 * 1000

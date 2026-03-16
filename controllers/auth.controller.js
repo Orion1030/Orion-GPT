@@ -4,8 +4,7 @@ const { isTokenExpired, sendJsonResult } = require('./../utils')
 const jwt = require('jsonwebtoken')
 const { RoleLevels, RequestTypes } = require('../utils/constants')
 require('dotenv').config()
-const { generateJWT } = require('../utils')
-const { JWT_SECRET } = process.env
+const { generateJWT, getJwtSecret } = require('../utils')
 
 exports.signin = asyncErrorHandler(async (req, res, next) => {
   const { name, password, profileName } = req.body
@@ -80,7 +79,7 @@ exports.resetPassword = asyncErrorHandler(async (req, res, next) => {
   if (newPassword !== confirmPassword) {
     return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
   }
-  const decodedData = jwt.verify(token, JWT_SECRET)
+  const decodedData = jwt.verify(token, getJwtSecret())
 
   const user = await UserModel.findOne({ _id: decodedData.id })
 
@@ -102,7 +101,7 @@ exports.acceptInvitation = asyncErrorHandler(async (req, res, next) => {
   if (!name) return sendJsonResult(res, false, null, 'Name is required', 400)
   if (newPassword !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
 
-  const decodedData = jwt.verify(token, JWT_SECRET)
+  const decodedData = jwt.verify(token, getJwtSecret())
   const user = await UserModel.findOne({ email: decodedData.email })
 
   if (!user) {
@@ -112,7 +111,7 @@ exports.acceptInvitation = asyncErrorHandler(async (req, res, next) => {
   user.name = name
   await user.save()
 
-  const newToken = jwt.sign({ email: user.email, id: user.id }, JWT_SECRET, {
+  const newToken = jwt.sign({ email: user.email, id: user.id }, getJwtSecret(), {
     algorithm: 'HS256',
     expiresIn: Date.now() + 15 * 60 * 1000
   })
