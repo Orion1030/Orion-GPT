@@ -1,7 +1,14 @@
 require("dotenv").config();
-if (!process.env.JWT_SECRET || !String(process.env.JWT_SECRET).trim()) {
-  throw new Error("JWT_SECRET must be set and non-empty in the environment (e.g. in Railway Variables).");
+
+// Diagnostic: log whether JWT_SECRET reaches the container (check Railway logs after deploy)
+const jwtSecret = process.env.JWT_SECRET;
+const hasJwtSecret = jwtSecret && String(jwtSecret).trim();
+console.log("[startup] JWT_SECRET present:", !!jwtSecret, "non-empty:", !!hasJwtSecret);
+if (!hasJwtSecret) {
+  const envKeys = Object.keys(process.env).filter((k) => !/KEY|SECRET|PASSWORD|TOKEN|URI/i.test(k) || k === "JWT_SECRET");
+  console.warn("[startup] Missing JWT_SECRET. Sample env keys:", envKeys.slice(0, 20).join(", "));
 }
+
 const { Environments } = require("./utils/constants");
 const serverless = require("serverless-http");
 const { DBConnection, UserModel } = require("./dbModels");

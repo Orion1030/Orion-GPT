@@ -1,9 +1,12 @@
 const jwt = require('jsonwebtoken')
 
 exports.getJwtSecret = function getJwtSecret() {
-  const secret = process.env.JWT_SECRET
-  if (!secret || !String(secret).trim()) {
-    throw new Error('JWT_SECRET is not set or is empty. Set it in your environment (e.g. Railway Variables).')
+  const raw = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY
+  const secret = raw && String(raw).trim()
+  if (!secret) {
+    throw new Error(
+      'JWT_SECRET is not set or is empty. In Railway: add Variable JWT_SECRET with a long random value, then redeploy. Check deploy logs for "[startup] JWT_SECRET" to confirm the container receives it.'
+    )
   }
   return secret
 }
