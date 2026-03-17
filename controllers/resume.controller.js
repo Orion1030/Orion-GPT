@@ -58,15 +58,11 @@ exports.getResume = asyncErrorHandler(async (req, res, next) => {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
 
-  // Normalize shape for frontend consumers:
-  // - expose both id/_id for backward compatibility
-  // - mirror populated refs onto convenient fields: profile, template, stack
+  // Minimal normalization: keep populated refs on their original fields,
+  // but also expose a string `id` for frontend convenience.
   const normalized = {
     ...resumeDoc,
     id: String(resumeDoc._id),
-    profile: resumeDoc.profileId || null,
-    template: resumeDoc.templateId || null,
-    stack: resumeDoc.stackId || null,
   };
 
   return sendJsonResult(res, true, normalized);
