@@ -47,11 +47,29 @@ exports.createResume = asyncErrorHandler(async (req, res, next) => {
 exports.getResume = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { resumeId } = req.params;
-  const resume = await ResumeModel.findById(resumeId);
-  if (!resume) {
+
+  const resumeDoc = await ResumeModel.findOne({ _id: resumeId, userId: user._id })
+    .populate("profileId")
+    .populate("templateId")
+    .populate("stackId")
+    .lean();
+
+  if (!resumeDoc) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
-  return sendJsonResult(res, true, resume);
+
+  // Normalize shape for frontend consumers:
+  // - expose both id/_id for backward compatibility
+  // - mirror populated refs onto convenient fields: profile, template, stack
+  const normalized = {
+    ...resumeDoc,
+    id: String(resumeDoc._id),
+    profile: resumeDoc.profileId || null,
+    template: resumeDoc.templateId || null,
+    stack: resumeDoc.stackId || null,
+  };
+
+  return sendJsonResult(res, true, normalized);
 });
 
 exports.updateResume = asyncErrorHandler(async (req, res, next) => {
