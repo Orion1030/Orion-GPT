@@ -1,5 +1,6 @@
 const fetch = global.fetch || require('node-fetch')
 const { JobDescriptionModel, ProfileModel, ResumeModel, ChatMessageModel } = require('../dbModels')
+const { refreshResumeEmbedding } = require('../services/resumeEmbedding.service')
 
 // Minimal server-side sanitizer for generated HTML/text to avoid storing scripts or event handlers.
 function sanitizeGeneratedContent(html) {
@@ -98,6 +99,7 @@ module.exports = async function resumeGenerator(job, updateProgress) {
       }
       const created = new ResumeModel(resumeData)
       await created.save()
+      await refreshResumeEmbedding(created._id).catch(() => {})
       await ChatMessageModel.create({
         sessionId: job.payload.sessionId,
         role: 'assistant',

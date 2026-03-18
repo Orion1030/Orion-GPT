@@ -4,17 +4,7 @@
  */
 const { JobDescriptionModel, ResumeModel } = require('../dbModels')
 const { getEmbedding, cosineSimilarity, similarityToScore } = require('../utils/embedding')
-
-function buildResumeTextForEmbedding(r) {
-  const parts = [r.summary || '']
-  ;(r.experiences || []).forEach((e) => {
-    parts.push(e.title || '', e.summary || '', (e.descriptions || []).join(' '))
-  })
-  ;(r.skills || []).forEach((s) => {
-    if (s?.items) parts.push(s.items.join(' '))
-  })
-  return parts.filter(Boolean).join('\n').trim()
-}
+const { buildResumeTextForEmbedding } = require('./resumeEmbedding.service')
 
 function quantifiedImpactScore(r) {
   const text = buildResumeTextForEmbedding(r)

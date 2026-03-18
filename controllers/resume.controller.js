@@ -5,6 +5,7 @@ const { sendJsonResult } = require("../utils");
 const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml } = require("../utils/resumeUtils");
 const fetch = global.fetch;
 const { ProfileModel } = require("../dbModels");
+const { refreshResumeEmbedding } = require("../services/resumeEmbedding.service");
 function mapPayloadToModel(payload, userId) {
   const profileId = payload.profile?.id ?? payload.profileId;
   const templateId = payload.template?.id ?? payload.templateId;
@@ -38,6 +39,7 @@ exports.createResume = asyncErrorHandler(async (req, res, next) => {
 
   const newResume = new ResumeModel(data);
   await newResume.save();
+  await refreshResumeEmbedding(newResume._id).catch(() => {});
   const populated = await ResumeModel.findById(newResume._id)
     .populate('profileId')
     .populate('templateId')
@@ -68,6 +70,33 @@ exports.getResume = asyncErrorHandler(async (req, res, next) => {
   return sendJsonResult(res, true, normalized);
 });
 
+/** GET by profileId + resumeId (same response as getResume; validates resume belongs to profile) */
+exports.getResumeByProfileAndId = asyncErrorHandler(async (req, res, next) => {
+  const { user } = req;
+  const { profileId, resumeId } = req.params;
+
+  const resumeDoc = await ResumeModel.findOne({
+    _id: resumeId,
+    userId: user._id,
+    profileId,
+  })
+    .populate("profileId")
+    .populate("templateId")
+    .populate("stackId")
+    .lean();
+
+  if (!resumeDoc) {
+    return sendJsonResult(res, false, null, "Resume not found", 404);
+  }
+
+  const normalized = {
+    ...resumeDoc,
+    id: String(resumeDoc._id),
+  };
+
+  return sendJsonResult(res, true, normalized);
+});
+
 exports.updateResume = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { resumeId } = req.params;
@@ -90,7 +119,12 @@ exports.updateResume = asyncErrorHandler(async (req, res, next) => {
   if (!updatedResume) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
-  return sendJsonResult(res, true, updatedResume);
+  await refreshResumeEmbedding(resumeId).catch(() => {});
+  const withEmbedding = await ResumeModel.findById(resumeId)
+    .populate('profileId')
+    .populate('templateId')
+    .populate('stackId');
+  return sendJsonResult(res, true, withEmbedding || updatedResume);
 });
 
 exports.deleteResume = asyncErrorHandler(async (req, res, next) => {
