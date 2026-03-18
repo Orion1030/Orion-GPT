@@ -1,6 +1,35 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const sanitizeHtml = require('sanitize-html');
+
+const RESUME_RICH_SUMMARY = {
+    allowedTags: ['b', 'i', 'em', 'strong', 'u', 'a', 'br', 'p', 'ul', 'ol', 'li'],
+    allowedAttributes: { a: ['href', 'target', 'rel'] },
+};
+
+const RESUME_RICH_LI = {
+    allowedTags: ['b', 'i', 'em', 'strong', 'u', 'a', 'br'],
+    allowedAttributes: { a: ['href', 'target', 'rel'] },
+};
+
+function sanitizeSummaryForTemplate(s) {
+    if (!s) return '';
+    const t = String(s).trim();
+    if (!/<[a-z]/i.test(t)) {
+        return escapeHtml(t).replace(/\n/g, '<br>');
+    }
+    return sanitizeHtml(t, RESUME_RICH_SUMMARY);
+}
+
+function descriptionPointToLi(p) {
+    const s = String(p).trim();
+    if (!s) return '';
+    if (/[<>]/.test(s)) {
+        return `<li>${sanitizeHtml(s, RESUME_RICH_LI)}</li>`;
+    }
+    return `<li>${escapeHtml(s)}</li>`;
+}
 
 const MARGIN_PRESETS = {
     compact: { top: 36, bottom: 36, left: 36, right: 36 },
@@ -361,7 +390,7 @@ function buildRenderData(resume) {
 
         const descriptionHtml = points
             .filter(p => String(p).trim())
-            .map(p => `<li>${escapeHtml(p)}</li>`)
+            .map(descriptionPointToLi)
             .join('');
 
         return {
@@ -403,7 +432,7 @@ function buildRenderData(resume) {
         phone: contactInfo.phone || '',
         linkedin: profile.link || contactInfo.linkedin || '',
         address: contactInfo.address || '',
-        summary: resume.summary || '',
+        summary: sanitizeSummaryForTemplate(resume.summary || ''),
         experiences,
         education,
         skills,
