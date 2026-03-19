@@ -23,8 +23,7 @@ function buildResumeTextForEmbedding(r) {
  * @returns {Promise<number[]|null>} embedding vector or null
  */
 async function refreshResumeEmbedding(resumeId) {
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey || !resumeId) return null;
+  if (!resumeId) return null;
   try {
     const r = await ResumeModel.findById(resumeId).lean();
     if (!r) return null;
@@ -33,7 +32,7 @@ async function refreshResumeEmbedding(resumeId) {
       await ResumeModel.updateOne({ _id: resumeId }, { $set: { embedding: null } });
       return null;
     }
-    const vec = await getEmbedding(text, openaiKey);
+    const vec = await getEmbedding(text);
     if (vec && Array.isArray(vec)) {
       await ResumeModel.updateOne({ _id: resumeId }, { $set: { embedding: vec } });
       return vec;

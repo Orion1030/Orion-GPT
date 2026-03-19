@@ -3,6 +3,7 @@ const fetch = global.fetch
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
+const { getChatReply } = require('../services/llm/chatResponder.service')
 
 const DEFAULT_TITLE = 'New Chat'
 
@@ -252,8 +253,7 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
   }
 
   let assistantContent = 'I couldn\'t generate a reply right now. Please try again.'
-  const openaiKey = process.env.OPENAI_API_KEY
-  if (openaiKey) {
+  try {
     const systemContext = await buildSessionContext(session, userId)
     const recentMessages = await ChatMessageModel.find({ sessionId })
       .sort({ createdAt: 1 })
@@ -265,26 +265,10 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
       { role: 'system', content: systemContext },
       ...chatMessages.slice(-20)
     ]
-    try {
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${openaiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: apiMessages,
-          temperature: 0.6,
-          max_tokens: 1024
-        })
-      })
-      const body = await resp.json()
-      const reply = body?.choices?.[0]?.message?.content
-      if (reply && typeof reply === 'string') assistantContent = reply.trim()
-    } catch (e) {
-      assistantContent = 'Sorry, I had trouble responding. Please try again.'
-    }
+    const reply = await getChatReply({ messages: apiMessages, temperature: 0.6, max_tokens: 1024 })
+    if (reply) assistantContent = reply
+  } catch (e) {
+    assistantContent = 'Sorry, I had trouble responding. Please try again.'
   }
 
   const assistantMsg = new ChatMessageModel({ sessionId, role: 'assistant', content: assistantContent })

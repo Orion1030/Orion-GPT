@@ -40,7 +40,6 @@ async function findTopResumesCore(userId, jdId, profileId) {
   if (profileId) query.profileId = profileId
 
   const resumes = await ResumeModel.find(query).populate('profileId').sort({ updatedAt: -1 }).lean()
-  const openaiKey = process.env.OPENAI_API_KEY
 
   const scored = await Promise.all(resumes.map(async (r) => {
     const resumeSkills = new Set()
@@ -77,12 +76,12 @@ async function findTopResumesCore(userId, jdId, profileId) {
     let embeddingSimScore = 0
     let resumeEmbedding = r.embedding && Array.isArray(r.embedding) ? r.embedding : null
 
-    if (openaiKey && jdEmbedding) {
+    if (jdEmbedding) {
       if (!resumeEmbedding) {
         const textForEmbedding = buildResumeTextForEmbedding(r)
         if (textForEmbedding) {
           try {
-            resumeEmbedding = await getEmbedding(textForEmbedding, openaiKey)
+            resumeEmbedding = await getEmbedding(textForEmbedding)
             if (resumeEmbedding) {
               await ResumeModel.updateOne({ _id: r._id }, { $set: { embedding: resumeEmbedding } })
             }

@@ -5,12 +5,10 @@ module.exports = async function jdParser(job, updateProgress) {
   const text = job.payload?.text || job.payload?.rawText
   if (!text) throw new Error('No text in job payload')
   updateProgress(10)
-  const openaiKey = process.env.OPENAI_API_KEY
-  if (!openaiKey) throw new Error('LLM provider not configured')
 
   let parsed = null
   try {
-    parsed = await parseJobDescriptionWithLLM(text, openaiKey)
+    parsed = await parseJobDescriptionWithLLM(text)
   } catch (e) {
     throw e
   }

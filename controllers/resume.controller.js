@@ -9,6 +9,7 @@ const { refreshResumeEmbedding } = require("../services/resumeEmbedding.service"
 const { generateResumeJsonFromJD } = require("../utils/resumeGeneration");
 const { normalizeParsedJD, parseJobDescriptionWithLLM, createJobDescriptionRecordWithEmbedding } = require("../utils/jdParsing");
 const { findTopResumesCore } = require("../services/findTopResumes");
+const { refineResumeWithFeedback } = require("../services/llm/resumeRefine.service");
 function mapPayloadToModel(payload, userId) {
   const profileId = payload.profile?.id ?? payload.profileId;
   const templateId = payload.template?.id ?? payload.templateId;
@@ -247,11 +248,6 @@ exports.parseTextResume = asyncErrorHandler(async (req, res, next) => {
   const systemPrompt = `You are a resume parsing assistant. Extract structured resume data as JSON with keys: profile, summary, skills, meta. The profile must include: fullName, title, contactInfo (email, phone, linkedin, address), experiences (array of { roleTitle, companyName, startDate, endDate, keyPoints }), educations (array of { universityName, degreeLevel, major, startDate, endDate }). The meta object must include confidence (0..1) and missingFields (array). Use null for unknown values. Reply ONLY with valid JSON.`;
   const userPrompt = `Parse the following resume text and return the JSON described above. Text:\n\n${text}`;
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    return sendJsonResult(res, false, null, "LLM provider not configured", 500);
-  }
-
   // Delegate parsing to shared util to keep parsing logic in one place
   let parsed = null;
   try {
@@ -365,13 +361,8 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
     baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId }).populate("profileId").lean();
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    return sendJsonResult(res, false, null, "LLM not configured", 500);
-  }
-
   try {
-    const resume = await generateResumeJsonFromJD({ jd, profile, baseResume, openaiKey });
+    const resume = await generateResumeJsonFromJD({ jd, profile, baseResume });
     return sendJsonResult(res, true, { resume }, null, 200);
   } catch (e) {
     return sendJsonResult(res, false, null, "Generation failed. Please try again.", 502);
@@ -385,40 +376,13 @@ exports.refineResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "resumeContent and feedback are required", 400);
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    return sendJsonResult(res, false, null, "LLM not configured", 500);
-  }
-
-  const systemPrompt =
-    "You are a delta resume editor. Apply ONLY the user's requested changes to the resume. Do not rewrite unrelated sections. Preserve formatting and structure elsewhere. Output the full resume with only the requested edits applied, as plain text.";
-  const userPrompt = `Current resume:\n\n${resumeContent}\n\nUser feedback (apply only this): ${feedback}\n\nOutput the full revised resume below.`;
-
-  let content = "";
+  // LLM refine is handled by a dedicated service.
   try {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${openaiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.0,
-        max_tokens: 2000,
-      }),
-    });
-    const body = await resp.json();
-    content = body?.choices?.[0]?.message?.content || resumeContent;
+    const content = await refineResumeWithFeedback({ resumeContent, feedback });
+    return sendJsonResult(res, true, { content }, null, 200);
   } catch (e) {
-    content = resumeContent;
+    return sendJsonResult(res, true, { content: resumeContent }, null, 200);
   }
-
-  return sendJsonResult(res, true, { content }, null, 200);
 });
 
 /** Parse job description text using LLM. */
@@ -432,13 +396,8 @@ exports.parseJD = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Input too large", 413);
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    return sendJsonResult(res, false, null, "LLM not configured", 500);
-  }
-
   try {
-    const parsed = await parseJobDescriptionWithLLM(text, openaiKey);
+    const parsed = await parseJobDescriptionWithLLM(text);
     if (!parsed) {
       return sendJsonResult(res, false, null, "Failed to parse JD", 502);
     }
@@ -457,13 +416,11 @@ exports.storeJD = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Parsed JD is required", 400);
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY;
   const normalized = normalizeParsedJD(parsed, parsed.rawText || "");
   const { jdId } = await createJobDescriptionRecordWithEmbedding({
     userId,
     parsed: normalized,
     rawText: normalized.rawText || "",
-    openaiKey,
   });
 
   return sendJsonResult(res, true, { jdId }, null, 201);
@@ -501,13 +458,8 @@ exports.importJdAndMatch = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Input too large", 413);
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    return sendJsonResult(res, false, null, "LLM not configured", 500);
-  }
-
   try {
-    const parsed = await parseJobDescriptionWithLLM(text, openaiKey);
+    const parsed = await parseJobDescriptionWithLLM(text);
     if (!parsed) {
       return sendJsonResult(res, false, null, "Failed to parse JD", 502);
     }
@@ -517,7 +469,6 @@ exports.importJdAndMatch = asyncErrorHandler(async (req, res) => {
       userId,
       parsed: normalized,
       rawText: text,
-      openaiKey,
     });
 
     const { topResumes, error } = await findTopResumesCore(userId, jdId, profileId);

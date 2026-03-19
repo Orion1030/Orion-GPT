@@ -8,16 +8,13 @@ module.exports = async function resumeGenerator(job, updateProgress) {
   const jd = await JobDescriptionModel.findById(jdId).lean()
   const profile = await ProfileModel.findById(profileId).lean()
   if (!jd || !profile) throw new Error('JD or profile not found')
-  const openaiKey = process.env.OPENAI_API_KEY
-  if (!openaiKey) throw new Error('LLM not configured')
-
   let baseResume = null
   if (baseResumeId) {
     baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId: job.userId }).lean()
   }
 
   updateProgress(10)
-  const resume = await generateResumeJsonFromJD({ jd, profile, baseResume, openaiKey })
+  const resume = await generateResumeJsonFromJD({ jd, profile, baseResume })
   updateProgress(90, { resume })
 
   // Create assistant message + Resume doc if sessionId provided.
