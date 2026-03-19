@@ -1,6 +1,6 @@
 /**
  * Shared logic for finding top resumes by JD: weighted ATS + embedding, deep ranker when tied.
- * Used by jd.controller (HTTP) and atsScorer agent (job).
+ * Used by resume.controller (HTTP) and atsScorer agent (job).
  */
 const { JobDescriptionModel, ResumeModel } = require('../dbModels')
 const { getEmbedding, cosineSimilarity, similarityToScore } = require('../utils/embedding')
