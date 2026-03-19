@@ -388,20 +388,21 @@ exports.refineResume = asyncErrorHandler(async (req, res) => {
 /** Parse job description text using LLM. */
 exports.parseJD = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id;
-  const { text } = req.body || {};
-  if (!text || typeof text !== "string" || !text.trim()) {
-    return sendJsonResult(res, false, null, "Text is required", 400);
+  const { context, text } = req.body || {};
+  const jdContext = typeof context === "string" ? context : text;
+  if (!jdContext || typeof jdContext !== "string" || !jdContext.trim()) {
+    return sendJsonResult(res, false, null, "Context is required", 400);
   }
-  if (text.length > 100 * 1024) {
+  if (jdContext.length > 100 * 1024) {
     return sendJsonResult(res, false, null, "Input too large", 413);
   }
 
   try {
-    const parsed = await parseJobDescriptionWithLLM(text);
+    const parsed = await parseJobDescriptionWithLLM(jdContext);
     if (!parsed) {
       return sendJsonResult(res, false, null, "Failed to parse JD", 502);
     }
-    const normalized = normalizeParsedJD(parsed, text);
+    const normalized = normalizeParsedJD(parsed, jdContext);
     return sendJsonResult(res, true, { parsed: normalized }, null, 200);
   } catch (e) {
     return sendJsonResult(res, false, null, "LLM parse failed", 502);
@@ -416,11 +417,11 @@ exports.storeJD = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Parsed JD is required", 400);
   }
 
-  const normalized = normalizeParsedJD(parsed, parsed.rawText || "");
+  const normalized = normalizeParsedJD(parsed, parsed.context || parsed.rawText || "");
   const { jdId } = await createJobDescriptionRecordWithEmbedding({
     userId,
     parsed: normalized,
-    rawText: normalized.rawText || "",
+    context: normalized.context || "",
   });
 
   return sendJsonResult(res, true, { jdId }, null, 201);
@@ -443,32 +444,33 @@ exports.findTopResumes = asyncErrorHandler(async (req, res) => {
 
 /**
  * Import JD (parse + store with embedding) and find top matching resumes in one call.
- * Body: { profileId, text }. Returns { jdId, parsed, topResumes }.
+ * Body: { profileId, context }. Returns { jdId, parsed, topResumes }.
  */
 exports.importJdAndMatch = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id;
-  const { profileId, text } = req.body || {};
-  if (!text || typeof text !== "string" || !text.trim()) {
-    return sendJsonResult(res, false, null, "Text is required", 400);
+  const { profileId, context, text } = req.body || {};
+  const jdContext = typeof context === "string" ? context : text;
+  if (!jdContext || typeof jdContext !== "string" || !jdContext.trim()) {
+    return sendJsonResult(res, false, null, "Context is required", 400);
   }
   if (!profileId) {
     return sendJsonResult(res, false, null, "profileId is required", 400);
   }
-  if (text.length > 100 * 1024) {
+  if (jdContext.length > 100 * 1024) {
     return sendJsonResult(res, false, null, "Input too large", 413);
   }
 
   try {
-    const parsed = await parseJobDescriptionWithLLM(text);
+    const parsed = await parseJobDescriptionWithLLM(jdContext);
     if (!parsed) {
       return sendJsonResult(res, false, null, "Failed to parse JD", 502);
     }
-    const normalized = normalizeParsedJD(parsed, text);
+    const normalized = normalizeParsedJD(parsed, jdContext);
 
     const { jdId } = await createJobDescriptionRecordWithEmbedding({
       userId,
       parsed: normalized,
-      rawText: text,
+      context: jdContext,
     });
 
     const { topResumes, error } = await findTopResumesCore(userId, jdId, profileId);

@@ -8,7 +8,7 @@ function stripToText(s) {
   return sanitizeHtml(String(s ?? ""), { allowedTags: [], allowedAttributes: {} }).trim();
 }
 
-function normalizeParsedJD(parsed, rawText) {
+function normalizeParsedJD(parsed, context) {
   const out = parsed && typeof parsed === "object" ? { ...parsed } : {};
   out.title = stripToText(out.title || "Job");
   out.company = stripToText(out.company || "");
@@ -23,13 +23,18 @@ function normalizeParsedJD(parsed, rawText) {
     ? out.responsibilities.map(stripToText).filter(Boolean)
     : [];
 
-  // Store raw input for better traceability/debugging (optional).
-  out.rawText = typeof rawText === "string" ? rawText : out.rawText;
+  // Store original JD input for traceability/debugging (optional).
+  out.context =
+    typeof context === "string"
+      ? context
+      : typeof out.context === "string"
+      ? out.context
+      : out.rawText;
 
   return out;
 }
 
-async function createJobDescriptionRecordWithEmbedding({ userId, parsed, rawText }) {
+async function createJobDescriptionRecordWithEmbedding({ userId, parsed, context }) {
   const skills = normalizeSkills(parsed.skills || []);
   const requirements = Array.isArray(parsed.requirements) ? parsed.requirements : [];
   const responsibilities = Array.isArray(parsed.responsibilities) ? parsed.responsibilities : [];
@@ -41,7 +46,7 @@ async function createJobDescriptionRecordWithEmbedding({ userId, parsed, rawText
     skills,
     requirements,
     responsibilities,
-    rawText: rawText || parsed.rawText || "",
+    context: context || parsed.context || parsed.rawText || "",
   });
 
   const textForEmbedding = [

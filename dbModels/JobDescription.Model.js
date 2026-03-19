@@ -28,7 +28,7 @@ const jobDescriptionSchema = new mongoose.Schema(
       type: [String],
       default: []
     },
-    rawText: {
+    context: {
       type: String,
       default: ''
     },
