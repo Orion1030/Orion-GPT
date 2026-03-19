@@ -22,7 +22,7 @@ const PORT = process.env.PORT || 5050;
 const env = process.env.NODE_ENV || "development";
 app.listen(PORT, () => {
   console.log(
-    `Server is running${env === Environments.LOCAL ? " on port ${PORT}" : ""}`,
+    `Server is running${env === Environments.LOCAL ? ` on port ${PORT}` : ''}`,
   );
 });
 

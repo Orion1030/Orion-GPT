@@ -1,7 +1,7 @@
 # Server-side PDF QA Checklist
 
 How to run (local):
-1. Start backend: from `Orion-GPT` run `node ./bin/www` or `npm start` (ensure Puppeteer installs Chromium).
+1. Start backend: from `Orion-GPT` run `npm run server` (or `node server.js`) and ensure Puppeteer installs Chromium.
 2. Start frontend: start dev server for Frontend.
 3. Open the app, create or pick 3 resumes: simple, image/font-heavy, long multi-page.
 

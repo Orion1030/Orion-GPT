@@ -5,7 +5,6 @@ const {
   signup,
   forgotPassword,
   resetPassword,
-  verifyOtp,
   acceptInvitation,
 } = require('../controllers/auth.controller')
 const router = express.Router()
