@@ -3,7 +3,7 @@ const fetch = global.fetch
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
-const { getChatReply } = require('../services/llm/chatResponder.service')
+const { tryGetChatReply } = require('../services/llm/chatResponder.service')
 
 const DEFAULT_TITLE = 'New Chat'
 
@@ -253,22 +253,22 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
   }
 
   let assistantContent = 'I couldn\'t generate a reply right now. Please try again.'
-  try {
-    const systemContext = await buildSessionContext(session, userId)
-    const recentMessages = await ChatMessageModel.find({ sessionId })
-      .sort({ createdAt: 1 })
-      .lean()
-    const chatMessages = recentMessages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({ role: m.role, content: m.content || '' }))
-    const apiMessages = [
-      { role: 'system', content: systemContext },
-      ...chatMessages.slice(-20)
-    ]
-    const reply = await getChatReply({ messages: apiMessages, temperature: 0.6, max_tokens: 1024 })
-    if (reply) assistantContent = reply
-  } catch (e) {
+  const systemContext = await buildSessionContext(session, userId)
+  const recentMessages = await ChatMessageModel.find({ sessionId })
+    .sort({ createdAt: 1 })
+    .lean()
+  const chatMessages = recentMessages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({ role: m.role, content: m.content || '' }))
+  const apiMessages = [
+    { role: 'system', content: systemContext },
+    ...chatMessages.slice(-20)
+  ]
+  const { result: chatResult, error: chatError } = await tryGetChatReply({ messages: apiMessages, temperature: 0.6, max_tokens: 1024 })
+  if (chatError) {
     assistantContent = 'Sorry, I had trouble responding. Please try again.'
+  } else if (chatResult.reply) {
+    assistantContent = chatResult.reply
   }
 
   const assistantMsg = new ChatMessageModel({ sessionId, role: 'assistant', content: assistantContent })

@@ -6,32 +6,32 @@ const { getBuiltInSeedTemplates } = require("../utils/builtInTemplates");
 
 exports.getTemplates = asyncErrorHandler(async (req, res) => {
   const templates = await TemplateModel.find({}).sort({ isBuiltIn: -1, updatedAt: -1 });
-  sendJsonResult(res, 200, templates);
+  sendJsonResult(res, true, templates);
 });
 exports.getTemplate = asyncErrorHandler(async (req, res) => {
   const template = await TemplateModel.findById(req.params.id);
-  sendJsonResult(res, 200, template);
+  sendJsonResult(res, true, template);
 });
 exports.createTemplate = asyncErrorHandler(async (req, res) => {
   const { name, data, note, description, layoutMode } = req.body;
   if (!name || !data) {
-    return sendJsonResult(res, 400, null, "Name and data are required");
+    return sendJsonResult(res, false, null, "Name and data are required", 400);
   }
   if (await TemplateModel.exists({ name })) {
-    return sendJsonResult(res, 400, null, "Template with this name already exists");
+    return sendJsonResult(res, false, null, "Template with this name already exists", 400);
   }
   const newTemplate = new TemplateModel({ name, data, note, description, layoutMode });
   await newTemplate.save();
-  sendJsonResult(res, 201, null, "Template created successfully");
+  sendJsonResult(res, true, null, "Template created successfully", 201);
 });
 exports.updateTemplate = asyncErrorHandler(async (req, res) => {
   const { name, data, note, description, layoutMode } = req.body;
   if (!name || !data) {
-    return sendJsonResult(res, 400, null, "Name and data are required");
+    return sendJsonResult(res, false, null, "Name and data are required", 400);
   }
   const template = await TemplateModel.findById(req.params.id);
   if (!template) {
-    return sendJsonResult(res, 404, null, "Template not found");
+    return sendJsonResult(res, false, null, "Template not found", 404);
   }
   template.name = name;
   template.data = data;
@@ -39,15 +39,15 @@ exports.updateTemplate = asyncErrorHandler(async (req, res) => {
   template.description = description ?? template.description;
   if (layoutMode) template.layoutMode = layoutMode;
   await template.save();
-  sendJsonResult(res, 200, template, "Template updated successfully");
+  sendJsonResult(res, true, template, "Template updated successfully");
 });
 exports.deleteTemplate = asyncErrorHandler(async (req, res) => {
   await TemplateModel.findByIdAndDelete(req.params.id);
-  sendJsonResult(res, 200, null, "Template deleted successfully");
+  sendJsonResult(res, true, null, "Template deleted successfully");
 });
 exports.clearTemplates = asyncErrorHandler(async (req, res) => {
   await TemplateModel.deleteMany({});
-  sendJsonResult(res, 200, null, "Templates cleared successfully");
+  sendJsonResult(res, true, null, "Templates cleared successfully");
 });
 
 exports.seedTemplates = asyncErrorHandler(async (req, res) => {
@@ -59,7 +59,7 @@ exports.seedTemplates = asyncErrorHandler(async (req, res) => {
     await TemplateModel.insertMany(toInsert);
   }
   const all = await TemplateModel.find({}).sort({ isBuiltIn: -1, updatedAt: -1 });
-  sendJsonResult(res, 200, all, `Seeded ${toInsert.length} built-in templates`);
+  sendJsonResult(res, true, all, `Seeded ${toInsert.length} built-in templates`);
 });
 
 exports.migrateBuiltInTemplates = asyncErrorHandler(async (req, res) => {
@@ -89,5 +89,5 @@ exports.migrateBuiltInTemplates = asyncErrorHandler(async (req, res) => {
       migrated++;
     }
   }
-  sendJsonResult(res, 200, { migrated }, `Migrated ${migrated} resumes`);
+  sendJsonResult(res, true, { migrated }, `Migrated ${migrated} resumes`);
 });

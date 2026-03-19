@@ -32,7 +32,7 @@ exports.generateJWT = (payload, header = {}) => {
   return jwt.sign(payload, exports.getJwtSecret(), {
     header,
     algorithm: 'HS256',
-    expiresIn: Date.now() + 15 * 60 * 1000
+    expiresIn: '15m',
   })
 }
 

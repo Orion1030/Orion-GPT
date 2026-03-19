@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken')
 const asyncErrorHandler = require('./asyncErrorHandler')
-const { UserModel } = require('../dbModels')
+const { UserModel, ProfileModel } = require('../dbModels')
 const { sendJsonResult, getJwtSecret } = require('../utils')
 
 exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
@@ -24,7 +24,7 @@ exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
   req.user = user
 
   if (decodedData.profileId) {
-    const profile = await UserModel.findOne({ _id: decodedData.profileId })
+    const profile = await ProfileModel.findOne({ _id: decodedData.profileId })
     if (!profile) return sendJsonResult(res, false, null, 'Profile not found', 404)
     req.profile = profile
   }

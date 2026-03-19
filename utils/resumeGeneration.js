@@ -44,9 +44,19 @@ async function generateResumeJsonFromJD({ jd, profile, baseResume }) {
   return normalizeResumeJson(parsedResume || { name: "Generated Resume", summary: "", experiences: [], skills: [] });
 }
 
+async function tryGenerateResumeJsonFromJD({ jd, profile, baseResume }) {
+  try {
+    const resume = await generateResumeJsonFromJD({ jd, profile, baseResume });
+    return { result: { resume }, error: null };
+  } catch (e) {
+    return { result: null, error: { message: "Generation failed. Please try again.", statusCode: 502 } };
+  }
+}
+
 module.exports = {
   sanitizeStr,
   normalizeResumeJson,
   generateResumeJsonFromJD,
+  tryGenerateResumeJsonFromJD,
 };
 

@@ -6,10 +6,15 @@ const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFr
 const fetch = global.fetch;
 const { ProfileModel } = require("../dbModels");
 const { refreshResumeEmbedding } = require("../services/resumeEmbedding.service");
-const { generateResumeJsonFromJD } = require("../utils/resumeGeneration");
-const { normalizeParsedJD, parseJobDescriptionWithLLM, createJobDescriptionRecordWithEmbedding } = require("../utils/jdParsing");
-const { findTopResumesCore } = require("../services/findTopResumes");
-const { refineResumeWithFeedback } = require("../services/llm/resumeRefine.service");
+const { tryGenerateResumeJsonFromJD } = require("../utils/resumeGeneration");
+const { tryRefineResumeWithFeedback } = require("../services/llm/resumeRefine.service");
+const { tryParseResumeTextWithLLM } = require("../utils/parseResume");
+const {
+  resolveJdContext,
+  tryParseAndPersistJobDescription,
+  tryFindTopResumesForJobDescription,
+  toPublicParsedJD,
+} = require("../services/jdImport.service");
 function mapPayloadToModel(payload, userId) {
   const profileId = payload.profile?.id ?? payload.profileId;
   const templateId = payload.template?.id ?? payload.templateId;
@@ -43,7 +48,7 @@ exports.createResume = asyncErrorHandler(async (req, res, next) => {
 
   const newResume = new ResumeModel(data);
   await newResume.save();
-  await refreshResumeEmbedding(newResume._id).catch(() => {});
+  await refreshResumeEmbedding(newResume._id).catch(() => { });
   const populated = await ResumeModel.findById(newResume._id)
     .populate('profileId')
     .populate('templateId')
@@ -123,7 +128,7 @@ exports.updateResume = asyncErrorHandler(async (req, res, next) => {
   if (!updatedResume) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
-  await refreshResumeEmbedding(resumeId).catch(() => {});
+  await refreshResumeEmbedding(resumeId).catch(() => { });
   const withEmbedding = await ResumeModel.findById(resumeId)
     .populate('profileId')
     .populate('templateId')
@@ -244,21 +249,12 @@ exports.parseTextResume = asyncErrorHandler(async (req, res, next) => {
     return sendJsonResult(res, false, null, "Input too large. Please trim the file.", 413);
   }
 
-  // Build a deterministic prompt asking for strict JSON
-  const systemPrompt = `You are a resume parsing assistant. Extract structured resume data as JSON with keys: profile, summary, skills, meta. The profile must include: fullName, title, contactInfo (email, phone, linkedin, address), experiences (array of { roleTitle, companyName, startDate, endDate, keyPoints }), educations (array of { universityName, degreeLevel, major, startDate, endDate }). The meta object must include confidence (0..1) and missingFields (array). Use null for unknown values. Reply ONLY with valid JSON.`;
-  const userPrompt = `Parse the following resume text and return the JSON described above. Text:\n\n${text}`;
-
-  // Delegate parsing to shared util to keep parsing logic in one place
-  let parsed = null;
-  try {
-    const { parseResumeTextWithLLM } = require('../utils/parseResume');
-    parsed = await parseResumeTextWithLLM(text);
-    if (!parsed) {
-      return sendJsonResult(res, false, null, "Failed to parse resume text", 502);
-    }
-  } catch (e) {
-    return sendJsonResult(res, false, null, "LLM request failed", 502);
+  const { result: parseResult, error: parseError } = await tryParseResumeTextWithLLM(text);
+  if (parseError) {
+    return sendJsonResult(res, false, null, parseError.message, parseError.statusCode || 500);
   }
+
+  let parsed = parseResult.parsed;
 
   // Basic validation/coerce
   parsed = parsed || {};
@@ -361,12 +357,11 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
     baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId }).populate("profileId").lean();
   }
 
-  try {
-    const resume = await generateResumeJsonFromJD({ jd, profile, baseResume });
-    return sendJsonResult(res, true, { resume }, null, 200);
-  } catch (e) {
-    return sendJsonResult(res, false, null, "Generation failed. Please try again.", 502);
+  const { result: genResult, error: genError } = await tryGenerateResumeJsonFromJD({ jd, profile, baseResume });
+  if (genError) {
+    return sendJsonResult(res, false, null, genError.message, genError.statusCode || 500);
   }
+  return sendJsonResult(res, true, { resume: genResult.resume }, null, 200);
 });
 
 /** Refine resume with user feedback (delta editor). */
@@ -376,55 +371,11 @@ exports.refineResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "resumeContent and feedback are required", 400);
   }
 
-  // LLM refine is handled by a dedicated service.
-  try {
-    const content = await refineResumeWithFeedback({ resumeContent, feedback });
-    return sendJsonResult(res, true, { content }, null, 200);
-  } catch (e) {
+  const { result: refineResult, error: refineError } = await tryRefineResumeWithFeedback({ resumeContent, feedback });
+  if (refineError) {
     return sendJsonResult(res, true, { content: resumeContent }, null, 200);
   }
-});
-
-/** Parse job description text using LLM. */
-exports.parseJD = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id;
-  const { context, text } = req.body || {};
-  const jdContext = typeof context === "string" ? context : text;
-  if (!jdContext || typeof jdContext !== "string" || !jdContext.trim()) {
-    return sendJsonResult(res, false, null, "Context is required", 400);
-  }
-  if (jdContext.length > 100 * 1024) {
-    return sendJsonResult(res, false, null, "Input too large", 413);
-  }
-
-  try {
-    const parsed = await parseJobDescriptionWithLLM(jdContext);
-    if (!parsed) {
-      return sendJsonResult(res, false, null, "Failed to parse JD", 502);
-    }
-    const normalized = normalizeParsedJD(parsed, jdContext);
-    return sendJsonResult(res, true, { parsed: normalized }, null, 200);
-  } catch (e) {
-    return sendJsonResult(res, false, null, "LLM parse failed", 502);
-  }
-});
-
-/** Store parsed JD with normalization + optional embedding. */
-exports.storeJD = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id;
-  const { parsed } = req.body || {};
-  if (!parsed || typeof parsed !== "object") {
-    return sendJsonResult(res, false, null, "Parsed JD is required", 400);
-  }
-
-  const normalized = normalizeParsedJD(parsed, parsed.context || parsed.rawText || "");
-  const { jdId } = await createJobDescriptionRecordWithEmbedding({
-    userId,
-    parsed: normalized,
-    context: normalized.context || "",
-  });
-
-  return sendJsonResult(res, true, { jdId }, null, 201);
+  return sendJsonResult(res, true, { content: refineResult.content }, null, 200);
 });
 
 /** Find top resumes for a JD and profile. */
@@ -435,11 +386,11 @@ exports.findTopResumes = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "jdId is required", 400);
   }
 
-  const { topResumes, error } = await findTopResumesCore(userId, jdId, profileId);
+  const { result, error } = await tryFindTopResumesForJobDescription({ userId, jdId, profileId });
   if (error) {
-    return sendJsonResult(res, false, null, error, 404);
+    return sendJsonResult(res, false, null, error.message, error.statusCode || 500);
   }
-  return sendJsonResult(res, true, { topResumes }, null, 200);
+  return sendJsonResult(res, true, { topResumes: result.topResumes }, null, 200);
 });
 
 /**
@@ -448,8 +399,8 @@ exports.findTopResumes = asyncErrorHandler(async (req, res) => {
  */
 exports.importJdAndMatch = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id;
-  const { profileId, context, text } = req.body || {};
-  const jdContext = typeof context === "string" ? context : text;
+  const { profileId } = req.body || {};
+  const jdContext = resolveJdContext(req.body);
   if (!jdContext || typeof jdContext !== "string" || !jdContext.trim()) {
     return sendJsonResult(res, false, null, "Context is required", 400);
   }
@@ -460,44 +411,28 @@ exports.importJdAndMatch = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Input too large", 413);
   }
 
-  try {
-    const parsed = await parseJobDescriptionWithLLM(jdContext);
-    if (!parsed) {
-      return sendJsonResult(res, false, null, "Failed to parse JD", 502);
-    }
-    const normalized = normalizeParsedJD(parsed, jdContext);
-
-    const { jdId } = await createJobDescriptionRecordWithEmbedding({
-      userId,
-      parsed: normalized,
-      context: jdContext,
-    });
-
-    const { topResumes, error } = await findTopResumesCore(userId, jdId, profileId);
-    if (error) {
-      return sendJsonResult(res, false, null, error, 404);
-    }
-
-    return sendJsonResult(
-      res,
-      true,
-      {
-        jdId,
-        parsed: {
-          title: normalized.title,
-          company: normalized.company,
-          skills: normalized.skills,
-          requirements: normalized.requirements,
-          responsibilities: normalized.responsibilities,
-        },
-        topResumes: topResumes || [],
-      },
-      null,
-      200
-    );
-  } catch (e) {
-    return sendJsonResult(res, false, null, "LLM parse failed", 502);
+  const { result: jdResult, error: jdError } = await tryParseAndPersistJobDescription({ userId, jdContext });
+  if (jdError) {
+    return sendJsonResult(res, false, null, jdError.message, jdError.statusCode || 500);
   }
+
+  const { jdId, parsed } = jdResult;
+  const { result: topResult, error: topError } = await tryFindTopResumesForJobDescription({ userId, jdId, profileId });
+  if (topError) {
+    return sendJsonResult(res, false, null, topError.message, topError.statusCode || 500);
+  }
+
+  return sendJsonResult(
+    res,
+    true,
+    {
+      jdId,
+      parsed: toPublicParsedJD(parsed),
+      topResumes: topResult.topResumes,
+    },
+    null,
+    200
+  );
 });
 
 // Expose helper for tests

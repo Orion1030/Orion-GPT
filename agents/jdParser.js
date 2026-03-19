@@ -1,40 +1,23 @@
-const { ChatMessageModel } = require('../dbModels')
 const { parseJobDescriptionWithLLM, normalizeParsedJD } = require('../utils/jdParsing')
+const { persistParsedJobDescription } = require('../services/jdImport.service')
 
 module.exports = async function jdParser(job, updateProgress) {
-  const context = job.payload?.context
+  const { context } = job.payload || {}
   if (!context) throw new Error('No context in job payload')
-  updateProgress(10)
 
-  let parsed = null
-  try {
-    parsed = await parseJobDescriptionWithLLM(context)
-  } catch (e) {
-    throw e
-  }
+  updateProgress(10)
+  const parsed = await parseJobDescriptionWithLLM(context)
   if (!parsed) throw new Error('Failed to parse JD')
 
-  const normalized = normalizeParsedJD(parsed, context)
+  const normalized = normalizeParsedJD(parsed)
   updateProgress(50)
 
-  // Create assistant message in session for conversational flow if sessionId provided.
-  // if (job.payload && job.payload.sessionId) {
-  //   const assistantContent = `Parsed Job Description:\\nTitle: ${normalized.title || ''}\\nCompany: ${normalized.company || ''}\\nSkills: ${(normalized.skills || []).join(', ')}\\n\\nRequirements:\\n${(normalized.requirements || []).map(r => '- ' + r).join('\\n')}`
-  //   try {
-  //     await ChatMessageModel.create({
-  //       sessionId: job.payload.sessionId,
-  //       role: 'assistant',
-  //       content: assistantContent,
-  //       structuredAssistantPayload: { type: 'job_description', parsed: normalized }
-  //     })
-  //   } catch (e) {
-  //     // ignore message creation errors
-  //   }
-  // }
+  const { jdId } = await persistParsedJobDescription({
+    userId: job.userId,
+    normalized,
+    context,
+  })
+  updateProgress(90, { jdId, parsed: normalized })
 
-  updateProgress(90, { parsed: normalized })
-  // IMPORTANT: do not persist JD/embedding here. The HTTP flow persists via `storeJD`
-  // when the user confirms (avoids duplicate JD records + embeddings).
-  return { parsed: normalized }
+  return { jdId, parsed: normalized }
 }
-

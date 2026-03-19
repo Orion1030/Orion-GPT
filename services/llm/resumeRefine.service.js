@@ -22,5 +22,14 @@ async function refineResumeWithFeedback({ resumeContent, feedback }) {
   return body?.choices?.[0]?.message?.content || resumeContent;
 }
 
-module.exports = { refineResumeWithFeedback };
+async function tryRefineResumeWithFeedback({ resumeContent, feedback }) {
+  try {
+    const content = await refineResumeWithFeedback({ resumeContent, feedback });
+    return { result: { content }, error: null };
+  } catch (e) {
+    return { result: null, error: { message: "Refinement failed", statusCode: 502 } };
+  }
+}
+
+module.exports = { refineResumeWithFeedback, tryRefineResumeWithFeedback };
 

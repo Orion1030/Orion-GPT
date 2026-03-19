@@ -1,7 +1,8 @@
 module.exports = errorHandler => (req, res, next) => {
   Promise.resolve(errorHandler(req, res, next)).catch(err => {
-    console.error('Error in asyncErrorHandler:', err)
-    const errorMessage = err && err.message ? err.message : 'Please try again later.'
-    res.status(400).json({ success: false, msg: errorMessage })
+    console.error('Unhandled error:', err)
+    const statusCode = (err?.statusCode >= 100 && err?.statusCode < 600) ? err.statusCode : 500
+    const errorMessage = err?.message || 'Please try again later.'
+    res.status(statusCode).json({ success: false, msg: errorMessage })
   })
 }

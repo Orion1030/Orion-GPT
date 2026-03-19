@@ -48,9 +48,8 @@ app.use(cookieParser());
 app.use(cors(corsOptions));
 
 // routes middleware
-app.use("/api", authRoutes);
-app.use("/api/user", userRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/user", userRoutes);
 app.use("/api/prompt", promptRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/static", staticRoutes);

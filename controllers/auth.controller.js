@@ -1,10 +1,9 @@
 const { UserModel, RequestModel, ProfileModel } = require('../dbModels')
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
-const { isTokenExpired, sendJsonResult } = require('./../utils')
+const { sendJsonResult, generateJWT, getJwtSecret } = require('../utils')
 const jwt = require('jsonwebtoken')
-const { RoleLevels, RequestTypes } = require('../utils/constants')
+const { RequestTypes } = require('../utils/constants')
 require('dotenv').config()
-const { generateJWT, getJwtSecret } = require('../utils')
 
 exports.signin = asyncErrorHandler(async (req, res, next) => {
   const { name, password, profileName } = req.body
@@ -33,30 +32,21 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
 
 exports.signup = asyncErrorHandler(async (req, res) => {
   const { name, password, confirmPassword, role, team } = req.body
-  let user = await UserModel.findOne({ name })
-  if (user) {
+  const existing = await UserModel.findOne({ name })
+  if (existing) {
     return sendJsonResult(res, false, null, 'Existing user', 400)
-  } else {
-    if (password !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
+  }
+  if (password !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
 
-    if (!user) {
-      user = new UserModel({ name, password, role, team })
-      await user.save()
-    } else {
-      user.currentCompany = newCompany.id
-      user.password = password
-      user.name = name,
-      user.role = role
-      await user.save()
-    }
-    var signupRequest = new RequestModel({
+  const user = new UserModel({ name, password, role, team })
+  await user.save()
+  const signupRequest = new RequestModel({
     from: user._id,
     type: RequestTypes.SIGNUP,
-    message: `Signup request from ${name}`
+    message: `Signup request from ${name}`,
   })
   await signupRequest.save()
-    return sendJsonResult(res, true, null, 'Please wait for admin approval', 201)
-  }
+  return sendJsonResult(res, true, null, 'Please wait for admin approval', 201)
 })
 
 exports.forgotPassword = asyncErrorHandler(async (req, res, next) => {
@@ -79,16 +69,12 @@ exports.resetPassword = asyncErrorHandler(async (req, res, next) => {
   if (newPassword !== confirmPassword) {
     return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
   }
+  // jwt.verify throws TokenExpiredError automatically if the token is past its exp claim
   const decodedData = jwt.verify(token, getJwtSecret())
 
   const user = await UserModel.findOne({ _id: decodedData.id })
-
   if (!user) {
     return sendJsonResult(res, false, null, 'Invalid reset password token', 400)
-  }
-
-  if (isTokenExpired(decodedData.expiresIn)) {
-    return sendJsonResult(res, false, null, 'Unauthorized', 401)
   }
 
   user.password = newPassword
@@ -113,7 +99,7 @@ exports.acceptInvitation = asyncErrorHandler(async (req, res, next) => {
 
   const newToken = jwt.sign({ email: user.email, id: user.id }, getJwtSecret(), {
     algorithm: 'HS256',
-    expiresIn: Date.now() + 15 * 60 * 1000
+    expiresIn: '15m',
   })
   return sendJsonResult(res, true, { token: newToken}, 'You have successfully registered')
 })
