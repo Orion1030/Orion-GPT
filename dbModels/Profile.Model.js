@@ -4,6 +4,8 @@ const { StatusCodes } = require('../utils/constants')
 const contactInfoSchema = new mongoose.Schema({
   email: { type: String },
   linkedin: { type: String },
+  github: { type: String },
+  website: { type: String },
   phone: { type: String },
   address: { type: String }
 }, { _id: false })

@@ -1,4 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
+const { REFINE_MODEL } = require("../../config/llm");
 
 async function refineResumeWithFeedback({ resumeContent, feedback }) {
   if (!resumeContent || !feedback || typeof feedback !== "string") {
@@ -10,7 +11,7 @@ async function refineResumeWithFeedback({ resumeContent, feedback }) {
   const userPrompt = `Current resume:\n\n${resumeContent}\n\nUser feedback (apply only this): ${feedback}\n\nOutput the full revised resume below.`;
 
   const body = await chatCompletions({
-    model: "gpt-4o",
+    model: REFINE_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

@@ -1,8 +1,9 @@
 const { chatCompletions } = require("./openaiClient");
+const { CHAT_MODEL } = require("../../config/llm");
 
 async function getChatReply({ messages, temperature = 0.6, max_tokens = 1024 }) {
   const body = await chatCompletions({
-    model: "gpt-4o-mini",
+    model: CHAT_MODEL,
     messages,
     temperature,
     max_tokens,

@@ -1,4 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
+const { PARSE_MODEL } = require("../../config/llm");
 
 async function parseResumeTextWithLLM(text) {
   const systemPrompt =
@@ -77,7 +78,7 @@ async function parseResumeTextWithLLM(text) {
   ];
 
   const body = await chatCompletions({
-    model: "gpt-4.1",
+    model: PARSE_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

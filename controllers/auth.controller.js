@@ -1,6 +1,6 @@
 const { UserModel, RequestModel, ProfileModel } = require('../dbModels')
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
-const { sendJsonResult, generateJWT, getJwtSecret } = require('../utils')
+const { sendJsonResult, generateJWT, generateRefreshToken, verifyRefreshToken, getJwtSecret } = require('../utils')
 const jwt = require('jsonwebtoken')
 const { RequestTypes } = require('../utils/constants')
 require('dotenv').config()
@@ -8,7 +8,7 @@ require('dotenv').config()
 exports.signin = asyncErrorHandler(async (req, res, next) => {
   const { name, password, profileName } = req.body
   const user = await UserModel.findOne({ name: name, isActive: true })
-  let token = null
+  let accessToken = null
   if (!user) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }
@@ -17,17 +17,43 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }
 
+  const jwtPayload = { id: user.id, createdAt: Date.now() }
   if (profileName) {
     const profileData = await ProfileModel.findOne({ userId: user._id, name: profileName })
     if (!profileData) {
       return sendJsonResult(res, false, null, 'Invalid profile', 401)
     }
-    token = generateJWT({ id: user.id, createdAt: Date.now(), profileId: profileData._id })
+    jwtPayload.profileId = profileData._id
   }
-  else {
-    token = generateJWT({ id: user.id, createdAt: Date.now() })
+
+  accessToken = generateJWT(jwtPayload)
+  const refreshToken = generateRefreshToken({ id: user.id })
+
+  sendJsonResult(res, true, { token: accessToken, refreshToken }, 'Login successful', 201);
+})
+
+exports.refresh = asyncErrorHandler(async (req, res) => {
+  const { refreshToken } = req.body
+  if (!refreshToken) {
+    return sendJsonResult(res, false, null, 'Refresh token required', 400)
   }
-  sendJsonResult(res, true, { token }, 'Login successful', 201);
+
+  let decoded
+  try {
+    decoded = verifyRefreshToken(refreshToken)
+  } catch {
+    return sendJsonResult(res, false, null, 'Invalid or expired refresh token', 401)
+  }
+
+  const user = await UserModel.findOne({ _id: decoded.id })
+  if (!user) {
+    return sendJsonResult(res, false, null, 'User not found', 401)
+  }
+
+  const accessToken = generateJWT({ id: user.id, createdAt: Date.now() })
+  const newRefreshToken = generateRefreshToken({ id: user.id })
+
+  sendJsonResult(res, true, { token: accessToken, refreshToken: newRefreshToken }, 'Token refreshed')
 })
 
 exports.signup = asyncErrorHandler(async (req, res) => {

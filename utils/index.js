@@ -36,3 +36,18 @@ exports.generateJWT = (payload, header = {}) => {
   })
 }
 
+exports.generateRefreshToken = (payload) => {
+  return jwt.sign({ ...payload, type: 'refresh' }, exports.getJwtSecret(), {
+    algorithm: 'HS256',
+    expiresIn: '7d',
+  })
+}
+
+exports.verifyRefreshToken = (token) => {
+  const decoded = jwt.verify(token, exports.getJwtSecret())
+  if (decoded.type !== 'refresh') {
+    throw new Error('Not a refresh token')
+  }
+  return decoded
+}
+

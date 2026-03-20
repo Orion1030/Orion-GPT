@@ -5,7 +5,8 @@ const { sendJsonResult, getJwtSecret } = require('../utils')
 
 exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
   const authHeader = req.headers.authorization
-  const token = authHeader && authHeader.split(' ')[1]
+  // Allow token via query param for SSE endpoints (EventSource can't set headers)
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token
 
   if (!token) {
     return sendJsonResult(res, false, null, 'Please Login', 401)
@@ -15,7 +16,6 @@ exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
   try {
     decodedData = jwt.verify(token, getJwtSecret())
   } catch (err) {
-    await UserModel.updateOne({ token }, { $set: { token: '' } })
     return sendJsonResult(res, false, null, 'Invalid or expired token', 401)
   }
 

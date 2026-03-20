@@ -7,17 +7,21 @@ const { RoleLevels } = require('../utils/constants')
 const {
   getAllResumes, getResume, getResumeByProfileAndId,
   createResume, updateResume, deleteResume, clearResume,
-  downloadResume, downloadResumeFromHtml, parseTextResume,
-  importJdAndMatch, generateResumeFromJD, refineResume,
+  downloadResume, downloadResumeFromHtml,
 } = require('../controllers/resume.controller')
+const {
+  parseTextResume, importJdAndMatch, generateResumeFromJD, refineResume,
+} = require('../controllers/resumeAI.controller')
 const { requireNoRunningJob, requireNoRunningJobOfType } = require('../middlewares/requireNoRunningJob')
+const { createResumeRules, generateResumeRules, refineResumeRules, jdParsingRules } = require('../validators/resume.validator')
+const { validate } = require('../middlewares/validate')
 
 const router = express.Router()
 
 const auth = [isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User])]
 
 router.route('/').get(...auth, getAllResumes)
-router.route('/').post(...auth, createResume)
+router.route('/').post(...auth, createResumeRules, validate, createResume)
 router.route('/').delete(...auth, clearResume)
 
 router.route('/download/:resumeId').get(...auth, downloadResume)
@@ -30,9 +34,9 @@ router.route('/parse-text').post(...auth, parseTextResume)
 
 // JD-based resume flow (used by resume creation UI; not part of chat)
 // Each route blocks only on job types that would conflict with its work.
-router.post('/jdparsing',       ...auth, requireNoRunningJobOfType('parse_jd', 'generate_resume'), importJdAndMatch)
-router.post('/generate-resume', ...auth, requireNoRunningJobOfType('generate_resume'),             generateResumeFromJD)
-router.post('/refine-resume',   ...auth, refineResume)
+router.post('/jdparsing',       ...auth, jdParsingRules, validate, requireNoRunningJobOfType('parse_jd', 'generate_resume'), importJdAndMatch)
+router.post('/generate-resume', ...auth, generateResumeRules, validate, requireNoRunningJobOfType('generate_resume'), generateResumeFromJD)
+router.post('/refine-resume',   ...auth, refineResumeRules, validate, refineResume)
 
 // Parameterised routes last
 router.route('/:resumeId').get(...auth, getResume)

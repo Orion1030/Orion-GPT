@@ -1,30 +1,55 @@
-require("dotenv").config();
-const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
-const { UserModel } = require("../dbModels");
-const { sendJsonResult } = require("../utils");
-const { APP_URL } = process.env;
-// TODO: Implement reporting functionality
-exports.changePassword = asyncErrorHandler(async (req, res, next) => {
-  const { newPassword, confirmPassword, oldPassword } = req.body;
-  const { user } = req;
-  if (!user) {
-    return sendJsonResult(res, false, null, "User not found", 400);
+require('dotenv').config()
+const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
+const { ApplicationModel, UserModel } = require('../dbModels')
+const { sendJsonResult } = require('../utils')
+const { RoleLevels } = require('../utils/constants')
+
+exports.getReport = asyncErrorHandler(async (req, res) => {
+  const { user } = req
+  const { days = 30 } = req.query
+
+  const since = new Date()
+  since.setDate(since.getDate() - Number(days))
+
+  // Admins/Managers see all users; regular users see only themselves
+  const userFilter = user.role === RoleLevels.User
+    ? [user._id]
+    : (await UserModel.find({ isActive: true }).select('_id')).map(u => u._id)
+
+  const applications = await ApplicationModel.find({
+    userId: { $in: userFilter },
+    createdAt: { $gte: since },
+  }).lean()
+
+  // Aggregate by status
+  const byStatus = applications.reduce((acc, app) => {
+    acc[app.status] = (acc[app.status] || 0) + 1
+    return acc
+  }, {})
+
+  // Aggregate by date
+  const byDate = applications.reduce((acc, app) => {
+    const date = new Date(app.createdAt).toISOString().split('T')[0]
+    acc[date] = (acc[date] || 0) + 1
+    return acc
+  }, {})
+
+  // Aggregate by user (for admins/managers)
+  const byUser = {}
+  if (user.role !== RoleLevels.User) {
+    for (const app of applications) {
+      const uid = String(app.userId)
+      if (!byUser[uid]) byUser[uid] = { total: 0, byStatus: {} }
+      byUser[uid].total++
+      byUser[uid].byStatus[app.status] = (byUser[uid].byStatus[app.status] || 0) + 1
+    }
   }
-  if (!newPassword)
-    return sendJsonResult(res, false, null, "Enter new password", 400);
-  if (newPassword !== confirmPassword)
-    return sendJsonResult(
-      res,
-      false,
-      null,
-      "New password and confirm password doesn't match",
-      400,
-    );
-  const isPasswordMatched = await user.comparePassword(oldPassword);
-  if (isPasswordMatched) user.password = newPassword;
-  else {
-    return sendJsonResult(res, false, null, "Incorrect old password", 400);
-  }
-  await user.save();
-  return sendJsonResult(res, true, null, "Password changed successfully");
-});
+
+  sendJsonResult(res, true, {
+    total: applications.length,
+    days: Number(days),
+    byStatus,
+    byDate,
+    byUser: user.role !== RoleLevels.User ? byUser : undefined,
+  })
+})

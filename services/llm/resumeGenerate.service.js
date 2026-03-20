@@ -1,4 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
+const { GENERATE_MODEL } = require("../../config/llm");
 
 function sanitizeStr(s) {
   if (s == null) return "";
@@ -76,7 +77,7 @@ Use strong action verbs and quantify achievements. Tailor content to the job des
   const userPrompt = `Job Description:\n${jdContext}\n\nCandidate Profile:\n${profileContext}${baseContext}\n\nGenerate the resume as one JSON object (no markdown, no code fence).`;
 
   const body = await chatCompletions({
-    model: "gpt-4o",
+    model: GENERATE_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

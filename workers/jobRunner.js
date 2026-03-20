@@ -1,6 +1,5 @@
 const { JobModel } = require('../dbModels')
 const handlers = {}
-const { JobDescriptionModel, ResumeModel, ProfileModel } = require('../dbModels')
 const log = (...args) => console.log('[jobRunner]', ...args)
 
 // Registerable handlers map (populated by agent modules)

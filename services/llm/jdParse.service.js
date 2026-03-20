@@ -1,4 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
+const { JD_MODEL } = require("../../config/llm");
 
 async function parseJobDescriptionWithLLM(text) {
   if (!text || typeof text !== "string" || !text.trim()) throw new Error("Text is required");
@@ -27,7 +28,7 @@ async function parseJobDescriptionWithLLM(text) {
   ];
 
   const body = await chatCompletions({
-    model: "gpt-4o-mini",
+    model: JD_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
