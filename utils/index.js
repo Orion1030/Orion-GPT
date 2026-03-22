@@ -19,13 +19,26 @@ exports.calculateExpiry = (hours) => {
   return Date.now() + hours * 60 * 60 * 1000
 }
 
-exports.sendJsonResult = (res, status, data = null, message = null, statusCode = 200) => {
-  let returnData = {
-    success: status,
+/**
+ * @param {boolean} success
+ * @param {object} [options] - `{ showNotification?: boolean }` — when set, controls whether the SPA should toast.
+ *   If omitted: errors use `showNotification = (statusCode >= 500)`; successful responses default to `false`.
+ */
+exports.sendJsonResult = (res, success, data = null, message = null, statusCode = 200, options = {}) => {
+  const { showNotification } = options
+  const returnData = {
+    success,
     data,
     message,
   }
-  return res.status(statusCode).json(returnData);
+  if (showNotification !== undefined) {
+    returnData.showNotification = showNotification
+  } else if (!success) {
+    returnData.showNotification = statusCode >= 500
+  } else {
+    returnData.showNotification = false
+  }
+  return res.status(statusCode).json(returnData)
 }
 
 exports.generateJWT = (payload, header = {}) => {

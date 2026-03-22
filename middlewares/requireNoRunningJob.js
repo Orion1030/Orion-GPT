@@ -23,6 +23,7 @@ function buildMiddleware(types) {
           success: false,
           data: null,
           message: 'A job is already in progress. Please wait for it to complete.',
+          showNotification: true,
         })
       }
       next()

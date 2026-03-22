@@ -30,7 +30,12 @@ exports.streamJobEvents = async (req, res) => {
 
   const job = await JobModel.findOne({ _id: jobId, userId }).lean()
   if (!job) {
-    return res.status(404).json({ success: false, message: 'Job not found' })
+    return res.status(404).json({
+      success: false,
+      data: null,
+      message: 'Job not found',
+      showNotification: false,
+    })
   }
 
   res.setHeader('Content-Type', 'text/event-stream')

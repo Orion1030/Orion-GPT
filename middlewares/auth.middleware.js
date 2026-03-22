@@ -36,7 +36,9 @@ exports.permit = (allowedRoles) => {
     if (!user) {
       return sendJsonResult(res, false, null, 'Please Login', 401)
     }
-    if (allowedRoles.findIndex((i) => i == user.role) < 0) { return sendJsonResult(res, false, null, 'Insufficient permission', 403) } 
+    if (allowedRoles.findIndex((i) => i == user.role) < 0) {
+      return sendJsonResult(res, false, null, 'Insufficient permission', 403, { showNotification: true })
+    }
     else next()
   })
 }
