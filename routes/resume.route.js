@@ -11,9 +11,10 @@ const {
 } = require('../controllers/resume.controller')
 const {
   parseTextResume, importJdAndMatch, generateResumeFromJD, refineResume,
+  parseJdAndMatchProfiles, matchResumesForProfile,
 } = require('../controllers/resumeAI.controller')
 const { requireNoRunningJob, requireNoRunningJobOfType } = require('../middlewares/requireNoRunningJob')
-const { createResumeRules, generateResumeRules, refineResumeRules, jdParsingRules } = require('../validators/resume.validator')
+const { createResumeRules, generateResumeRules, refineResumeRules, jdParsingRules, parseJdRules, matchResumesRules } = require('../validators/resume.validator')
 const { validate } = require('../middlewares/validate')
 
 const router = express.Router()
@@ -34,6 +35,12 @@ router.route('/parse-text').post(...auth, parseTextResume)
 
 // JD-based resume flow (used by resume creation UI; not part of chat)
 // Each route blocks only on job types that would conflict with its work.
+
+// New JD-first wizard: parse JD → suggest profiles → select profile → match resumes → generate
+router.post('/parse-jd',        ...auth, parseJdRules, validate, requireNoRunningJobOfType('parse_jd'), parseJdAndMatchProfiles)
+router.post('/match-resumes',   ...auth, matchResumesRules, validate, matchResumesForProfile)
+
+// Legacy combined flow (kept for backwards compatibility)
 router.post('/jdparsing',       ...auth, jdParsingRules, validate, requireNoRunningJobOfType('parse_jd', 'generate_resume'), importJdAndMatch)
 router.post('/generate-resume', ...auth, generateResumeRules, validate, requireNoRunningJobOfType('generate_resume'), generateResumeFromJD)
 router.post('/refine-resume',   ...auth, refineResumeRules, validate, refineResume)

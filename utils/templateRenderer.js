@@ -221,9 +221,7 @@ function applySectionConfig(html, config) {
 function buildRenderData(resume) {
     const profile = resume.profileId && typeof resume.profileId === 'object' ? resume.profileId : {};
     const contactInfo = profile.contactInfo || {};
-    const sourceExperiences = Array.isArray(resume.experiences) && resume.experiences.length
-        ? resume.experiences
-        : (profile.experiences || []);
+    const sourceExperiences = Array.isArray(resume.experiences) ? resume.experiences : [];
 
     const experiences = sourceExperiences.map(exp => {
         const normalized = profileExperienceToResumeExperience(exp);

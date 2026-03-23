@@ -24,26 +24,46 @@ function buildResumeTextForEmbedding(r) {
  */
 async function refreshResumeEmbedding(resumeId) {
   if (!resumeId) return null;
-  try {
-    const r = await ResumeModel.findById(resumeId).lean();
-    if (!r) return null;
-    const text = buildResumeTextForEmbedding(r);
-    if (!text) {
-      await ResumeModel.updateOne({ _id: resumeId }, { $set: { embedding: null } });
-      return null;
-    }
-    const vec = await getEmbedding(text);
-    if (vec && Array.isArray(vec)) {
-      await ResumeModel.updateOne({ _id: resumeId }, { $set: { embedding: vec } });
-      return vec;
-    }
-  } catch (e) {
-    console.warn('[refreshResumeEmbedding]', String(resumeId), e?.message || e);
+  const r = await ResumeModel.findById(resumeId).lean();
+  if (!r) return null;
+  const text = buildResumeTextForEmbedding(r);
+  if (!text) {
+    await ResumeModel.updateOne({ _id: resumeId }, { $set: { embedding: null } });
+    return null;
   }
-  return null;
+  const vec = await getEmbedding(text);
+  if (vec && Array.isArray(vec)) {
+    await ResumeModel.updateOne({ _id: resumeId }, { $set: { embedding: vec } });
+    return vec;
+  }
+  throw new Error('Embedding provider returned invalid vector');
+}
+
+function queueResumeEmbeddingRefresh(resumeId, opts = {}) {
+  const maxAttempts = Number.isInteger(opts.maxAttempts) ? opts.maxAttempts : 3;
+  const retryDelayMs = Number.isInteger(opts.retryDelayMs) ? opts.retryDelayMs : 600;
+
+  // Fire-and-forget on purpose so API responses are not blocked by embedding latency.
+  Promise.resolve().then(async () => {
+    for (let attempt = 1; attempt <= Math.max(1, maxAttempts); attempt++) {
+      try {
+        await refreshResumeEmbedding(resumeId);
+        return;
+      } catch (e) {
+        const isLast = attempt >= maxAttempts;
+        console.warn(
+          `[queueResumeEmbeddingRefresh] ${String(resumeId)} attempt ${attempt}/${maxAttempts} failed:`,
+          e?.message || e
+        );
+        if (isLast) return;
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
+      }
+    }
+  }).catch(() => {});
 }
 
 module.exports = {
   buildResumeTextForEmbedding,
   refreshResumeEmbedding,
+  queueResumeEmbeddingRefresh,
 };

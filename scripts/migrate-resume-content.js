@@ -33,7 +33,7 @@ async function main() {
       try {
         const profile = await Resume.populate(r, { path: 'profileId' }).then(doc => doc.profileId);
         const prof = profile || {};
-        const profExps = Array.isArray(prof.experiences) ? prof.experiences : [];
+        const profExps = Array.isArray(prof.careerHistory) ? prof.careerHistory : [];
         if (profExps.length) {
           updates.experiences = profExps.map((exp) => ({
             title: exp.roleTitle || exp.title || '',

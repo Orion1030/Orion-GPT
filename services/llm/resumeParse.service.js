@@ -3,7 +3,7 @@ const { PARSE_MODEL } = require("../../config/llm");
 
 async function parseResumeTextWithLLM(text) {
   const systemPrompt =
-    "You are a resume parsing assistant. Extract structured resume data as JSON with keys: profile, summary, skills, meta. The profile must include: fullName, title, contactInfo (email, phone, linkedin, address), experiences (array of { roleTitle, companyName, startDate, endDate, keyPoints }), educations (array of { universityName, degreeLevel, major, startDate, endDate }). The meta object must include confidence (0..1) and missingFields (array). Use null for unknown values. Reply ONLY with valid JSON.";
+    "You are a resume parsing assistant. Extract structured resume data as JSON with keys: profile, summary, skills, meta. The profile must include: fullName, title, contactInfo (email, phone, linkedin, address), careerHistory (array of { roleTitle, companyName, startDate, endDate, keyPoints }), educations (array of { universityName, degreeLevel, major, startDate, endDate }). The meta object must include confidence (0..1) and missingFields (array). Use null for unknown values. Reply ONLY with valid JSON.";
 
   const userPrompt = `Parse the following resume text and return the JSON described above. Text:\n\n${text}`;
 
@@ -29,7 +29,7 @@ async function parseResumeTextWithLLM(text) {
                 },
                 additionalProperties: true,
               },
-              experiences: {
+              careerHistory: {
                 type: "array",
                 items: {
                   type: "object",

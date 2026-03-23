@@ -27,7 +27,7 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     title,
     link,
     contactInfo,
-    experiences,
+    careerHistory,
     educations,
     status
   } = req.body;
@@ -39,7 +39,7 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     title,
     link,
     contactInfo,
-    experiences,
+    careerHistory,
     educations,
     status
   });
@@ -56,7 +56,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
     title,
     link,
     contactInfo,
-    experiences,
+    careerHistory,
     educations,
     status
   } = req.body;
@@ -71,7 +71,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   profile.title = title;
   profile.link = link;
   profile.contactInfo = contactInfo;
-  profile.experiences = experiences;
+  profile.careerHistory = careerHistory;
   profile.educations = educations;
   if (status !== undefined) profile.status = status;
 

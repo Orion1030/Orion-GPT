@@ -41,7 +41,7 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
     5
   ).join("\n")}`;
 
-  const profileContext = `Candidate: ${profile.fullName}\nTitle: ${profile.title}\nExperiences: ${(profile.experiences || [])
+  const profileContext = `Candidate: ${profile.fullName}\nTitle: ${profile.title}\nExperiences: ${(profile.careerHistory || [])
     .map((e) => `${e.roleTitle} at ${e.companyName}: ${(e.keyPoints || []).slice(0, 2).join("; ")}`)
     .join("\n")}`;
 

@@ -24,3 +24,13 @@ exports.jdParsingRules = [
   body('context').optional().isString(),
   body('text').optional().isString(),
 ];
+
+exports.parseJdRules = [
+  body('context').optional().isString(),
+  body('text').optional().isString(),
+];
+
+exports.matchResumesRules = [
+  body('jdId').notEmpty().withMessage('jdId is required'),
+  body('profileId').notEmpty().withMessage('profileId is required'),
+];

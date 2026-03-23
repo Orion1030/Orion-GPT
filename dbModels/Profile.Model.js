@@ -10,7 +10,7 @@ const contactInfoSchema = new mongoose.Schema({
   address: { type: String }
 }, { _id: false })
 
-const experienceSchema = new mongoose.Schema({
+const careerHistorySchema = new mongoose.Schema({
   companyName: { type: String, required: true },
   roleTitle: { type: String, required: true },
   startDate: { type: Date, required: true },
@@ -54,7 +54,7 @@ const profileSchema = new mongoose.Schema(
       trim: true
     },
     contactInfo: contactInfoSchema,
-    experiences: [experienceSchema],
+    careerHistory: [careerHistorySchema],
     educations: [educationSchema],
     status: {
       type: Number,

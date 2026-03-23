@@ -184,8 +184,8 @@ async function buildSessionContext(session, userId) {
     const profile = await ProfileModel.findOne({ _id: session.profileId, userId }).lean()
     if (profile) {
       parts.push(`\nCurrent profile: ${profile.fullName || profile.name || 'Candidate'}, Title: ${profile.title || 'N/A'}.`)
-      if (profile.experiences && profile.experiences.length) {
-        parts.push(' Experiences: ' + profile.experiences.slice(0, 3).map(e => `${e.roleTitle} at ${e.companyName}`).join('; ') + '.')
+      if (profile.careerHistory && profile.careerHistory.length) {
+        parts.push(' Experiences: ' + profile.careerHistory.slice(0, 3).map(e => `${e.roleTitle} at ${e.companyName}`).join('; ') + '.')
       }
     }
   }

@@ -4,7 +4,7 @@
  * all side-effects (Resume creation, embedding refresh, ChatMessage) here.
  */
 const { ResumeModel, ChatMessageModel } = require('../dbModels')
-const { refreshResumeEmbedding } = require('./resumeEmbedding.service')
+const { queueResumeEmbeddingRefresh } = require('./resumeEmbedding.service')
 
 /**
  * Save a generated resume document and, when a chat session is active,
@@ -21,7 +21,7 @@ async function persistGeneratedResume({ userId, profileId, resume, sessionId, pr
     pageFrameConfig: resume.pageFrameConfig || null,
   })
   await doc.save()
-  await refreshResumeEmbedding(doc._id).catch(() => {})
+  queueResumeEmbeddingRefresh(doc._id, { maxAttempts: 3 })
 
   if (sessionId) {
     await ChatMessageModel.create({

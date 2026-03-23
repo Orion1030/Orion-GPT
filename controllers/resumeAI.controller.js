@@ -10,6 +10,7 @@ const {
   resolveJdContext,
   tryParseAndPersistJobDescription,
   tryFindTopResumesForJobDescription,
+  tryFindTopProfilesForJobDescription,
   toPublicParsedJD,
 } = require("../services/jdImport.service");
 
@@ -57,14 +58,14 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
   };
 
   const normalizeCompany = (s) => normalizeName(String(s || ""));
-  const parsedExps = Array.isArray(parsed.profile?.experiences) ? parsed.profile.experiences : [];
+  const parsedExps = Array.isArray(parsed.profile?.careerHistory) ? parsed.profile.careerHistory : [];
   const parsedKeys = new Set(
     parsedExps.map((e) => `${normalizeCompany(e.companyName)}|${yearOf(e.startDate)}|${yearOf(e.endDate)}`)
   );
 
   const strictMatches = [];
   for (const p of profiles) {
-    const pExps = Array.isArray(p.experiences) ? p.experiences : [];
+    const pExps = Array.isArray(p.careerHistory) ? p.careerHistory : [];
     if (pExps.length !== parsedExps.length) continue;
     const pKeys = new Set(
       pExps.map((e) => `${normalizeCompany(e.companyName)}|${yearOf(e.startDate)}|${yearOf(e.endDate)}`)
@@ -144,6 +145,56 @@ exports.findTopResumes = asyncErrorHandler(async (req, res) => {
   const { jdId, profileId } = req.body || {};
   if (!jdId) {
     return sendJsonResult(res, false, null, "jdId is required", 400);
+  }
+
+  const { result, error } = await tryFindTopResumesForJobDescription({ userId, jdId, profileId });
+  if (error) {
+    return sendJsonResult(res, false, null, error.message, error.statusCode || 500);
+  }
+  return sendJsonResult(res, true, { topResumes: result.topResumes }, null, 200);
+});
+
+/**
+ * Parse JD (no profileId required) + find top matching profiles in one call.
+ * New JD-first wizard entry point. Body: { context }. Returns { jdId, parsed, topProfiles }.
+ */
+exports.parseJdAndMatchProfiles = asyncErrorHandler(async (req, res) => {
+  const userId = req.user._id;
+  const jdContext = resolveJdContext(req.body);
+  if (!jdContext || typeof jdContext !== "string" || !jdContext.trim()) {
+    return sendJsonResult(res, false, null, "Context is required", 400);
+  }
+  if (jdContext.length > 100 * 1024) {
+    return sendJsonResult(res, false, null, "Input too large", 413);
+  }
+
+  const { result: jdResult, error: jdError } = await tryParseAndPersistJobDescription({ userId, jdContext });
+  if (jdError) {
+    return sendJsonResult(res, false, null, jdError.message, jdError.statusCode || 500);
+  }
+
+  const { jdId, parsed } = jdResult;
+  const { result: profilesResult, error: profilesError } = await tryFindTopProfilesForJobDescription({ userId, jdId });
+  if (profilesError) {
+    return sendJsonResult(res, false, null, profilesError.message, profilesError.statusCode || 500);
+  }
+
+  return sendJsonResult(res, true, {
+    jdId,
+    parsed: toPublicParsedJD(parsed),
+    topProfiles: profilesResult.topProfiles,
+  }, null, 200);
+});
+
+/**
+ * Find top matching resumes for a given JD + selected profile (second step of the new wizard).
+ * Body: { jdId, profileId }. Returns { topResumes }.
+ */
+exports.matchResumesForProfile = asyncErrorHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { jdId, profileId } = req.body || {};
+  if (!jdId || !profileId) {
+    return sendJsonResult(res, false, null, "jdId and profileId are required", 400);
   }
 
   const { result, error } = await tryFindTopResumesForJobDescription({ userId, jdId, profileId });

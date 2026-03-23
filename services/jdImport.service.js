@@ -4,6 +4,7 @@ const {
   getJobDescriptionEmbedding,
 } = require("../utils/jdParsing");
 const { findTopResumesCore } = require("./findTopResumes");
+const { findTopProfilesCore } = require("./findTopProfiles");
 const { JobDescriptionModel } = require("../dbModels");
 
 function resolveJdContext(payload) {
@@ -72,6 +73,18 @@ async function tryFindTopResumesForJobDescription({ userId, jdId, profileId }) {
   }
 }
 
+async function tryFindTopProfilesForJobDescription({ userId, jdId }) {
+  try {
+    const { topProfiles, error } = await findTopProfilesCore(userId, jdId);
+    if (error) {
+      return { result: null, error: { message: error, statusCode: 404 } };
+    }
+    return { result: { topProfiles: topProfiles || [] }, error: null };
+  } catch (e) {
+    return { result: null, error: { message: "Failed to find top profiles", statusCode: 502 } };
+  }
+}
+
 /**
  * Persist an already-parsed and normalized JD (used by the jdParser agent,
  * which handles its own LLM call and then delegates saving here).
@@ -111,6 +124,7 @@ module.exports = {
   resolveJdContext,
   tryParseAndPersistJobDescription,
   tryFindTopResumesForJobDescription,
+  tryFindTopProfilesForJobDescription,
   persistParsedJobDescription,
   toPublicParsedJD,
 };

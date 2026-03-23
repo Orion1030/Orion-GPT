@@ -1,5 +1,5 @@
 /**
- * Adapter between Profile.experiences and Resume.experiences shapes.
+ * Adapter between Profile.careerHistory and Resume.experiences shapes.
  *
  * Profile experience fields:
  *   roleTitle, companyName, startDate, endDate, companySummary, keyPoints[]

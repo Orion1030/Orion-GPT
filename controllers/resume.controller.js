@@ -3,7 +3,19 @@ const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml } = require("../utils/resumeUtils");
-const { refreshResumeEmbedding } = require("../services/resumeEmbedding.service");
+const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
+
+function isSameEmbeddingSource(a, b) {
+  return JSON.stringify({
+    summary: a?.summary ?? "",
+    experiences: Array.isArray(a?.experiences) ? a.experiences : [],
+    skills: Array.isArray(a?.skills) ? a.skills : [],
+  }) === JSON.stringify({
+    summary: b?.summary ?? "",
+    experiences: Array.isArray(b?.experiences) ? b.experiences : [],
+    skills: Array.isArray(b?.skills) ? b.skills : [],
+  });
+}
 
 function mapPayloadToModel(payload, userId) {
   const profileId = payload.profile?.id ?? payload.profileId;
@@ -36,7 +48,7 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
 
   const newResume = new ResumeModel(data);
   await newResume.save();
-  await refreshResumeEmbedding(newResume._id).catch(() => { });
+  queueResumeEmbeddingRefresh(newResume._id, { maxAttempts: 3 });
   const populated = await ResumeModel.findById(newResume._id)
     .populate("profileId")
     .populate("templateId")
@@ -89,6 +101,18 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "A profile must be selected for the resume", 400);
   }
 
+  const currentResume = await ResumeModel.findOne({ userId: user._id, _id: resumeId }).lean();
+  if (!currentResume) {
+    return sendJsonResult(res, false, null, "Resume not found", 404);
+  }
+
+  const nextEmbeddingSource = {
+    summary: data.summary !== undefined ? data.summary : currentResume.summary,
+    experiences: data.experiences !== undefined ? data.experiences : currentResume.experiences,
+    skills: data.skills !== undefined ? data.skills : currentResume.skills,
+  };
+  const embeddingSourceChanged = !isSameEmbeddingSource(currentResume, nextEmbeddingSource);
+
   const updatedResume = await ResumeModel.findOneAndUpdate(
     { userId: user._id, _id: resumeId },
     { $set: data },
@@ -102,7 +126,9 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
 
-  await refreshResumeEmbedding(resumeId).catch(() => { });
+  if (embeddingSourceChanged) {
+    queueResumeEmbeddingRefresh(resumeId, { maxAttempts: 3 });
+  }
   const withEmbedding = await ResumeModel.findById(resumeId)
     .populate("profileId")
     .populate("templateId")
