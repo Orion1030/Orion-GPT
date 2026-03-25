@@ -5,16 +5,55 @@ const { sendJsonResult } = require("../utils");
 const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml } = require("../utils/resumeUtils");
 const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
 
-function isSameEmbeddingSource(a, b) {
-  return JSON.stringify({
-    summary: a?.summary ?? "",
-    experiences: Array.isArray(a?.experiences) ? a.experiences : [],
-    skills: Array.isArray(a?.skills) ? a.skills : [],
-  }) === JSON.stringify({
-    summary: b?.summary ?? "",
-    experiences: Array.isArray(b?.experiences) ? b.experiences : [],
-    skills: Array.isArray(b?.skills) ? b.skills : [],
-  });
+/** $set fields present on the payload only (PATCH-style updates). */
+function mapUpdatePayloadToSet(payload) {
+  if (!payload || typeof payload !== "object") return {};
+  const set = {};
+  if (Object.prototype.hasOwnProperty.call(payload, "name")) {
+    const n = payload.name;
+    set.name = n != null && String(n).trim() !== "" ? n : "Untitled Resume";
+  }
+  if ("profile" in payload || "profileId" in payload) {
+    const profileId = payload.profile?.id ?? payload.profileId;
+    set.profileId = profileId || null;
+  }
+  if ("template" in payload || "templateId" in payload) {
+    set.templateId = payload.template?.id ?? payload.templateId ?? null;
+  }
+  if ("stack" in payload || "stackId" in payload) {
+    set.stackId = payload.stack?.id ?? payload.stackId ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "note")) {
+    set.note = payload.note ?? "";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "summary")) {
+    set.summary = payload.summary ?? "";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "experiences")) {
+    set.experiences = Array.isArray(payload.experiences) ? payload.experiences : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "skills")) {
+    set.skills = Array.isArray(payload.skills) ? payload.skills : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "pageFrameConfig")) {
+    set.pageFrameConfig = payload.pageFrameConfig ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "cloudPrimary")) {
+    set.cloudPrimary = payload.cloudPrimary ?? "";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "cloudSecondary")) {
+    set.cloudSecondary = Array.isArray(payload.cloudSecondary) ? payload.cloudSecondary : [];
+  }
+  return set;
+}
+
+function payloadTouchesEmbeddingFields(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  return (
+    Object.prototype.hasOwnProperty.call(payload, "summary") ||
+    Object.prototype.hasOwnProperty.call(payload, "experiences") ||
+    Object.prototype.hasOwnProperty.call(payload, "skills")
+  );
 }
 
 function mapPayloadToModel(payload, userId) {
@@ -94,28 +133,35 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { resumeId } = req.params;
   const payload = req.body.resume ?? req.body;
-  const data = mapPayloadToModel(payload, user._id);
-  delete data.userId;
-
-  if (!data.profileId) {
-    return sendJsonResult(res, false, null, "A profile must be selected for the resume", 400);
-  }
 
   const currentResume = await ResumeModel.findOne({ userId: user._id, _id: resumeId }).lean();
   if (!currentResume) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
 
-  const nextEmbeddingSource = {
-    summary: data.summary !== undefined ? data.summary : currentResume.summary,
-    experiences: data.experiences !== undefined ? data.experiences : currentResume.experiences,
-    skills: data.skills !== undefined ? data.skills : currentResume.skills,
-  };
-  const embeddingSourceChanged = !isSameEmbeddingSource(currentResume, nextEmbeddingSource);
+  const setDoc = mapUpdatePayloadToSet(payload);
+  delete setDoc.id;
+  delete setDoc._id;
+
+  const effectiveProfileId =
+    setDoc.profileId !== undefined ? setDoc.profileId : currentResume.profileId;
+  if (!effectiveProfileId) {
+    return sendJsonResult(res, false, null, "A profile must be selected for the resume", 400);
+  }
+
+  const shouldRefreshEmbedding = payloadTouchesEmbeddingFields(payload);
+
+  if (Object.keys(setDoc).length === 0) {
+    const populated = await ResumeModel.findById(resumeId)
+      .populate("profileId")
+      .populate("templateId")
+      .populate("stackId");
+    return sendJsonResult(res, true, populated);
+  }
 
   const updatedResume = await ResumeModel.findOneAndUpdate(
     { userId: user._id, _id: resumeId },
-    { $set: data },
+    { $set: setDoc },
     { new: true }
   )
     .populate("profileId")
@@ -126,7 +172,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
 
-  if (embeddingSourceChanged) {
+  if (shouldRefreshEmbedding) {
     queueResumeEmbeddingRefresh(resumeId, { maxAttempts: 3 });
   }
   const withEmbedding = await ResumeModel.findById(resumeId)
@@ -206,5 +252,6 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
   }
 });
 
-// Expose helper for tests
+// Expose helpers for tests
 exports._mapPayloadToModel = mapPayloadToModel;
+exports._mapUpdatePayloadToSet = mapUpdatePayloadToSet;

@@ -3,8 +3,8 @@
  * Used by resume.controller (HTTP) and atsScorer agent (job).
  */
 const { JobDescriptionModel, ResumeModel } = require('../dbModels')
-const { getEmbedding, cosineSimilarity, similarityToScore } = require('../utils/embedding')
-const { buildResumeTextForEmbedding } = require('./resumeEmbedding.service')
+const { cosineSimilarity, similarityToScore } = require('../utils/embedding')
+const { buildResumeTextForEmbedding, refreshResumeEmbedding } = require('./resumeEmbedding.service')
 
 function quantifiedImpactScore(r) {
   const text = buildResumeTextForEmbedding(r)
@@ -27,6 +27,25 @@ function recencyScore(r) {
   return Math.max(0, Math.min(100, 100 - yearsAgo * 10))
 }
 
+async function refreshEmbeddingWithRetry(resumeId, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= Math.max(1, maxAttempts); attempt++) {
+    try {
+      await refreshResumeEmbedding(resumeId)
+      return true
+    } catch (e) {
+      const isLast = attempt >= maxAttempts
+      console.warn(
+        `[findTopResumesCore] embedding refresh failed for ${String(resumeId)} attempt ${attempt}/${maxAttempts}:`,
+        e?.message || e
+      )
+      if (!isLast) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+      }
+    }
+  }
+  return false
+}
+
 async function findTopResumesCore(userId, jdId, profileId) {
   const jd = await JobDescriptionModel.findOne({ _id: jdId, userId }).lean()
   if (!jd) return { topResumes: [], error: 'Job description not found' }
@@ -40,8 +59,33 @@ async function findTopResumesCore(userId, jdId, profileId) {
   if (profileId) query.profileId = profileId
 
   const resumes = await ResumeModel.find(query).populate('profileId').sort({ updatedAt: -1 }).lean()
+  const skippedResumeIds = new Set()
 
-  const scored = await Promise.all(resumes.map(async (r) => {
+  // ATS scoring requires resume embeddings. If a resume is missing one, generate it now (sync, 3 tries)
+  // and skip that resume from this scoring pass. It will participate in subsequent runs.
+  if (jdEmbedding) {
+    const missingEmbeddingResumes = resumes.filter(
+      (r) => !(r.embedding && Array.isArray(r.embedding) && r.embedding.length)
+    )
+    for (const r of missingEmbeddingResumes) {
+      const textForEmbedding = buildResumeTextForEmbedding(r)
+      if (!textForEmbedding) {
+        skippedResumeIds.add(String(r._id))
+        continue
+      }
+      await refreshEmbeddingWithRetry(r._id, 3)
+      skippedResumeIds.add(String(r._id))
+    }
+  }
+
+  const resumesForScoring = jdEmbedding
+    ? resumes.filter((r) => {
+      const id = String(r._id)
+      return !skippedResumeIds.has(id) && r.embedding && Array.isArray(r.embedding) && r.embedding.length
+    })
+    : resumes
+
+  const scored = await Promise.all(resumesForScoring.map(async (r) => {
     const resumeSkills = new Set()
     ;(r.skills || []).forEach(s => {
       if (s?.items) s.items.forEach(i => resumeSkills.add(String(i).toLowerCase()))
@@ -74,20 +118,9 @@ async function findTopResumesCore(userId, jdId, profileId) {
 
     const atsBase = Math.min(100, skillMatch * 0.5 + keywordMatch * 0.5 + 20)
     let embeddingSimScore = 0
-    let resumeEmbedding = r.embedding && Array.isArray(r.embedding) ? r.embedding : null
+    const resumeEmbedding = r.embedding && Array.isArray(r.embedding) ? r.embedding : null
 
     if (jdEmbedding) {
-      if (!resumeEmbedding) {
-        const textForEmbedding = buildResumeTextForEmbedding(r)
-        if (textForEmbedding) {
-          try {
-            resumeEmbedding = await getEmbedding(textForEmbedding)
-            if (resumeEmbedding) {
-              await ResumeModel.updateOne({ _id: r._id }, { $set: { embedding: resumeEmbedding } })
-            }
-          } catch (e) {}
-        }
-      }
       if (resumeEmbedding) {
         const sim = cosineSimilarity(jdEmbedding, resumeEmbedding)
         embeddingSimScore = similarityToScore(sim)

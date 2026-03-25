@@ -67,5 +67,13 @@ describe('parseTextResume controller', () => {
     expect(out.experiences[0].title).toBe('Engineer');
     expect(out.skills[0].items).toContain('JS');
   });
+
+  it('maps partial update payload to $set keys only when present', () => {
+    const controller = require('../controllers/resume.controller');
+    expect(controller._mapUpdatePayloadToSet({ name: 'Only name' })).toEqual({ name: 'Only name' });
+    expect(controller._mapUpdatePayloadToSet({ summary: 'Hi' })).toEqual({ summary: 'Hi' });
+    const minimal = controller._mapUpdatePayloadToSet({});
+    expect(Object.keys(minimal).length).toBe(0);
+  });
 });
 
