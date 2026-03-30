@@ -2,6 +2,8 @@
  * Skill ontology normalizer: lowercase, trim, and map common variants
  * so JD and resume skills align for better ATS matching.
  */
+const { languages, frameworks, cloudPlatforms, databases, toolsDevOps, techDomains, industryDomains } = require('./jdConstants');
+
 const SKILL_ALIASES = {
   js: 'JavaScript',
   javascript: 'JavaScript',
@@ -41,11 +43,27 @@ const SKILL_ALIASES = {
   git: 'Git',
 };
 
+const NORMALIZED_CONSTANTS = [
+  ...languages,
+  ...frameworks,
+  ...cloudPlatforms,
+  ...databases,
+  ...toolsDevOps,
+  ...techDomains,
+  ...industryDomains,
+].reduce((acc, item) => {
+  acc[item.toLowerCase()] = item;
+  return acc;
+}, {});
+
+
 function normalizeSkill(skill) {
   if (!skill || typeof skill !== 'string') return '';
   const key = skill.trim().toLowerCase();
   if (!key) return '';
-  return SKILL_ALIASES[key] || skill.trim();
+  if (SKILL_ALIASES[key]) return SKILL_ALIASES[key];
+  if (NORMALIZED_CONSTANTS[key]) return NORMALIZED_CONSTANTS[key];
+  return skill.trim();
 }
 
 function normalizeSkills(skills) {

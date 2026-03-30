@@ -119,6 +119,7 @@ function toPublicParsedJD(parsed) {
     title: parsed?.title || "",
     company: parsed?.company || "",
     skills: Array.isArray(parsed?.skills) ? parsed.skills : [],
+    niceToHave: Array.isArray(parsed?.niceToHave) ? parsed.niceToHave : [],
     requirements: Array.isArray(parsed?.requirements) ? parsed.requirements : [],
     responsibilities: Array.isArray(parsed?.responsibilities) ? parsed.responsibilities : [],
   };
