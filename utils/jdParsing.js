@@ -21,6 +21,9 @@ function normalizeParsedJD(parsed) {
   out.responsibilities = Array.isArray(out.responsibilities)
     ? out.responsibilities.map(stripToText).filter(Boolean)
     : [];
+  out.niceToHave = Array.isArray(out.niceToHave)
+    ? out.niceToHave.map(stripToText).filter(Boolean)
+    : [];
 
   return out;
 }
@@ -35,12 +38,14 @@ function buildJdEmbeddingText(parsed) {
   const skills = normalizeSkills(safeParsed.skills || []);
   const requirements = Array.isArray(safeParsed.requirements) ? safeParsed.requirements : [];
   const responsibilities = Array.isArray(safeParsed.responsibilities) ? safeParsed.responsibilities : [];
+  const niceToHave = Array.isArray(safeParsed.niceToHave) ? safeParsed.niceToHave : [];
   const textForEmbedding = [
     safeParsed.title || "",
     safeParsed.company || "",
     skills.join(" "),
     requirements.join(" "),
     responsibilities.join(" "),
+    niceToHave.join(" "),
   ]
     .filter(Boolean)
     .join("\n");

@@ -28,6 +28,10 @@ const jobDescriptionSchema = new mongoose.Schema(
       type: [String],
       default: []
     },
+    niceToHave: {
+      type: [String],
+      default: []
+    },
     context: {
       type: String,
       default: ''

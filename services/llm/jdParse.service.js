@@ -5,7 +5,7 @@ async function parseJobDescriptionWithLLM(text) {
   if (!text || typeof text !== "string" || !text.trim()) throw new Error("Text is required");
 
   const systemPrompt =
-    "You are a job description parser. Extract structured data as JSON with keys: title, company (optional), skills (array of strings), requirements (array of strings), responsibilities (array of strings). Reply ONLY with valid JSON.";
+    "You are a job description parser. Extract structured data as JSON with keys: title, company (optional), skills (array of strings), niceToHave (array of strings, optional), requirements (array of strings), responsibilities (array of strings). Reply ONLY with valid JSON.";
   const userPrompt = `Parse this job description:\n\n${text}`;
 
   const functions = [
@@ -18,6 +18,7 @@ async function parseJobDescriptionWithLLM(text) {
           title: { type: "string" },
           company: { type: "string" },
           skills: { type: "array", items: { type: "string" } },
+          niceToHave: { type: "array", items: { type: "string" } },
           requirements: { type: "array", items: { type: "string" } },
           responsibilities: { type: "array", items: { type: "string" } },
         },

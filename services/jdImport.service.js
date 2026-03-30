@@ -24,6 +24,7 @@ async function tryParseAndPersistJobDescription({ userId, jdContext }) {
 
     const normalized = normalizeParsedJD(parsed);
     const skills = normalized.skills || [];
+    const niceToHave = normalized.niceToHave || [];
     const requirements = normalized.requirements || [];
     const responsibilities = normalized.responsibilities || [];
     const embedding = await getJobDescriptionEmbedding(normalized);
@@ -33,6 +34,7 @@ async function tryParseAndPersistJobDescription({ userId, jdContext }) {
       title: normalized.title || "Job",
       company: normalized.company || "",
       skills,
+      niceToHave,
       requirements,
       responsibilities,
       context: jdContext,
@@ -91,6 +93,7 @@ async function tryFindTopProfilesForJobDescription({ userId, jdId }) {
  */
 async function persistParsedJobDescription({ userId, normalized, context }) {
   const skills = normalized.skills || [];
+  const niceToHave = normalized.niceToHave || [];
   const requirements = normalized.requirements || [];
   const responsibilities = normalized.responsibilities || [];
   const embedding = await getJobDescriptionEmbedding(normalized);
@@ -100,6 +103,7 @@ async function persistParsedJobDescription({ userId, normalized, context }) {
     title: normalized.title || "Job",
     company: normalized.company || "",
     skills,
+    niceToHave,
     requirements,
     responsibilities,
     context: context || "",
