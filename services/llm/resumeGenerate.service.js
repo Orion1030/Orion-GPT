@@ -1,5 +1,6 @@
 const { chatCompletions } = require("./openaiClient");
 const { GENERATE_MODEL } = require("../../config/llm");
+const e = require("express");
 
 function sanitizeStr(s) {
   if (s == null) return "";
@@ -34,47 +35,75 @@ function normalizeResumeJson(raw) {
 async function generateResumeFromJD({ jd, profile, baseResume }) {
   if (!jd || !profile) throw new Error("JD or profile not found");
 
-  const jdContext = `Job Title: ${jd.title}\nCompany: ${jd.company || "N/A"}\nRequired Skills: ${(jd.skills || []).join(
-    ", "
-  )}\nRequirements: ${(jd.requirements || []).slice(0, 5).join("\n")}\nKey Responsibilities: ${(jd.responsibilities || []).slice(
-    0,
-    5
-  ).join("\n")}`;
+  const llmInput = {
+    jobDescription: {
+      title: jd.title || "",
+      company: jd.company || "N/A",
+      context: jd.context || "N/A",
+    },
+    profile: {
+      fullName: profile.fullName || "",
+      title: profile.title || "",
+      careerHistory: profile.careerHistory || [],
+      education: profile.education || [],
+    },
+    originalResume: {
+      title: baseResume?.title || "",
+      summary: baseResume?.summary || "",
+      experiences: baseResume?.experiences || [],
+      skills: baseResume?.skills || [],
+    },
+  };
 
-  const profileContext = `Candidate: ${profile.fullName}\nTitle: ${profile.title}\nExperiences: ${(profile.careerHistory || [])
-    .map((e) => `${e.roleTitle} at ${e.companyName}: ${(e.keyPoints || []).slice(0, 2).join("; ")}`)
-    .join("\n")}`;
+  const systemPrompt = `You are a resume writing expert. Generate a resume as a single JSON object with the exact shape defined in the function schema, and do not include narrative text outside the JSON.`;
 
-  const baseContext = baseResume
-    ? `\nBase resume to adapt (use same JSON shape): ${JSON.stringify({
-        summary: baseResume.summary,
-        experiences: baseResume.experiences?.slice(0, 3),
-        skills: baseResume.skills,
-      })}`
-    : "";
+  const userPrompt = `Input data (JSON):\n${JSON.stringify(llmInput, null, 2)}\n\nGenerate the resume as one JSON object (no markdown, no code fences).`;
 
-  const systemPrompt = `You are a resume writing expert. Generate a resume as a single JSON object matching this exact shape (no other text):
-{
-  "name": "string (resume title)",
-  "summary": "string (professional summary)",
-  "experiences": [
+  const functions = [
     {
-      "title": "string (job title)",
-      "companyName": "string",
-      "companyLocation": "string (optional)",
-      "summary": "string (optional)",
-      "descriptions": ["string", "..."],
-      "startDate": "string (e.g. 2020)",
-      "endDate": "string (e.g. 2023 or Present)"
-    }
-  ],
-  "skills": [
-    { "title": "string (e.g. Skills)", "items": ["string", "..."] }
-  ]
-}
-Use strong action verbs and quantify achievements. Tailor content to the job description. Reply with ONLY valid JSON.`;
-
-  const userPrompt = `Job Description:\n${jdContext}\n\nCandidate Profile:\n${profileContext}${baseContext}\n\nGenerate the resume as one JSON object (no markdown, no code fence).`;
+      name: "generate_resume",
+      description: "Structured resume JSON result",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          summary: { type: "string" },
+          experiences: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                companyName: { type: "string" },
+                companyLocation: { type: "string" },
+                summary: { type: "string" },
+                descriptions: { type: "array", items: { type: "string" } },
+                startDate: { type: "string" },
+                endDate: { type: "string" },
+              },
+              required: ["title", "companyName", "descriptions", "startDate", "endDate"],
+            },
+          },
+          skills: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                items: { type: "array", items: { type: "string" } },
+              },
+              required: ["title", "items"],
+            },
+          },
+          education: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        required: ["name", "summary", "experiences", "skills"],
+      },
+    },
+  ];
 
   const body = await chatCompletions({
     model: GENERATE_MODEL,
@@ -82,17 +111,31 @@ Use strong action verbs and quantify achievements. Tailor content to the job des
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
+    functions,
+    function_call: { name: "generate_resume" },
     temperature: 0.2,
     max_tokens: 2000,
   });
 
-  const raw = body?.choices?.[0]?.message?.content || "";
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      return normalizeResumeJson(JSON.parse(jsonMatch[0]));
-    } catch {
-      // ignore and use fallback
+  const choice = body?.choices?.[0];
+  let raw = "";
+
+  if (choice?.message?.function_call?.arguments) {
+    raw = choice.message.function_call.arguments;
+  } else {
+    raw = choice?.message?.content || "";
+  }
+
+  try {
+    return normalizeResumeJson(JSON.parse(raw));
+  } catch (e) {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return normalizeResumeJson(JSON.parse(jsonMatch[0]));
+      } catch {
+        // ignore and fallback
+      }
     }
   }
 
