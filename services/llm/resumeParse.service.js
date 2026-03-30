@@ -1,9 +1,127 @@
 const { chatCompletions } = require("./openaiClient");
 const { PARSE_MODEL } = require("../../config/llm");
+const { resumeSchema } = require("./schemas/resumeSchemas");
+
+// Basic JSON repair for common LLM issues
+function repairJson(jsonString) {
+  if (!jsonString || typeof jsonString !== 'string') return jsonString;
+
+  let repaired = jsonString.trim().replace(/```json|```/gi, "").trim();
+
+  // Remove obvious non-JSON prefixes/suffixes.
+  const firstBrace = repaired.indexOf("{");
+  const lastBrace = repaired.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    repaired = repaired.slice(firstBrace, lastBrace + 1);
+  } else if (firstBrace >= 0) {
+    repaired = repaired.slice(firstBrace);
+  }
+
+  // Count only unescaped quotes for string balancing.
+  let unescapedQuoteCount = 0;
+  for (let i = 0; i < repaired.length; i++) {
+    if (repaired[i] !== '"') continue;
+    let backslashes = 0;
+    let j = i - 1;
+    while (j >= 0 && repaired[j] === "\\") {
+      backslashes += 1;
+      j -= 1;
+    }
+    if (backslashes % 2 === 0) unescapedQuoteCount += 1;
+  }
+
+  if (unescapedQuoteCount % 2 !== 0) {
+    repaired += '"';
+  }
+
+  // Trim a dangling comma at EOF if present before balancing structures.
+  repaired = repaired.replace(/,\s*$/, "");
+
+  // Balance braces/brackets while ignoring content in strings.
+  let inString = false;
+  let escapeNext = false;
+  let openBraces = 0;
+  let openBrackets = 0;
+  for (let i = 0; i < repaired.length; i++) {
+    const ch = repaired[i];
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escapeNext = inString;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") openBraces += 1;
+    else if (ch === "}" && openBraces > 0) openBraces -= 1;
+    else if (ch === "[") openBrackets += 1;
+    else if (ch === "]" && openBrackets > 0) openBrackets -= 1;
+  }
+
+  if (inString) repaired += '"';
+  while (openBrackets > 0) {
+    repaired += "]";
+    openBrackets -= 1;
+  }
+  while (openBraces > 0) {
+    repaired += "}";
+    openBraces -= 1;
+  }
+
+  // If output was truncated right after a key/value separator, remove trailing partial token.
+  repaired = repaired.replace(/[,:]\s*$/, "");
+
+  // Remove trailing commas before closing braces/brackets
+  repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+
+  return repaired;
+}
+
+function tryParseJsonCandidate(candidate, label) {
+  if (!candidate || typeof candidate !== "string") return null;
+
+  try {
+    return JSON.parse(candidate);
+  } catch (err1) {
+    console.warn(`[Parse] ${label} direct parse failed:`, err1.message);
+  }
+
+  const trimmed = candidate.trim();
+  const extracted = (() => {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
+    return trimmed;
+  })();
+
+  if (extracted !== trimmed) {
+    try {
+      return JSON.parse(extracted);
+    } catch (err2) {
+      console.warn(`[Parse] ${label} extracted parse failed:`, err2.message);
+    }
+  }
+
+  const repaired = repairJson(extracted);
+  if (repaired && repaired !== extracted) {
+    try {
+      return JSON.parse(repaired);
+    } catch (err3) {
+      console.warn(`[Parse] ${label} repaired parse failed:`, err3.message);
+    }
+  }
+
+  return null;
+}
 
 async function parseResumeTextWithLLM(text) {
   const systemPrompt =
-    "You are a resume parsing assistant. Extract structured resume data as JSON with keys: profile, summary, skills, meta. The profile must include: fullName, title, contactInfo (email, phone, linkedin, address), careerHistory (array of { roleTitle, companyName, startDate, endDate, keyPoints }), educations (array of { universityName, degreeLevel, major, startDate, endDate }). The meta object must include confidence (0..1) and missingFields (array). Use null for unknown values. Reply ONLY with valid JSON.";
+    "You are a resume parsing assistant. Extract structured resume data as JSON with keys: name, summary, experiences, skills, education. The experiences array should contain objects with title, companyName, companyLocation, summary, descriptions (array), startDate, endDate. The skills array should contain objects with title and items (array). The education array should contain strings. Reply ONLY with valid JSON.";
 
   const userPrompt = `Parse the following resume text and return the JSON described above. Text:\n\n${text}`;
 
@@ -11,69 +129,7 @@ async function parseResumeTextWithLLM(text) {
     {
       name: "parse_resume",
       description: "Return a strict JSON object representing extracted resume sections.",
-      parameters: {
-        type: "object",
-        properties: {
-          profile: {
-            type: "object",
-            properties: {
-              fullName: { type: ["string", "null"] },
-              title: { type: ["string", "null"] },
-              contactInfo: {
-                type: "object",
-                properties: {
-                  email: { type: ["string", "null"] },
-                  phone: { type: ["string", "null"] },
-                  linkedin: { type: ["string", "null"] },
-                  address: { type: ["string", "null"] },
-                },
-                additionalProperties: true,
-              },
-              careerHistory: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    roleTitle: { type: ["string", "null"] },
-                    companyName: { type: ["string", "null"] },
-                    startDate: { type: ["string", "null"] },
-                    endDate: { type: ["string", "null"] },
-                    keyPoints: { type: "array", items: { type: "string" } },
-                  },
-                  additionalProperties: true,
-                },
-              },
-              educations: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    universityName: { type: ["string", "null"] },
-                    degreeLevel: { type: ["string", "null"] },
-                    major: { type: ["string", "null"] },
-                    startDate: { type: ["string", "null"] },
-                    endDate: { type: ["string", "null"] },
-                  },
-                  additionalProperties: true,
-                },
-              },
-            },
-            additionalProperties: true,
-          },
-          summary: { type: ["string", "null"] },
-          skills: { type: "array", items: { type: "string" } },
-          meta: {
-            type: "object",
-            properties: {
-              confidence: { type: "number" },
-              missingFields: { type: "array", items: { type: "string" } },
-            },
-            additionalProperties: true,
-          },
-        },
-        required: ["profile"],
-        additionalProperties: true,
-      },
+      parameters: resumeSchema,
     },
   ];
 
@@ -84,32 +140,30 @@ async function parseResumeTextWithLLM(text) {
       { role: "user", content: userPrompt },
     ],
     temperature: 0.0,
-    max_tokens: 2000,
+    max_tokens: 3000,
     functions,
     function_call: { name: "parse_resume" },
   });
 
   const msg = body?.choices?.[0]?.message;
-  const funcArgs = msg?.function_call?.arguments;
-  if (funcArgs) {
-    try {
-      return JSON.parse(funcArgs);
-    } catch {
-      // fallthrough
-    }
+  let rawJson = null;
+
+  // Try function_call arguments first (preferred method)
+  if (msg?.function_call?.arguments) {
+    rawJson = tryParseJsonCandidate(msg.function_call.arguments, "function_call.arguments");
   }
 
-  if (msg?.content) {
-    try {
-      return JSON.parse(msg.content);
-    } catch {
-      const m = String(msg.content).match(/\{[\s\S]*\}$/);
-      if (m) return JSON.parse(m[0]);
-    }
+  // Fallback to content parsing
+  if (!rawJson && msg?.content) {
+    rawJson = tryParseJsonCandidate(msg.content, "content");
   }
 
-  return null;
+  if (!rawJson) {
+    console.error('[Parse] No valid JSON found in LLM response');
+    return null;
+  }
+
+  return rawJson;
 }
 
 module.exports = { parseResumeTextWithLLM };
-

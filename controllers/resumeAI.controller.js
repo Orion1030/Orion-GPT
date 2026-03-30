@@ -31,19 +31,26 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
   }
 
   let parsed = parseResult.parsed || {};
-  parsed.profile = parsed.profile || {};
+  parsed.name = parsed.name || "Parsed Resume";
   parsed.summary = parsed.summary || "";
+  parsed.experiences = Array.isArray(parsed.experiences) ? parsed.experiences : [];
   parsed.skills = Array.isArray(parsed.skills)
     ? parsed.skills
     : parsed.skills
       ? String(parsed.skills).split(/,|\\n/).map(s => s.trim()).filter(Boolean)
       : [];
-  parsed.meta = parsed.meta || { confidence: 0, missingFields: [] };
+  parsed.education = Array.isArray(parsed.education) ? parsed.education : [];
 
   const profiles = await ProfileModel.find({ userId: user._id });
 
   function normalizeName(n) {
     return String(n || "").toLowerCase().replace(/[^a-z0-9 ]+/g, "").trim();
+  }
+
+  function splitFirstLast(name) {
+    const parts = normalizeName(name).split(/\s+/).filter(Boolean);
+    if (!parts.length) return { first: "", last: "" };
+    return { first: parts[0] || "", last: parts[parts.length - 1] || "" };
   }
 
   const yearOf = (d) => {
@@ -58,45 +65,56 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
   };
 
   const normalizeCompany = (s) => normalizeName(String(s || ""));
-  const parsedExps = Array.isArray(parsed.profile?.careerHistory) ? parsed.profile.careerHistory : [];
+  const parsedExps = Array.isArray(parsed.experiences) ? parsed.experiences : [];
   const parsedKeys = new Set(
     parsedExps.map((e) => `${normalizeCompany(e.companyName)}|${yearOf(e.startDate)}|${yearOf(e.endDate)}`)
   );
 
-  const strictMatches = [];
-  for (const p of profiles) {
-    const pExps = Array.isArray(p.careerHistory) ? p.careerHistory : [];
-    if (pExps.length !== parsedExps.length) continue;
-    const pKeys = new Set(
-      pExps.map((e) => `${normalizeCompany(e.companyName)}|${yearOf(e.startDate)}|${yearOf(e.endDate)}`)
-    );
-    if (pKeys.size !== parsedKeys.size) continue;
-    let allPresent = true;
-    for (const k of parsedKeys) {
-      if (!pKeys.has(k)) { allPresent = false; break; }
-    }
-    if (allPresent) strictMatches.push(p);
-  }
+  // Step 2: Name match (first + last) inside current user's profiles.
+  const parsedName = splitFirstLast(parsed.name);
+  const hasParsedName = Boolean(parsedName.first && parsedName.last);
+  const nameMatchedProfiles = hasParsedName
+    ? profiles.filter((p) => {
+      const profileName = splitFirstLast(p.fullName);
+      return profileName.first === parsedName.first && profileName.last === parsedName.last;
+    })
+    : [];
 
-  if (!strictMatches.length) {
+  // Step 3: Career path match by company + period only.
+  // If we found name matches, evaluate only those; otherwise evaluate all user profiles.
+  const candidateProfiles = nameMatchedProfiles.length ? nameMatchedProfiles : profiles;
+  const scoredMatches = candidateProfiles
+    .map((p) => {
+      const pExps = Array.isArray(p.careerHistory) ? p.careerHistory : [];
+      const pKeys = new Set(
+        pExps.map((e) => `${normalizeCompany(e.companyName)}|${yearOf(e.startDate)}|${yearOf(e.endDate)}`)
+      );
+
+      let overlap = 0;
+      for (const k of parsedKeys) {
+        if (pKeys.has(k)) overlap += 1;
+      }
+
+      const score = parsedKeys.size > 0 ? overlap / parsedKeys.size : 0;
+      return { profile: p, score, overlap };
+    })
+    .filter((m) => m.overlap > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (!scoredMatches.length) {
     return sendJsonResult(res, true, { parsed, bestMatch: null, matches: [], createNewProfileSuggested: true });
   }
 
-  const incomingEmail = (parsed.profile?.contactInfo?.email || "").trim().toLowerCase();
-  const incomingName = (parsed.profile?.fullName || "").trim().toLowerCase();
-  let best = { score: 0, profileId: null, profileSnapshot: null };
-  for (const m of strictMatches) {
-    let score = 0;
-    if (incomingEmail && m.contactInfo && (m.contactInfo.email || "").trim().toLowerCase() === incomingEmail) {
-      score = 1.0;
+  const bestMatch = scoredMatches[0]
+    ? {
+      score: scoredMatches[0].score,
+      profileId: scoredMatches[0].profile._id,
+      profileSnapshot: scoredMatches[0].profile,
     }
-    if (!score && incomingName && (m.fullName || "").trim().toLowerCase() === incomingName) {
-      score = 0.95;
-    }
-    if (score > best.score) best = { score, profileId: m._id, profileSnapshot: m };
-  }
+    : null;
+  const matches = scoredMatches.map((m) => m.profile);
 
-  return sendJsonResult(res, true, { parsed, bestMatch: best.profileId ? best : null, matches: strictMatches, createNewProfileSuggested: false });
+  return sendJsonResult(res, true, { parsed, bestMatch, matches, createNewProfileSuggested: false });
 });
 
 /** Generate resume from JD + profile (LLM -> normalized JSON). */

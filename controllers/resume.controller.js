@@ -5,6 +5,91 @@ const { sendJsonResult } = require("../utils");
 const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml } = require("../utils/resumeUtils");
 const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
 
+function toCleanString(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function parseJsonLike(value) {
+  if (typeof value !== "string") return value;
+  const text = value.trim();
+  if (!text) return value;
+  const looksJson = (text.startsWith("[") && text.endsWith("]")) || (text.startsWith("{") && text.endsWith("}"));
+  if (!looksJson) return value;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return value;
+  }
+}
+
+function flattenArrayOneLevel(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const item of value) {
+    if (Array.isArray(item)) out.push(...item);
+    else out.push(item);
+  }
+  return out;
+}
+
+function normalizeExperiences(experiences) {
+  if (!Array.isArray(experiences)) return [];
+  return experiences.map((e) => ({
+    title: toCleanString(e?.title ?? e?.roleTitle),
+    companyName: toCleanString(e?.companyName),
+    companyLocation: toCleanString(e?.companyLocation),
+    summary: toCleanString(e?.summary ?? e?.companySummary),
+    descriptions: Array.isArray(e?.descriptions)
+      ? e.descriptions.map(toCleanString).filter(Boolean)
+      : Array.isArray(e?.keyPoints)
+        ? e.keyPoints.map(toCleanString).filter(Boolean)
+        : [],
+    startDate: toCleanString(e?.startDate),
+    endDate: toCleanString(e?.endDate),
+  }));
+}
+
+function normalizeSkills(skills) {
+  if (!Array.isArray(skills)) return [];
+
+  const normalized = [];
+  for (const section of skills) {
+    if (!section || typeof section !== "object") continue;
+    const sectionTitle = toCleanString(section.title) || "Skills";
+    const parsedItems = parseJsonLike(section.items);
+    const sectionItems = flattenArrayOneLevel(Array.isArray(parsedItems) ? parsedItems : []);
+
+    // Compatibility: UI may send nested grouped skills:
+    // [{ title: "Skills", items: [{ title: "Data Pipeline", items: ["AWS Glue"] }] }]
+    const nestedGroups = sectionItems
+      .map((item) => parseJsonLike(item))
+      .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+      .map((item) => {
+        const parsedGroupItems = parseJsonLike(item.items);
+        const groupItems = flattenArrayOneLevel(Array.isArray(parsedGroupItems) ? parsedGroupItems : [])
+          .map(toCleanString)
+          .filter(Boolean);
+        return { title: toCleanString(item.title), items: groupItems };
+      })
+      .filter((group) => group.items.length > 0);
+
+    if (nestedGroups.length > 0) {
+      for (const group of nestedGroups) {
+        const groupTitle = toCleanString(group.title) || sectionTitle;
+        const groupItems = group.items;
+        if (groupItems.length) normalized.push({ title: groupTitle, items: groupItems });
+      }
+      continue;
+    }
+
+    const flatItems = sectionItems.map(toCleanString).filter(Boolean);
+    if (flatItems.length) normalized.push({ title: sectionTitle, items: flatItems });
+  }
+
+  return normalized;
+}
+
 /** $set fields present on the payload only (PATCH-style updates). */
 function mapUpdatePayloadToSet(payload) {
   if (!payload || typeof payload !== "object") return {};
@@ -30,10 +115,10 @@ function mapUpdatePayloadToSet(payload) {
     set.summary = payload.summary ?? "";
   }
   if (Object.prototype.hasOwnProperty.call(payload, "experiences")) {
-    set.experiences = Array.isArray(payload.experiences) ? payload.experiences : [];
+    set.experiences = normalizeExperiences(payload.experiences);
   }
   if (Object.prototype.hasOwnProperty.call(payload, "skills")) {
-    set.skills = Array.isArray(payload.skills) ? payload.skills : [];
+    set.skills = normalizeSkills(payload.skills);
   }
   if (Object.prototype.hasOwnProperty.call(payload, "pageFrameConfig")) {
     set.pageFrameConfig = payload.pageFrameConfig ?? null;
@@ -68,8 +153,8 @@ function mapPayloadToModel(payload, userId) {
     templateId: templateId || null,
     note: payload.note ?? "",
     summary: payload.summary ?? "",
-    experiences: Array.isArray(payload.experiences) ? payload.experiences : undefined,
-    skills: Array.isArray(payload.skills) ? payload.skills : undefined,
+    experiences: Array.isArray(payload.experiences) ? normalizeExperiences(payload.experiences) : undefined,
+    skills: Array.isArray(payload.skills) ? normalizeSkills(payload.skills) : undefined,
     pageFrameConfig: payload.pageFrameConfig ?? null,
     cloudPrimary: payload.cloudPrimary ?? (payload.cloudPrimary === "" ? "" : undefined),
     cloudSecondary: Array.isArray(payload.cloudSecondary) ? payload.cloudSecondary : undefined,

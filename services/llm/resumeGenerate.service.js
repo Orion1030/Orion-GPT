@@ -1,6 +1,6 @@
 const { chatCompletions } = require("./openaiClient");
 const { GENERATE_MODEL } = require("../../config/llm");
-const e = require("express");
+const { resumeSchema } = require("./schemas/resumeSchemas");
 
 function sanitizeStr(s) {
   if (s == null) return "";
@@ -63,45 +63,7 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
     {
       name: "generate_resume",
       description: "Structured resume JSON result",
-      parameters: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          summary: { type: "string" },
-          experiences: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                title: { type: "string" },
-                companyName: { type: "string" },
-                companyLocation: { type: "string" },
-                summary: { type: "string" },
-                descriptions: { type: "array", items: { type: "string" } },
-                startDate: { type: "string" },
-                endDate: { type: "string" },
-              },
-              required: ["title", "companyName", "descriptions", "startDate", "endDate"],
-            },
-          },
-          skills: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                title: { type: "string" },
-                items: { type: "array", items: { type: "string" } },
-              },
-              required: ["title", "items"],
-            },
-          },
-          education: {
-            type: "array",
-            items: { type: "string" },
-          },
-        },
-        required: ["name", "summary", "experiences", "skills"],
-      },
+      parameters: resumeSchema,
     },
   ];
 
@@ -118,28 +80,42 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
   });
 
   const choice = body?.choices?.[0];
-  let raw = "";
+  let rawJson = null;
 
+  // Try function_call arguments first (preferred method)
   if (choice?.message?.function_call?.arguments) {
-    raw = choice.message.function_call.arguments;
-  } else {
-    raw = choice?.message?.content || "";
+    try {
+      rawJson = JSON.parse(choice.message.function_call.arguments);
+    } catch (e) {
+      console.warn('[Generate] Failed to parse function_call arguments:', e.message);
+      // fallthrough to content parsing
+    }
   }
 
-  try {
-    return normalizeResumeJson(JSON.parse(raw));
-  } catch (e) {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        return normalizeResumeJson(JSON.parse(jsonMatch[0]));
-      } catch {
-        // ignore and fallback
+  // Fallback to content parsing
+  if (!rawJson && choice?.message?.content) {
+    try {
+      rawJson = JSON.parse(choice.message.content);
+    } catch (e) {
+      console.warn('[Generate] Failed to parse content:', e.message);
+      // Try to extract JSON from content using regex
+      const jsonMatch = String(choice.message.content).match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          rawJson = JSON.parse(jsonMatch[0]);
+        } catch (e2) {
+          console.warn('[Generate] Failed regex extraction:', e2.message);
+        }
       }
     }
   }
 
-  return normalizeResumeJson({ name: "Generated Resume", summary: raw.slice(0, 500), experiences: [], skills: [] });
+  if (!rawJson) {
+    console.error('[Generate] No valid JSON found in LLM response');
+    return normalizeResumeJson({ name: "Generated Resume", summary: "Failed to generate resume content", experiences: [], skills: [] });
+  }
+
+  return normalizeResumeJson(rawJson);
 }
 
 module.exports = { generateResumeFromJD };
