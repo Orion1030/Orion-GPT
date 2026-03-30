@@ -58,6 +58,18 @@ const resumeSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    education: {
+      type: [
+        {
+          degreeLevel: { type: String, default: '' },
+          universityName: { type: String, default: '' },
+          major: { type: String, default: '' },
+          startDate: { type: String, default: '' },
+          endDate: { type: String, default: '' },
+        },
+      ],
+      default: [],
+    },
     // Cloud / indexing fields
     cloudPrimary: {
       type: String,

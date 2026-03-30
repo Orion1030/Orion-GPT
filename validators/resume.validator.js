@@ -7,6 +7,7 @@ exports.createResumeRules = [
   body('summary').optional().isString().withMessage('summary must be a string'),
   body('experiences').optional().isArray().withMessage('experiences must be an array'),
   body('skills').optional().isArray().withMessage('skills must be an array'),
+  body('education').optional().isArray().withMessage('education must be an array'),
 ];
 
 exports.generateResumeRules = [

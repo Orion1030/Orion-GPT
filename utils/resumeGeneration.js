@@ -35,13 +35,23 @@ function normalizeResumeJson(raw) {
       }))
     : [];
 
-  return { name, summary, experiences, skills, pageFrameConfig: null };
+  const education = Array.isArray(raw?.education)
+    ? raw.education.slice(0, 5).map((e) => ({
+        degreeLevel: sanitizeStr(e?.degreeLevel) || "",
+        universityName: sanitizeStr(e?.universityName) || "",
+        major: sanitizeStr(e?.major) || "",
+        startDate: sanitizeStr(e?.startDate) || "",
+        endDate: sanitizeStr(e?.endDate) || "",
+      }))
+    : [];
+
+  return { name, summary, experiences, skills, education, pageFrameConfig: null };
 }
 
 async function generateResumeJsonFromJD({ jd, profile, baseResume }) {
   // LLM work (prompt + parse) is handled inside the specialized LLM service.
   const parsedResume = await generateResumeFromJD({ jd, profile, baseResume });
-  return normalizeResumeJson(parsedResume || { name: "Generated Resume", summary: "", experiences: [], skills: [] });
+  return normalizeResumeJson(parsedResume || { name: "Generated Resume", summary: "", experiences: [], skills: [], education: [] });
 }
 
 async function tryGenerateResumeJsonFromJD({ jd, profile, baseResume }) {
@@ -59,4 +69,3 @@ module.exports = {
   generateResumeJsonFromJD,
   tryGenerateResumeJsonFromJD,
 };
-

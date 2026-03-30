@@ -29,7 +29,17 @@ function normalizeResumeJson(raw) {
       }))
     : [];
 
-  return { name, summary, experiences, skills, pageFrameConfig: null };
+  const education = Array.isArray(raw?.education)
+    ? raw.education.slice(0, 5).map((e) => ({
+        degreeLevel: sanitizeStr(e?.degreeLevel) || "",
+        universityName: sanitizeStr(e?.universityName) || "",
+        major: sanitizeStr(e?.major) || "",
+        startDate: sanitizeStr(e?.startDate) || "",
+        endDate: sanitizeStr(e?.endDate) || "",
+      }))
+    : [];
+
+  return { name, summary, experiences, skills, education, pageFrameConfig: null };
 }
 
 async function generateResumeFromJD({ jd, profile, baseResume }) {
@@ -45,13 +55,14 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
       fullName: profile.fullName || "",
       title: profile.title || "",
       careerHistory: profile.careerHistory || [],
-      education: profile.education || [],
+      education: profile.educations || [],
     },
     originalResume: {
       title: baseResume?.title || "",
       summary: baseResume?.summary || "",
       experiences: baseResume?.experiences || [],
       skills: baseResume?.skills || [],
+      education: baseResume?.education || [],
     },
   };
 
@@ -112,11 +123,10 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
 
   if (!rawJson) {
     console.error('[Generate] No valid JSON found in LLM response');
-    return normalizeResumeJson({ name: "Generated Resume", summary: "Failed to generate resume content", experiences: [], skills: [] });
+    return normalizeResumeJson({ name: "Generated Resume", summary: "Failed to generate resume content", experiences: [], skills: [], education: [] });
   }
 
   return normalizeResumeJson(rawJson);
 }
 
 module.exports = { generateResumeFromJD };
-

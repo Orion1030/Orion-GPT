@@ -15,6 +15,9 @@ function buildResumeTextForEmbedding(r) {
   (r.skills || []).forEach((s) => {
     if (s?.items) parts.push(s.items.join(' '));
   });
+  (r.education || []).forEach((e) => {
+    parts.push(e.degreeLevel || '', e.major || '', e.universityName || '', e.startDate || '', e.endDate || '');
+  });
   return parts.filter(Boolean).join('\n').trim();
 }
 

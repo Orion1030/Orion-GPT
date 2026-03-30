@@ -90,6 +90,32 @@ function normalizeSkills(skills) {
   return normalized;
 }
 
+function normalizeEducation(education) {
+  if (!Array.isArray(education)) return [];
+
+  return education
+    .map((e) => {
+      if (typeof e === "string") {
+        return {
+          degreeLevel: "",
+          universityName: toCleanString(e),
+          major: "",
+          startDate: "",
+          endDate: "",
+        };
+      }
+
+      return {
+        degreeLevel: toCleanString(e?.degreeLevel),
+        universityName: toCleanString(e?.universityName),
+        major: toCleanString(e?.major),
+        startDate: toCleanString(e?.startDate),
+        endDate: toCleanString(e?.endDate),
+      };
+    })
+    .filter((e) => e.universityName || e.degreeLevel || e.major || e.startDate || e.endDate);
+}
+
 /** $set fields present on the payload only (PATCH-style updates). */
 function mapUpdatePayloadToSet(payload) {
   if (!payload || typeof payload !== "object") return {};
@@ -120,6 +146,9 @@ function mapUpdatePayloadToSet(payload) {
   if (Object.prototype.hasOwnProperty.call(payload, "skills")) {
     set.skills = normalizeSkills(payload.skills);
   }
+  if (Object.prototype.hasOwnProperty.call(payload, "education")) {
+    set.education = normalizeEducation(payload.education);
+  }
   if (Object.prototype.hasOwnProperty.call(payload, "pageFrameConfig")) {
     set.pageFrameConfig = payload.pageFrameConfig ?? null;
   }
@@ -137,7 +166,8 @@ function payloadTouchesEmbeddingFields(payload) {
   return (
     Object.prototype.hasOwnProperty.call(payload, "summary") ||
     Object.prototype.hasOwnProperty.call(payload, "experiences") ||
-    Object.prototype.hasOwnProperty.call(payload, "skills")
+    Object.prototype.hasOwnProperty.call(payload, "skills") ||
+    Object.prototype.hasOwnProperty.call(payload, "education")
   );
 }
 
@@ -155,6 +185,7 @@ function mapPayloadToModel(payload, userId) {
     summary: payload.summary ?? "",
     experiences: Array.isArray(payload.experiences) ? normalizeExperiences(payload.experiences) : undefined,
     skills: Array.isArray(payload.skills) ? normalizeSkills(payload.skills) : undefined,
+    education: Array.isArray(payload.education) ? normalizeEducation(payload.education) : undefined,
     pageFrameConfig: payload.pageFrameConfig ?? null,
     cloudPrimary: payload.cloudPrimary ?? (payload.cloudPrimary === "" ? "" : undefined),
     cloudSecondary: Array.isArray(payload.cloudSecondary) ? payload.cloudSecondary : undefined,

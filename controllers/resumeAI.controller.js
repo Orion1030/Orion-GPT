@@ -14,6 +14,28 @@ const {
   toPublicParsedJD,
 } = require("../services/jdImport.service");
 
+function normalizeParsedEducation(education) {
+  if (!Array.isArray(education)) return [];
+  return education.map((item) => {
+    if (typeof item === "string") {
+      return {
+        degreeLevel: "",
+        universityName: item,
+        major: "",
+        startDate: "",
+        endDate: "",
+      };
+    }
+    return {
+      degreeLevel: item?.degreeLevel || "",
+      universityName: item?.universityName || "",
+      major: item?.major || "",
+      startDate: item?.startDate || "",
+      endDate: item?.endDate || "",
+    };
+  });
+}
+
 /** Parse plain text resume using server-side LLM and suggest matching profile. */
 exports.parseTextResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
@@ -39,7 +61,7 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
     : parsed.skills
       ? String(parsed.skills).split(/,|\\n/).map(s => s.trim()).filter(Boolean)
       : [];
-  parsed.education = Array.isArray(parsed.education) ? parsed.education : [];
+  parsed.education = normalizeParsedEducation(parsed.education);
 
   const profiles = await ProfileModel.find({ userId: user._id });
 

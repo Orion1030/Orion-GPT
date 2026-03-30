@@ -37,10 +37,20 @@ const resumeSchema = {
     },
     education: {
       type: "array",
-      items: { type: "string" },
+      items: {
+        type: "object",
+        properties: {
+          degreeLevel: { type: "string" },
+          universityName: { type: "string" },
+          major: { type: "string" },
+          startDate: { type: "string" },
+          endDate: { type: "string" },
+        },
+        required: ["degreeLevel", "universityName", "startDate", "endDate"],
+      },
     },
   },
-  required: ["name", "summary", "experiences", "skills"],
+  required: ["name", "summary", "experiences", "skills", "education"],
 };
 
 module.exports = {
