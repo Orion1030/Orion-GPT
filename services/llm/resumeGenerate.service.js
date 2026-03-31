@@ -1,10 +1,100 @@
-const { chatCompletions } = require("./openaiClient");
-const { GENERATE_MODEL } = require("../../config/llm");
+const { responsesCreate } = require("./openaiClient");
+const { GENERATE_MODEL, GENERATE_MAX_TOKENS } = require("../../config/llm");
 const { resumeSchema } = require("./schemas/resumeSchemas");
+const {
+  buildResumeGenerationSystemPrompt,
+  buildResumeGenerationUserPrompt,
+} = require("./prompts/resumeGenerate.prompts");
 
 function sanitizeStr(s) {
   if (s == null) return "";
   return String(s).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "").trim().slice(0, 10000);
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return sanitizeStr(value);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeCareerHistoryForPrompt(careerHistory) {
+  if (!Array.isArray(careerHistory)) return [];
+
+  return careerHistory.slice(0, 20).map((item) => ({
+    companyName: sanitizeStr(item?.companyName),
+    roleTitle: sanitizeStr(item?.roleTitle),
+    startDate: formatDate(item?.startDate),
+    endDate: formatDate(item?.endDate),
+    companySummary: sanitizeStr(item?.companySummary),
+    keyPoints: Array.isArray(item?.keyPoints)
+      ? item.keyPoints.map(sanitizeStr).filter(Boolean).slice(0, 20)
+      : [],
+  }));
+}
+
+function normalizeEducationForPrompt(education) {
+  if (!Array.isArray(education)) return [];
+
+  return education.slice(0, 10).map((item) => ({
+    degreeLevel: sanitizeStr(item?.degreeLevel),
+    universityName: sanitizeStr(item?.universityName),
+    major: sanitizeStr(item?.major),
+    startDate: formatDate(item?.startDate),
+    endDate: formatDate(item?.endDate),
+    note: sanitizeStr(item?.note),
+  }));
+}
+
+function normalizeResumeForPrompt(resume) {
+  return {
+    title: sanitizeStr(resume?.title),
+    summary: sanitizeStr(resume?.summary),
+    experiences: Array.isArray(resume?.experiences)
+      ? resume.experiences.slice(0, 20).map((item) => ({
+          title: sanitizeStr(item?.title ?? item?.roleTitle),
+          companyName: sanitizeStr(item?.companyName),
+          companyLocation: sanitizeStr(item?.companyLocation),
+          summary: sanitizeStr(item?.summary),
+          descriptions: Array.isArray(item?.descriptions)
+            ? item.descriptions.map(sanitizeStr).filter(Boolean).slice(0, 20)
+            : [],
+          startDate: formatDate(item?.startDate),
+          endDate: formatDate(item?.endDate),
+        }))
+      : [],
+    skills: Array.isArray(resume?.skills)
+      ? resume.skills.slice(0, 12).map((item) => ({
+          title: sanitizeStr(item?.title),
+          items: Array.isArray(item?.items)
+            ? item.items.map(sanitizeStr).filter(Boolean).slice(0, 60)
+            : [],
+        }))
+      : [],
+    education: normalizeEducationForPrompt(resume?.education),
+  };
+}
+
+function buildResumeGenerationInput({ jd, profile, baseResume }) {
+  return {
+    jobDescription: {
+      title: sanitizeStr(jd?.title),
+      company: sanitizeStr(jd?.company) || "N/A",
+      context: sanitizeStr(jd?.context) || "N/A",
+      skills: Array.isArray(jd?.skills) ? jd.skills.map(sanitizeStr).filter(Boolean).slice(0, 50) : [],
+      niceToHave: Array.isArray(jd?.niceToHave) ? jd.niceToHave.map(sanitizeStr).filter(Boolean).slice(0, 30) : [],
+      requirements: Array.isArray(jd?.requirements) ? jd.requirements.map(sanitizeStr).filter(Boolean).slice(0, 40) : [],
+      responsibilities: Array.isArray(jd?.responsibilities) ? jd.responsibilities.map(sanitizeStr).filter(Boolean).slice(0, 40) : [],
+    },
+    candidateProfile: {
+      fullName: sanitizeStr(profile?.fullName),
+      currentTitle: sanitizeStr(profile?.title),
+      mainStack: sanitizeStr(profile?.mainStack),
+      careerHistoryContext: normalizeCareerHistoryForPrompt(profile?.careerHistory),
+      education: normalizeEducationForPrompt(profile?.educations),
+    },
+    originalResume: normalizeResumeForPrompt(baseResume),
+  };
 }
 
 function normalizeResumeJson(raw) {
@@ -45,79 +135,43 @@ function normalizeResumeJson(raw) {
 async function generateResumeFromJD({ jd, profile, baseResume }) {
   if (!jd || !profile) throw new Error("JD or profile not found");
 
-  const llmInput = {
-    jobDescription: {
-      title: jd.title || "",
-      company: jd.company || "N/A",
-      context: jd.context || "N/A",
-    },
-    profile: {
-      fullName: profile.fullName || "",
-      title: profile.title || "",
-      careerHistory: profile.careerHistory || [],
-      education: profile.educations || [],
-    },
-    originalResume: {
-      title: baseResume?.title || "",
-      summary: baseResume?.summary || "",
-      experiences: baseResume?.experiences || [],
-      skills: baseResume?.skills || [],
-      education: baseResume?.education || [],
-    },
-  };
+  const llmInput = buildResumeGenerationInput({ jd, profile, baseResume });
+  const systemPrompt = buildResumeGenerationSystemPrompt();
+  const userPrompt = buildResumeGenerationUserPrompt(llmInput);
 
-  const systemPrompt = `You are a resume writing expert. Generate a resume as a single JSON object with the exact shape defined in the function schema, and do not include narrative text outside the JSON.`;
-
-  const userPrompt = `Input data (JSON):\n${JSON.stringify(llmInput, null, 2)}\n\nGenerate the resume as one JSON object (no markdown, no code fences).`;
-
-  const functions = [
-    {
-      name: "generate_resume",
-      description: "Structured resume JSON result",
-      parameters: resumeSchema,
-    },
-  ];
-
-  const body = await chatCompletions({
+  const body = await responsesCreate({
     model: GENERATE_MODEL,
-    messages: [
-      { role: "system", content: systemPrompt },
+    input: [
+      { role: "developer", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    functions,
-    function_call: { name: "generate_resume" },
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "generate_resume",
+        schema: resumeSchema,
+        strict: true,
+      },
+    },
     temperature: 0.2,
-    max_tokens: 2000,
+    max_output_tokens: GENERATE_MAX_TOKENS,
   });
 
-  const choice = body?.choices?.[0];
-  let rawJson = null;
-
-  // Try function_call arguments first (preferred method)
-  if (choice?.message?.function_call?.arguments) {
-    try {
-      rawJson = JSON.parse(choice.message.function_call.arguments);
-    } catch (e) {
-      console.warn('[Generate] Failed to parse function_call arguments:', e.message);
-      // fallthrough to content parsing
-    }
+  const outputItems = Array.isArray(body?.output) ? body.output : [];
+  let textChunk = outputItems
+    .flatMap((item) => item?.content || [])
+    .find((c) => typeof c?.text === "string")
+    ?.text;
+  if (!textChunk && typeof body?.output_text === "string") {
+    textChunk = body.output_text;
   }
 
-  // Fallback to content parsing
-  if (!rawJson && choice?.message?.content) {
+  let rawJson = null;
+  if (textChunk) {
     try {
-      rawJson = JSON.parse(choice.message.content);
+      rawJson = JSON.parse(textChunk);
     } catch (e) {
-      console.warn('[Generate] Failed to parse content:', e.message);
-      // Try to extract JSON from content using regex
-      const jsonMatch = String(choice.message.content).match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          rawJson = JSON.parse(jsonMatch[0]);
-        } catch (e2) {
-          console.warn('[Generate] Failed regex extraction:', e2.message);
-        }
-      }
+      console.warn('[Generate] Failed to parse structured text:', e.message);
     }
   }
 

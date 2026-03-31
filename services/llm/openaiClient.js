@@ -47,6 +47,7 @@ async function chatCompletions({
   messages,
   temperature = 0,
   max_tokens = 2000,
+  response_format,
   functions,
   function_call,
 }) {
@@ -54,6 +55,7 @@ async function chatCompletions({
   const start = Date.now();
 
   const body = { model, messages, temperature, max_tokens };
+  if (response_format) body.response_format = response_format;
   if (functions) body.functions = functions;
   if (function_call) body.function_call = function_call;
 
@@ -124,4 +126,62 @@ async function createEmbedding({ model, input }) {
   return result;
 }
 
-module.exports = { chatCompletions, createEmbedding };
+async function responsesCreate({
+  model,
+  input,
+  temperature = 0,
+  max_output_tokens = 2000,
+  response_format,
+  reasoning_effort,
+  store,
+  previous_response_id,
+}) {
+  const key = getOpenAIKey();
+  const start = Date.now();
+
+  const body = {
+    model,
+    input,
+    temperature,
+    max_output_tokens,
+  };
+  if (response_format) body.response_format = response_format;
+  if (reasoning_effort) body.reasoning_effort = reasoning_effort;
+  if (typeof store === "boolean") body.store = store;
+  if (previous_response_id) body.previous_response_id = previous_response_id;
+
+  const options = {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  };
+
+  const result = await withRetry(async () => {
+    const resp = await fetchWithTimeout(
+      "https://api.openai.com/v1/responses",
+      options,
+      LLM_TIMEOUT_MS
+    );
+    if (!resp.ok) {
+      const err = new Error(`OpenAI ${resp.status}: ${resp.statusText}`);
+      err.status = resp.status;
+      throw err;
+    }
+    return resp.json();
+  });
+
+  const latencyMs = Date.now() - start;
+  const usage = result.usage;
+  console.log(
+    `[LLM] responsesCreate model=${model} tokens=${usage?.total_tokens ?? '?'} ` +
+    `input=${usage?.input_tokens ?? '?'} output=${usage?.output_tokens ?? '?'} ` +
+    `reasoning=${usage?.output_tokens_details?.reasoning_tokens ?? '?'} latency=${latencyMs}ms`
+  );
+
+  return result;
+}
+
+module.exports = { chatCompletions, createEmbedding, responsesCreate };
