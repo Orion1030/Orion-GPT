@@ -78,7 +78,8 @@ exports.migrateBuiltInTemplates = asyncErrorHandler(async (req, res) => {
   };
   let migrated = 0;
   const resumes = await ResumeModel.find({
-    builtInTemplateId: { $ne: null, $exists: true }
+    builtInTemplateId: { $ne: null, $exists: true },
+    isDeleted: { $ne: true },
   });
   for (const resume of resumes) {
     const newTemplateId = mapping[resume.builtInTemplateId];

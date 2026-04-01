@@ -12,7 +12,7 @@ module.exports = async function resumeGenerator(job, updateProgress) {
 
   let baseResume = null
   if (baseResumeId) {
-    baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId: job.userId }).lean()
+    baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId: job.userId, isDeleted: { $ne: true } }).lean()
   }
 
   updateProgress(10)

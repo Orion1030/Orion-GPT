@@ -215,7 +215,7 @@ exports.getResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { resumeId } = req.params;
 
-  const resumeDoc = await ResumeModel.findOne({ _id: resumeId, userId: user._id })
+  const resumeDoc = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
     .populate("stackId")
@@ -232,7 +232,7 @@ exports.getResumeByProfileAndId = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { profileId, resumeId } = req.params;
 
-  const resumeDoc = await ResumeModel.findOne({ _id: resumeId, userId: user._id, profileId })
+  const resumeDoc = await ResumeModel.findOne({ _id: resumeId, userId: user._id, profileId, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
     .populate("stackId")
@@ -250,7 +250,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   const { resumeId } = req.params;
   const payload = req.body.resume ?? req.body;
 
-  const currentResume = await ResumeModel.findOne({ userId: user._id, _id: resumeId }).lean();
+  const currentResume = await ResumeModel.findOne({ userId: user._id, _id: resumeId, isDeleted: { $ne: true } }).lean();
   if (!currentResume) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
@@ -301,20 +301,56 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
 exports.deleteResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { resumeId } = req.params;
-  const deleted = await ResumeModel.findOneAndDelete({ _id: resumeId, userId: user._id });
-  if (!deleted) return sendJsonResult(res, false, null, "Resume not found", 404);
+  const update = await ResumeModel.updateOne(
+    { _id: resumeId, userId: user._id },
+    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+  );
+  if (!update.matchedCount) return sendJsonResult(res, false, null, "Resume not found", 404);
   return sendJsonResult(res, true, null, "Resume deleted successfully");
 });
 
 exports.clearResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
-  await ResumeModel.deleteMany({ userId: user._id });
-  return sendJsonResult(res, true, null, "Resumes cleared successfully");
+  const result = await ResumeModel.updateMany(
+    { userId: user._id },
+    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+  );
+  return sendJsonResult(res, true, { modifiedCount: result.modifiedCount }, "Resumes cleared successfully");
+});
+
+exports.deleteResumes = asyncErrorHandler(async (req, res) => {
+  const { user } = req;
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(Boolean) : [];
+
+  // If no ids provided, fall back to clear-all (soft delete) to preserve previous behavior
+  if (ids.length === 0) {
+    const result = await ResumeModel.updateMany(
+      { userId: user._id },
+      { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+    );
+    return sendJsonResult(res, true, { modifiedCount: result.modifiedCount }, "Resumes deleted successfully");
+  }
+
+  const result = await ResumeModel.updateMany(
+    { userId: user._id, _id: { $in: ids } },
+    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+  );
+
+  if (result.matchedCount === 0) {
+    return sendJsonResult(res, false, null, "No matching resumes found", 404);
+  }
+
+  return sendJsonResult(
+    res,
+    true,
+    { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount },
+    "Resumes deleted successfully"
+  );
 });
 
 exports.getAllResumes = asyncErrorHandler(async (req, res) => {
   const { user } = req;
-  const resumes = await ResumeModel.find({ userId: user._id })
+  const resumes = await ResumeModel.find({ userId: user._id, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
     .populate("stackId")
@@ -327,7 +363,7 @@ exports.downloadResume = asyncErrorHandler(async (req, res) => {
   const { resumeId } = req.params;
   const { fileType } = req.query;
 
-  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id })
+  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
     .populate("templateId")
     .populate("profileId");
   if (!resume) return sendJsonResult(res, false, null, "Resume not found", 404);
@@ -345,7 +381,7 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
   const { resumeId } = req.params;
   const { fileType, html, name } = req.body;
 
-  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id })
+  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
     .populate("templateId")
     .populate("profileId");
   if (!resume) return sendJsonResult(res, false, null, "Resume not found", 404);

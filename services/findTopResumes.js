@@ -55,7 +55,7 @@ async function findTopResumesCore(userId, jdId, profileId) {
   const jdKeywords = new Set(jdReqText.split(/\W+/).filter(Boolean))
   const jdEmbedding = jd.embedding && Array.isArray(jd.embedding) ? jd.embedding : null
 
-  const query = { userId }
+  const query = { userId, isDeleted: { $ne: true } }
   if (profileId) query.profileId = profileId
 
   const resumes = await ResumeModel.find(query).populate('profileId').sort({ updatedAt: -1 }).lean()

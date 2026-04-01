@@ -155,7 +155,7 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
 
   let baseResume = null;
   if (baseResumeId) {
-    baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId }).populate("profileId").lean();
+    baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId, isDeleted: { $ne: true } }).populate("profileId").lean();
   }
 
   const { result: genResult, error: genError } = await tryGenerateResumeJsonFromJD({ jd, profile, baseResume });

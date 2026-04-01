@@ -27,7 +27,7 @@ function buildResumeTextForEmbedding(r) {
  */
 async function refreshResumeEmbedding(resumeId) {
   if (!resumeId) return null;
-  const r = await ResumeModel.findById(resumeId).lean();
+  const r = await ResumeModel.findOne({ _id: resumeId, isDeleted: { $ne: true } }).lean();
   if (!r) return null;
   const text = buildResumeTextForEmbedding(r);
   if (!text) {

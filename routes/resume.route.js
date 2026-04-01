@@ -6,7 +6,7 @@ const { isAuthenticatedUser, permit } = require('../middlewares/auth.middleware'
 const { RoleLevels } = require('../utils/constants')
 const {
   getAllResumes, getResume, getResumeByProfileAndId,
-  createResume, updateResume, deleteResume, clearResume,
+  createResume, updateResume, deleteResume, deleteResumes,
   downloadResume, downloadResumeFromHtml,
 } = require('../controllers/resume.controller')
 const {
@@ -23,7 +23,7 @@ const auth = [isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager,
 
 router.route('/').get(...auth, getAllResumes)
 router.route('/').post(...auth, createResumeRules, validate, createResume)
-router.route('/').delete(...auth, clearResume)
+router.route('/').delete(...auth, deleteResumes)
 
 router.route('/download/:resumeId').get(...auth, downloadResume)
 router.route('/download/:resumeId').post(...auth, downloadResumeFromHtml)
