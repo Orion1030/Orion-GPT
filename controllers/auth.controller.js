@@ -3,7 +3,6 @@ const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult, generateJWT, generateRefreshToken, verifyRefreshToken, getJwtSecret } = require('../utils')
 const jwt = require('jsonwebtoken')
 const { RequestTypes } = require('../utils/constants')
-require('dotenv').config()
 
 exports.signin = asyncErrorHandler(async (req, res, next) => {
   const { name, password, profileName } = req.body

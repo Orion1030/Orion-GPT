@@ -1,5 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
-const { REFINE_MODEL } = require("../../config/llm");
+const { REFINE_MODEL, REFINE_MAX_TOKENS, REFINE_TIMEOUT_MS } = require("../../config/llm");
 
 async function refineResumeWithFeedback({ resumeContent, feedback }) {
   if (!resumeContent || !feedback || typeof feedback !== "string") {
@@ -17,7 +17,8 @@ async function refineResumeWithFeedback({ resumeContent, feedback }) {
       { role: "user", content: userPrompt },
     ],
     temperature: 0.0,
-    max_tokens: 2000,
+    max_completion_tokens: REFINE_MAX_TOKENS,
+    timeout_ms: REFINE_TIMEOUT_MS,
   });
 
   return body?.choices?.[0]?.message?.content || resumeContent;
@@ -33,4 +34,3 @@ async function tryRefineResumeWithFeedback({ resumeContent, feedback }) {
 }
 
 module.exports = { refineResumeWithFeedback, tryRefineResumeWithFeedback };
-

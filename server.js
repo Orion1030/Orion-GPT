@@ -1,4 +1,6 @@
-require("dotenv").config();
+// Force dotenv to stay silent even if loaded multiple times by dependencies
+process.env.DOTENV_CONFIG_QUIET = 'true';
+require("dotenv").config({ quiet: true });
 
 // Diagnostic: log whether JWT_SECRET reaches the container (check Railway logs after deploy)
 const jwtSecret = process.env.JWT_SECRET;

@@ -1,6 +1,20 @@
 
 const mongoose = require("mongoose");
 
+// Normalize deprecated mongoose options: convert { new: true/false } to returnDocument to silence warnings
+mongoose.plugin((schema) => {
+  const handler = function () {
+    const opts = (typeof this.getOptions === 'function' ? this.getOptions() : this.options) || {};
+    if (Object.prototype.hasOwnProperty.call(opts, "new")) {
+      opts.returnDocument = opts.new ? "after" : "before";
+      delete opts.new;
+      this.setOptions(opts);
+    }
+  };
+  schema.pre("findOneAndUpdate", handler);
+  schema.pre("findOneAndReplace", handler);
+});
+
 // Determine MongoDB URI from environment with sensible fallbacks
 const uri =
   process.env.MONGO_URI ||

@@ -1,9 +1,23 @@
 module.exports = {
   CHAT_MODEL:     process.env.LLM_CHAT_MODEL     || 'gpt-4o-mini',
-  // Use a reasoning model by default for resume generation to maximize factual alignment and schema compliance.
-  GENERATE_MODEL: process.env.LLM_GENERATE_MODEL || 'o4-mini',
-  GENERATE_MAX_TOKENS: parseInt(process.env.LLM_GENERATE_MAX_TOKENS || '3000', 10),
+  CHAT_MAX_TOKENS: parseInt(process.env.LLM_CHAT_MAX_TOKENS || '1200', 10),
+  CHAT_TIMEOUT_MS: parseInt(process.env.LLM_CHAT_TIMEOUT_MS || '30000', 10),
+  // Default to a Responses-capable model; override with LLM_GENERATE_MODEL if needed.
+  GENERATE_MODEL: process.env.LLM_GENERATE_MODEL || 'gpt-4o',
+  GENERATE_REASONING_MODEL: process.env.LLM_GENERATE_REASONING_MODEL || 'gpt-5.4-mini',
+  GENERATE_MAX_TOKENS: parseInt(process.env.LLM_GENERATE_MAX_TOKENS || '12000', 10),
+  GENERATE_MAX_TOKEN_CEILING: parseInt(process.env.LLM_GENERATE_MAX_TOKEN_CEILING || '24000', 10),
+  GENERATE_TIMEOUT_MS: parseInt(process.env.LLM_GENERATE_TIMEOUT_MS || '1000000', 10),
+  GENERATE_MIN_BULLETS_SENIOR: parseInt(process.env.LLM_GENERATE_MIN_BULLETS_SENIOR || '5', 10),
+  GENERATE_MIN_BULLETS_MID: parseInt(process.env.LLM_GENERATE_MIN_BULLETS_MID || '4', 10),
+  GENERATE_MIN_BULLETS_JUNIOR: parseInt(process.env.LLM_GENERATE_MIN_BULLETS_JUNIOR || '3', 10),
   REFINE_MODEL:   process.env.LLM_REFINE_MODEL   || 'gpt-4o',
+  REFINE_MAX_TOKENS: parseInt(process.env.LLM_REFINE_MAX_TOKENS || '2500', 10),
+  REFINE_TIMEOUT_MS: parseInt(process.env.LLM_REFINE_TIMEOUT_MS || '45000', 10),
   PARSE_MODEL:    process.env.LLM_PARSE_MODEL    || 'gpt-4.1',
+  PARSE_MAX_TOKENS: parseInt(process.env.LLM_PARSE_MAX_TOKENS || '3500', 10),
+  PARSE_TIMEOUT_MS: parseInt(process.env.LLM_PARSE_TIMEOUT_MS || '45000', 10),
   JD_MODEL:       process.env.LLM_JD_MODEL       || 'gpt-4o-mini',
+  JD_MAX_TOKENS: parseInt(process.env.LLM_JD_MAX_TOKENS || '2200', 10),
+  JD_TIMEOUT_MS: parseInt(process.env.LLM_JD_TIMEOUT_MS || '45000', 10),
 };

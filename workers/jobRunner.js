@@ -15,7 +15,11 @@ exports.start = () => {
   log('starting job runner (in-process)')
   setInterval(async () => {
     try {
-      const job = await JobModel.findOneAndUpdate({ status: 'pending' }, { $set: { status: 'running' } }, { new: true })
+      const job = await JobModel.findOneAndUpdate(
+        { status: 'pending' },
+        { $set: { status: 'running' } },
+        { returnDocument: 'after' }
+      )
       if (!job) return
       log('picked job', job._id.toString(), job.type)
       const handler = handlers[job.type]
@@ -47,4 +51,3 @@ exports.start = () => {
     }
   }, 1000)
 }
-

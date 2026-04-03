@@ -1,5 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
-const { PARSE_MODEL } = require("../../config/llm");
+const { PARSE_MODEL, PARSE_MAX_TOKENS, PARSE_TIMEOUT_MS } = require("../../config/llm");
 const { resumeSchema } = require("./schemas/resumeSchemas");
 
 // Basic JSON repair for common LLM issues
@@ -140,7 +140,8 @@ async function parseResumeTextWithLLM(text) {
       { role: "user", content: userPrompt },
     ],
     temperature: 0.0,
-    max_tokens: 3000,
+    max_completion_tokens: PARSE_MAX_TOKENS,
+    timeout_ms: PARSE_TIMEOUT_MS,
     functions,
     function_call: { name: "parse_resume" },
   });

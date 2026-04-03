@@ -1,4 +1,3 @@
-require("dotenv").config();
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { StackModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
@@ -51,7 +50,7 @@ exports.updateStack = asyncErrorHandler(async (req, res, next) => {
   const updatedStack = await StackModel.findByIdAndUpdate(
     stackId,
     { title, upperCasePrimarySkills, upperCaseSecondarySkills, note },
-    { new: true },
+    { returnDocument: "after" },
   );
   if (!updatedStack) {
     return sendJsonResult(res, false, null, "Stack not found", 404);

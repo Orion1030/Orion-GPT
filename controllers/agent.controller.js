@@ -1,4 +1,3 @@
-require('dotenv').config()
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { JobModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
@@ -82,8 +81,11 @@ exports.streamJobEvents = async (req, res) => {
 exports.cancelJob = asyncErrorHandler(async (req, res) => {
   const userId = req.user._id
   const { jobId } = req.params
-  const job = await JobModel.findOneAndUpdate({ _id: jobId, userId }, { $set: { status: 'cancelled' } }, { new: true }).lean()
+  const job = await JobModel.findOneAndUpdate(
+    { _id: jobId, userId },
+    { $set: { status: 'cancelled' } },
+    { returnDocument: 'after' }
+  ).lean()
   if (!job) return sendJsonResult(res, false, null, 'Job not found', 404)
   return sendJsonResult(res, true, job, 'Job cancelled', 200)
 })
-

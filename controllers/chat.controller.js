@@ -1,4 +1,3 @@
-require('dotenv').config()
 const fetch = global.fetch
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } = require('../dbModels')
@@ -137,7 +136,7 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
   const session = await ChatSessionModel.findOneAndUpdate(
     { _id: sessionId, userId },
     { $set: updates },
-    { new: true }
+    { returnDocument: 'after' }
   )
     .populate('profileId')
     .lean()
@@ -264,7 +263,7 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
     { role: 'system', content: systemContext },
     ...chatMessages.slice(-20)
   ]
-  const { result: chatResult, error: chatError } = await tryGetChatReply({ messages: apiMessages, temperature: 0.6, max_tokens: 1024 })
+  const { result: chatResult, error: chatError } = await tryGetChatReply({ messages: apiMessages, temperature: 0.6 })
   if (chatError) {
     assistantContent = 'Sorry, I had trouble responding. Please try again.'
   } else if (chatResult.reply) {

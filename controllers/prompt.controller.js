@@ -1,4 +1,3 @@
-require('dotenv').config()
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult } = require('../utils')
 const { PromptModel } = require('../dbModels')

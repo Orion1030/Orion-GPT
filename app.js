@@ -4,7 +4,6 @@ const morgan = require("morgan");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const session = require("express-session");
-require("dotenv").config();
 // import routes
 const authRoutes = require("./routes/auth.route");
 const userRoutes = require("./routes/user.route");

@@ -1,4 +1,3 @@
-require("dotenv").config();
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { WhitelistModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");

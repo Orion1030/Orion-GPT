@@ -1,12 +1,14 @@
 const { chatCompletions } = require("./openaiClient");
-const { CHAT_MODEL } = require("../../config/llm");
+const { CHAT_MODEL, CHAT_MAX_TOKENS, CHAT_TIMEOUT_MS } = require("../../config/llm");
 
-async function getChatReply({ messages, temperature = 0.6, max_tokens = 1024 }) {
+async function getChatReply({ messages, temperature = 0.6, max_tokens }) {
+  const effectiveMaxTokens = Number(max_tokens) > 0 ? Number(max_tokens) : CHAT_MAX_TOKENS;
   const body = await chatCompletions({
     model: CHAT_MODEL,
     messages,
     temperature,
-    max_tokens,
+    max_completion_tokens: effectiveMaxTokens,
+    timeout_ms: CHAT_TIMEOUT_MS,
   });
 
   const reply = body?.choices?.[0]?.message?.content;
@@ -23,4 +25,3 @@ async function tryGetChatReply({ messages, temperature, max_tokens }) {
 }
 
 module.exports = { getChatReply, tryGetChatReply };
-

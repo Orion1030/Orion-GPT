@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "ENOTCACHED",
+    "summary": "request to https://registry.npmjs.org/minimatch failed: cache mode is 'only-if-cached' but no cached response is available.",
+    "detail": ""
+  }
+}

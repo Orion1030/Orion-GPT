@@ -1,4 +1,3 @@
-require("dotenv").config();
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
@@ -278,7 +277,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   const updatedResume = await ResumeModel.findOneAndUpdate(
     { userId: user._id, _id: resumeId },
     { $set: setDoc },
-    { new: true }
+    { returnDocument: "after" }
   )
     .populate("profileId")
     .populate("templateId")

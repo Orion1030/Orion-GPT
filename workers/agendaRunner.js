@@ -32,7 +32,7 @@ exports.registerHandler = (type, fn) => {
     const jobDoc = await JobModel.findByIdAndUpdate(
       jobModelId,
       { $set: { status: 'running' } },
-      { new: true }
+      { returnDocument: 'after' }
     )
     if (!jobDoc) throw new Error(`JobModel ${jobModelId} not found`)
 

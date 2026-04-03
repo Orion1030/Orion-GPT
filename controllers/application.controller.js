@@ -1,4 +1,3 @@
-require("dotenv").config();
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ApplicationModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
@@ -48,7 +47,7 @@ exports.updateApplication = asyncErrorHandler(async (req, res) => {
   const application = await ApplicationModel.findOneAndUpdate(
     { _id: id, userId: user._id },
     updates,
-    { new: true }
+    { returnDocument: "after" }
   );
 
   if (!application) {

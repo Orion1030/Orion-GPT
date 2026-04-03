@@ -1,5 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
-const { JD_MODEL } = require("../../config/llm");
+const { JD_MODEL, JD_MAX_TOKENS, JD_TIMEOUT_MS } = require("../../config/llm");
 
 async function parseJobDescriptionWithLLM(text) {
   if (!text || typeof text !== "string" || !text.trim()) throw new Error("Text is required");
@@ -35,7 +35,8 @@ async function parseJobDescriptionWithLLM(text) {
       { role: "user", content: userPrompt },
     ],
     temperature: 0,
-    max_tokens: 2000,
+    max_completion_tokens: JD_MAX_TOKENS,
+    timeout_ms: JD_TIMEOUT_MS,
     functions,
     function_call: { name: "parse_jd" },
   });
@@ -57,4 +58,3 @@ async function parseJobDescriptionWithLLM(text) {
 }
 
 module.exports = { parseJobDescriptionWithLLM };
-

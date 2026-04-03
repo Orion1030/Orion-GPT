@@ -76,9 +76,8 @@ exports.updateStructured = asyncErrorHandler(async (req, res) => {
   const updated = await ChatMessageModel.findOneAndUpdate(
     { _id: messageId },
     { $set: { structuredAssistantPayload: sanitizedPayload, content: sanitizedPayload?.text || msg.content } },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean()
 
   return sendJsonResult(res, true, updated, 'Message updated', 200)
 })
-

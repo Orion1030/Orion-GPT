@@ -1,4 +1,3 @@
-require("dotenv").config();
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { JobDescriptionModel, ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
@@ -156,6 +155,12 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
   let baseResume = null;
   if (baseResumeId) {
     baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId, isDeleted: { $ne: true } }).populate("profileId").lean();
+  } else {
+    // Auto-seed generation with the latest resume for the selected profile when explicit baseResumeId is not provided.
+    baseResume = await ResumeModel.findOne({ userId, profileId, isDeleted: { $ne: true } })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .populate("profileId")
+      .lean();
   }
 
   const { result: genResult, error: genError } = await tryGenerateResumeJsonFromJD({ jd, profile, baseResume });
