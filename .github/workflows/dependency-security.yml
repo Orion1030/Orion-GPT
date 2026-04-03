@@ -1,0 +1,76 @@
+name: Dependency Security
+
+on:
+  push:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
+      - ".github/workflows/dependency-security.yml"
+  pull_request:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
+      - ".github/workflows/dependency-security.yml"
+  schedule:
+    - cron: "23 4 * * 1"
+
+jobs:
+  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+
+      - name: Enforce pinned versions and blocked package versions
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const blocked = { axios: new Set(['1.14.1', '0.30.4']) };
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (!fs.existsSync('package-lock.json')) {
+            console.error('package-lock.json is missing.');
+            process.exit(1);
+          }
+          const exact = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/;
+          for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+            const deps = pkg[section] || {};
+            for (const [name, version] of Object.entries(deps)) {
+              if (!exact.test(version)) {
+                console.error(`Non-exact ${section}.${name}: ${version}`);
+                process.exitCode = 1;
+              }
+              if (blocked[name] && blocked[name].has(version)) {
+                console.error(`Blocked ${name} version in package.json: ${version}`);
+                process.exitCode = 1;
+              }
+            }
+          }
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const lockAxios = lock?.packages?.['node_modules/axios']?.version;
+          if (lockAxios && blocked.axios.has(lockAxios)) {
+            console.error(`Blocked axios version in package-lock.json: ${lockAxios}`);
+            process.exitCode = 1;
+          }
+          let missingIntegrity = 0;
+          for (const [pkgPath, meta] of Object.entries(lock.packages || {})) {
+            if (!pkgPath || !meta || meta.link) continue;
+            const resolved = String(meta.resolved || '');
+            if (resolved.startsWith('file:') || resolved.startsWith('git+') || resolved.startsWith('workspace:') || resolved.includes('github.com')) continue;
+            if (!meta.integrity) missingIntegrity += 1;
+          }
+          if (missingIntegrity > 0) {
+            console.error(`Missing integrity hashes in ${missingIntegrity} lockfile entries.`);
+            process.exitCode = 1;
+          }
+          if (process.exitCode) process.exit(process.exitCode);
+          NODE
+
+      - name: Audit Dependencies
+        run: npm audit --audit-level=high
