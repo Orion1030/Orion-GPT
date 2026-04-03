@@ -32,6 +32,32 @@ function flattenArrayOneLevel(value) {
   return out;
 }
 
+function normalizeLegacyDescriptionList(value) {
+  if (Array.isArray(value)) {
+    return value.map(toCleanString).filter(Boolean);
+  }
+  if (typeof value !== "string") return [];
+
+  const raw = value.trim();
+  if (!raw) return [];
+
+  const htmlListItems = [...raw.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
+    .map((match) => toCleanString(match[1]))
+    .filter(Boolean);
+  if (htmlListItems.length) return htmlListItems;
+
+  const lines = raw
+    .replace(/<br\s*\/?>/gi, "\n")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s\-*•]+/, ""))
+    .map((line) => toCleanString(line.replace(/<[^>]+>/g, " ")))
+    .filter(Boolean);
+  if (lines.length) return lines;
+
+  const single = toCleanString(raw.replace(/<[^>]+>/g, " "));
+  return single ? [single] : [];
+}
+
 function normalizeExperiences(experiences) {
   if (!Array.isArray(experiences)) return [];
   return experiences.map((e) => ({
@@ -41,9 +67,11 @@ function normalizeExperiences(experiences) {
     summary: toCleanString(e?.summary ?? e?.companySummary),
     descriptions: Array.isArray(e?.descriptions)
       ? e.descriptions.map(toCleanString).filter(Boolean)
-      : Array.isArray(e?.keyPoints)
-        ? e.keyPoints.map(toCleanString).filter(Boolean)
-        : [],
+      : typeof e?.descriptions === "string"
+        ? normalizeLegacyDescriptionList(e.descriptions)
+        : Array.isArray(e?.keyPoints)
+          ? e.keyPoints.map(toCleanString).filter(Boolean)
+          : normalizeLegacyDescriptionList(e?.keyPoints),
     startDate: toCleanString(e?.startDate),
     endDate: toCleanString(e?.endDate),
   }));

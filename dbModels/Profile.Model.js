@@ -16,7 +16,7 @@ const careerHistorySchema = new mongoose.Schema({
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
   companySummary: { type: String, maxlength: 3000 },
-  keyPoints: [{ type: String }]
+  keyPoints: { type: String, default: "" }
 }, { _id: false })
 
 const educationSchema = new mongoose.Schema({

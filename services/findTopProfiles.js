@@ -18,6 +18,20 @@ function tokenize(text) {
     .filter(t => t.length > 1);
 }
 
+function normalizeProfileKeyPoints(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v || '').trim()).filter(Boolean).join(' ');
+  }
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/<li[^>]*>/gi, ' ')
+    .replace(/<\/li>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function findTopProfilesCore(userId, jdId) {
   const jd = await JobDescriptionModel.findOne({ _id: jdId, userId }).lean();
   if (!jd) return { topProfiles: [], error: 'Job description not found' };
@@ -35,7 +49,7 @@ async function findTopProfilesCore(userId, jdId) {
     const titleTokens = new Set(tokenize(profile.title || ''));
 
     const experienceText = (profile.careerHistory || [])
-      .map(e => [e.roleTitle || '', e.companySummary || '', ...(e.keyPoints || [])].join(' '))
+      .map(e => [e.roleTitle || '', e.companySummary || '', normalizeProfileKeyPoints(e.keyPoints)].join(' '))
       .join(' ');
     const expTokens = new Set(tokenize(experienceText));
 

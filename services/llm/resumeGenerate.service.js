@@ -32,6 +32,46 @@ function formatDate(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function stripHtmlToText(value) {
+  return sanitizeStr(value)
+    .replace(/<li[^>]*>/gi, " ")
+    .replace(/<\/li>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function profileKeyPointsToLines(keyPoints) {
+  if (Array.isArray(keyPoints)) {
+    return keyPoints
+      .map((v) => sanitizePromptStr(stripHtmlToText(v), 350))
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+
+  if (typeof keyPoints !== "string" || !keyPoints.trim()) return [];
+  const raw = keyPoints.trim();
+
+  const htmlListItems = [...raw.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
+    .map((match) => sanitizePromptStr(stripHtmlToText(match[1]), 350))
+    .filter(Boolean)
+    .slice(0, 8);
+  if (htmlListItems.length) return htmlListItems;
+
+  const textLines = raw
+    .replace(/<br\s*\/?>/gi, "\n")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s\-*•]+/, "").trim())
+    .map((line) => sanitizePromptStr(stripHtmlToText(line), 350))
+    .filter(Boolean)
+    .slice(0, 8);
+  if (textLines.length) return textLines;
+
+  const single = sanitizePromptStr(stripHtmlToText(raw), 350);
+  return single ? [single] : [];
+}
+
 function normalizeCareerHistoryForPrompt(careerHistory) {
   if (!Array.isArray(careerHistory)) return [];
 
@@ -41,9 +81,7 @@ function normalizeCareerHistoryForPrompt(careerHistory) {
     startDate: formatDate(item?.startDate),
     endDate: formatDate(item?.endDate),
     companySummary: sanitizePromptStr(item?.companySummary, 500),
-    keyPoints: Array.isArray(item?.keyPoints)
-      ? item.keyPoints.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 8)
-      : [],
+    keyPoints: profileKeyPointsToLines(item?.keyPoints),
   }));
 }
 
@@ -222,7 +260,7 @@ function buildEvidenceMaps(profile, baseResume) {
   for (const exp of profileHistory) {
     addEvidence(exp?.roleTitle, exp?.companyName, [
       exp?.companySummary,
-      ...(Array.isArray(exp?.keyPoints) ? exp.keyPoints : []),
+      ...profileKeyPointsToLines(exp?.keyPoints),
     ]);
   }
 
@@ -341,7 +379,7 @@ function buildFallbackResume({ jd, profile }) {
         companyName: e?.companyName || "",
         companyLocation: "",
         summary: e?.companySummary || "",
-        descriptions: Array.isArray(e?.keyPoints) ? e.keyPoints : [],
+        descriptions: profileKeyPointsToLines(e?.keyPoints),
         startDate: e?.startDate || "",
         endDate: e?.endDate || "",
       }))
