@@ -1,11 +1,103 @@
 const { buildResumeHtml, getConfig, getMargins } = require('./templateRenderer');
 
+function buildExperienceBreakGuardStyles() {
+    return `
+  .exp-item{
+    break-inside: auto;
+    page-break-inside: auto;
+    -webkit-column-break-inside: auto;
+    mso-keep-together: no;
+  }
+  .exp-item .exp-header,
+  .exp-item .exp-company,
+  .exp-item h3{
+    break-after: avoid-page;
+    page-break-after: avoid;
+    mso-keep-with-next: yes;
+  }
+  .exp-item ul > li:first-child,
+  .exp-item ol > li:first-child{
+    break-before: avoid-page;
+    page-break-before: avoid;
+    mso-keep-with-previous: yes;
+  }
+`;
+}
+
+const WORD_PRINT_VIEW_XML = `<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->`;
+
+function escapeHtmlAttr(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 function extractHeadAndBody(html) {
     const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     const head = headMatch ? headMatch[1] : '';
     const body = bodyMatch ? bodyMatch[1] : (headMatch ? html.replace(headMatch[0], '') : html);
     return { head, body };
+}
+
+function extractCombinedCssFromHead(headHtml) {
+    const styleMatches = String(headHtml || '').match(/<style[^>]*>[\s\S]*?<\/style>/gi) || [];
+    if (!styleMatches.length) return '';
+    return styleMatches
+        .map((styleTag) => styleTag
+            .replace(/<style[^>]*>/i, '')
+            .replace(/<\/style>/i, ''))
+        .join('\n');
+}
+
+/**
+ * If client sends paged-preview HTML (with runtime wrapper script),
+ * extract the original .resume markup so DOC export keeps styles
+ * without preview-frame artifacts.
+ */
+function sanitizePagedPreviewHtmlForDoc(html) {
+    if (!html || typeof html !== 'string') return html;
+
+    const hasPagingMarkers = /document\.body\.appendChild\(v\)|GAP=24|wrapWithPagedPreview|display:flex;flex-direction:column;align-items:center;gap:/.test(html);
+
+    const openTagMatch = html.match(/<div\b[^>]*class=(?:'|")[^'"]*\bresume\b[^'"]*(?:'|")[^>]*>/i);
+    const styleMatches = html.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || [];
+    const styles = styleMatches.join('\n');
+
+    if (openTagMatch && typeof openTagMatch.index === 'number') {
+        const start = openTagMatch.index;
+        const tagRegex = /<\/?div\b/gi;
+        tagRegex.lastIndex = start;
+        let depth = 0;
+        let match = tagRegex.exec(html);
+        if (match) {
+            depth = 1;
+            let endPos = -1;
+            while ((match = tagRegex.exec(html)) !== null) {
+                const idx = match.index;
+                const isClose = html[idx + 1] === '/';
+                isClose ? depth-- : depth++;
+                if (depth === 0) {
+                    const closeTagEnd = html.indexOf('>', idx);
+                    endPos = closeTagEnd >= 0 ? closeTagEnd + 1 : idx;
+                    break;
+                }
+            }
+            if (endPos > start) {
+                const resumeHtml = html.slice(start, endPos);
+                return `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}</head><body>${resumeHtml}</body></html>`;
+            }
+        }
+    }
+
+    const cleaned = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<div[^>]*style=["'][^"']*width:\s*816px;[^"']*height:\s*1056px;[^"']*background:\s*white;[^"']*["'][\s\S]*?<\/div>/gi, '')
+        .replace(/<div[^>]*id=["']?thumb-clip["']?[^>]*>[\s\S]*?<\/div>/gi, '');
+
+    return hasPagingMarkers ? cleaned : html;
 }
 
 function parseCssVars(cssText) {
@@ -106,15 +198,23 @@ function injectInlineResumeStyles(bodyHtml, vars, margin) {
 
 function sendDocFromHtml(html, res, options = {}) {
     const filename = (options.name || 'resume').replace(/"/g, '');
+    const fullName = String(options.fullName || '').trim();
+
+    try {
+        html = sanitizePagedPreviewHtmlForDoc(html);
+    } catch (e) {
+        console.warn('[sendDocFromHtml] sanitizePagedPreviewHtmlForDoc failed, continuing with original html', e);
+    }
+
     const parts = extractHeadAndBody(html);
-    const styleMatches = parts.head.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || [];
-    const combinedStyles = styleMatches.join('\n');
+    const combinedStyles = extractCombinedCssFromHead(parts.head);
     const vars = parseCssVars(combinedStyles);
     const margin = options.margin || marginFromVars(vars);
 
     let flattenedStyles = replaceCssVarsInText(combinedStyles, vars);
     flattenedStyles = resolveCalcFontSize(flattenedStyles, vars);
     const pageAndBodyStyles = buildDocPageAndBodyStyles(vars, margin);
+    const breakGuardStyles = buildExperienceBreakGuardStyles();
 
     let flattenedBody = replaceCssVarsInText(parts.body, vars);
     flattenedBody = injectInlineResumeStyles(flattenedBody, vars, margin);
@@ -125,9 +225,12 @@ function sendDocFromHtml(html, res, options = {}) {
         xmlns='http://www.w3.org/TR/REC-html40'>
   <head>
     <meta charset="utf-8" />
+    ${fullName ? `<title>${escapeHtmlAttr(fullName)}</title><meta name="author" content="${escapeHtmlAttr(fullName)}" />` : ''}
+    ${WORD_PRINT_VIEW_XML}
     <style>
       ${pageAndBodyStyles}
       ${flattenedStyles}
+      ${breakGuardStyles}
     </style>
   </head>
   <body>
@@ -144,17 +247,20 @@ function sendDocFromHtml(html, res, options = {}) {
 
 function sendDocResume(resume, res) {
     const bodyHtml = buildResumeHtml(resume);
+    const fullName = resume?.profileId && typeof resume.profileId === 'object'
+        ? String(resume.profileId.fullName || '').trim()
+        : '';
     const config = getConfig(resume);
     const m = getMargins(config);
 
     const parts = extractHeadAndBody(bodyHtml);
-    const styleMatches = parts.head.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || [];
-    const combinedStyles = styleMatches.join('\n');
+    const combinedStyles = extractCombinedCssFromHead(parts.head);
     const vars = parseCssVars(combinedStyles);
 
     let flattenedStyles = replaceCssVarsInText(combinedStyles, vars);
     flattenedStyles = resolveCalcFontSize(flattenedStyles, vars);
     const pageAndBodyStyles = buildDocPageAndBodyStyles(vars, m);
+    const breakGuardStyles = buildExperienceBreakGuardStyles();
 
     let flattenedBody = replaceCssVarsInText(parts.body, vars);
     flattenedBody = injectInlineResumeStyles(flattenedBody, vars, m);
@@ -165,10 +271,12 @@ function sendDocResume(resume, res) {
         xmlns='http://www.w3.org/TR/REC-html40'>
   <head>
     <meta charset="utf-8">
-    <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+    ${fullName ? `<title>${escapeHtmlAttr(fullName)}</title><meta name="author" content="${escapeHtmlAttr(fullName)}" />` : ''}
+    ${WORD_PRINT_VIEW_XML}
     <style>
       ${pageAndBodyStyles}
       ${flattenedStyles}
+      ${breakGuardStyles}
     </style>
   </head>
   <body>
@@ -184,11 +292,14 @@ function sendDocResume(resume, res) {
 }
 
 module.exports = {
+    sanitizePagedPreviewHtmlForDoc,
     extractHeadAndBody,
+    extractCombinedCssFromHead,
     parseCssVars,
     replaceCssVarsInText,
     resolveCalcFontSize,
     buildDocPageAndBodyStyles,
+    buildExperienceBreakGuardStyles,
     marginFromVars,
     injectInlineResumeStyles,
     sendDocFromHtml,

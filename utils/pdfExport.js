@@ -3,6 +3,76 @@ const path = require('path');
 const { buildResumeHtml, getConfig, getMargins } = require('./templateRenderer');
 const { runInBrowser } = require('./browserPool');
 
+const EXPERIENCE_BREAK_GUARD_STYLE = `<style id="jobsy-exp-break-guards">
+  .exp-item{
+    break-inside: auto;
+    page-break-inside: auto;
+    -webkit-column-break-inside: auto;
+  }
+  .exp-item .exp-header,
+  .exp-item .exp-company,
+  .exp-item h3{
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+  .exp-item ul > li:first-child,
+  .exp-item ol > li:first-child{
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+  @media print{
+    .exp-item{
+      break-inside: auto !important;
+      page-break-inside: auto !important;
+    }
+    .exp-item .exp-header,
+    .exp-item .exp-company,
+    .exp-item h3{
+      break-after: avoid-page !important;
+      page-break-after: avoid !important;
+    }
+    .exp-item ul > li:first-child,
+    .exp-item ol > li:first-child{
+      break-before: avoid-page !important;
+      page-break-before: avoid !important;
+    }
+  }
+</style>`;
+
+function injectExperienceBreakGuards(html) {
+    if (!html || typeof html !== 'string') return html;
+    if (/id=(['"])jobsy-exp-break-guards\1/i.test(html)) return html;
+    if (html.includes('</head>')) {
+        return html.replace('</head>', `${EXPERIENCE_BREAK_GUARD_STYLE}\n</head>`);
+    }
+    return `${EXPERIENCE_BREAK_GUARD_STYLE}\n${html}`;
+}
+
+function escapeHtmlAttr(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function injectDocumentMetadata(html, fullName) {
+    if (!html || typeof html !== 'string') return html;
+    const name = String(fullName || '').trim();
+    if (!name) return html;
+
+    const safeName = escapeHtmlAttr(name);
+    const tags = `<title>${safeName}</title><meta name="author" content="${safeName}">`;
+
+    if (html.includes('</head>')) {
+        let out = html.replace(/<title[^>]*>[\s\S]*?<\/title>/gi, '');
+        out = out.replace(/<meta\s+name=["']author["'][^>]*>/gi, '');
+        return out.replace('</head>', `${tags}\n</head>`);
+    }
+
+    return `<!DOCTYPE html><html><head>${tags}</head><body>${html}</body></html>`;
+}
+
 /**
  * Sanitize HTML produced by the in-app paged preview so Puppeteer does not
  * render the preview page frames/gaps. Extracts the original .resume element
@@ -72,11 +142,15 @@ async function renderPdf(page, html, marginPx) {
 }
 
 async function sendPdfResume(resume, res) {
-    const html = buildResumeHtml(resume);
+    let html = buildResumeHtml(resume);
+    const fullName = resume?.profileId && typeof resume.profileId === 'object'
+        ? resume.profileId.fullName || ''
+        : '';
     const config = getConfig(resume);
     const m = getMargins(config);
     const px = (val) => `${val}px`;
-    const margins = [m.top, m.right, m.bottom, m.left];
+    html = injectDocumentMetadata(html, fullName);
+    html = injectExperienceBreakGuards(html);
 
     const pdfBuffer = await runInBrowser(async (page) => {
         await page.setContent(html, { waitUntil: 'networkidle0' });
@@ -106,6 +180,8 @@ async function sendPdfFromHtml(html, res, options = {}) {
     } catch (e) {
         console.warn('[sendPdfFromHtml] sanitizePagedPreviewHtml failed, continuing with original html', e);
     }
+    html = injectDocumentMetadata(html, options.fullName || '');
+    html = injectExperienceBreakGuards(html);
 
     const pdfBuffer = await runInBrowser(async (page) => {
         await page.setContent(html, { waitUntil: 'networkidle0' });

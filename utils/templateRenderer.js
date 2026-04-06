@@ -347,8 +347,25 @@ function buildResumeHtml(resume) {
     return renderTemplate(templateHtml, data, config);
 }
 
+function injectHtmlDownloadMetadata(html, fullName) {
+    if (!html || typeof html !== 'string') return html;
+    const name = String(fullName || '').trim();
+    if (!name) return html;
+    const safeName = escapeHtml(name);
+    const tags = `<title>${safeName}</title><meta name="author" content="${safeName}">`;
+    if (html.includes('</head>')) {
+        let out = html.replace(/<title[^>]*>[\s\S]*?<\/title>/gi, '');
+        out = out.replace(/<meta\s+name=["']author["'][^>]*>/gi, '');
+        return out.replace('</head>', `${tags}</head>`);
+    }
+    return `<!DOCTYPE html><html><head>${tags}</head><body>${html}</body></html>`;
+}
+
 function sendHtmlResume(resume, res) {
-    const html = buildResumeHtml(resume);
+    const fullName = resume?.profileId && typeof resume.profileId === 'object'
+        ? resume.profileId.fullName || ''
+        : '';
+    const html = injectHtmlDownloadMetadata(buildResumeHtml(resume), fullName);
     res.set({
         'Content-Type': 'text/html',
         'Content-Disposition': `attachment; filename="${(resume.name || 'resume').replace(/"/g, '')}.html"`,
@@ -374,5 +391,6 @@ module.exports = {
     renderTemplate,
     resolveTemplateHtml,
     buildResumeHtml,
+    injectHtmlDownloadMetadata,
     sendHtmlResume,
 };

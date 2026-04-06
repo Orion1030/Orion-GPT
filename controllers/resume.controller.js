@@ -1,7 +1,7 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
-const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml } = require("../utils/resumeUtils");
+const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml, injectHtmlDownloadMetadata } = require("../utils/resumeUtils");
 const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
 
 function toCleanString(value) {
@@ -418,14 +418,25 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
   }
 
   switch (fileType) {
-    case "pdf": return sendPdfFromHtml(html, res, { name });
-    case "doc": return sendDocFromHtml(html, res, { name });
-    case "html":
+    case "pdf": return sendPdfFromHtml(html, res, {
+      name,
+      fullName: resume.profileId?.fullName || "",
+    });
+    case "doc": return sendDocFromHtml(html, res, {
+      name,
+      fullName: resume.profileId?.fullName || "",
+    });
+    case "html": {
+      const fullName = resume.profileId?.fullName || "";
+      const htmlWithMeta = typeof injectHtmlDownloadMetadata === "function"
+        ? injectHtmlDownloadMetadata(html, fullName)
+        : html;
       res.set({
         "Content-Type": "text/html",
         "Content-Disposition": `attachment; filename="${(name || "resume").replace(/"/g, "")}.html"`,
       });
-      return res.send(html);
+      return res.send(htmlWithMeta);
+    }
     default:
       return sendJsonResult(res, false, null, "Invalid file type", 400);
   }
