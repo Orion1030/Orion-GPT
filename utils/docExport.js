@@ -1,5 +1,6 @@
 const { buildResumeHtml, getConfig, getMargins } = require('./templateRenderer');
 const HTMLtoDOCX = require('html-to-docx');
+const puppeteer = require('puppeteer');
 
 function buildExperienceBreakGuardStyles() {
     return `
@@ -97,13 +98,14 @@ function sanitizePagedPreviewHtmlForDoc(html) {
 
     const hasPagingMarkers = /document\.body\.appendChild\(v\)|GAP=24|wrapWithPagedPreview|display:flex;flex-direction:column;align-items:center;gap:/.test(html);
 
-    const openTagMatch = html.match(/<div\b[^>]*class=(?:'|")[^'"]*\bresume\b[^'"]*(?:'|")[^>]*>/i);
+    const openTagMatch = html.match(/<([a-zA-Z][\w:-]*)\b[^>]*class=(?:'|")[^'"]*\bresume\b[^'"]*(?:'|")[^>]*>/i);
     const styleMatches = html.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || [];
     const styles = styleMatches.join('\n');
 
     if (openTagMatch && typeof openTagMatch.index === 'number') {
         const start = openTagMatch.index;
-        const tagRegex = /<\/?div\b/gi;
+        const tagName = openTagMatch[1];
+        const tagRegex = new RegExp(`<\\/?${tagName}\\b`, 'gi');
         tagRegex.lastIndex = start;
         let depth = 0;
         let match = tagRegex.exec(html);
@@ -246,6 +248,222 @@ function buildDocxHtml(html, options = {}) {
     return { docHtml, vars, margin, fullName };
 }
 
+const DOCX_SUPPORTED_INLINE_PROPS = [
+    'color',
+    'background-color',
+    'text-align',
+    'font-weight',
+    'font-family',
+    'font-size',
+    'line-height',
+    'margin-left',
+    'margin-right',
+    'vertical-align',
+    'display',
+    'width',
+    'height',
+    'min-width',
+    'max-width',
+    'border',
+    'border-top',
+    'border-left',
+    'border-bottom',
+    'border-right',
+    'border-collapse',
+    'column-span',
+];
+
+const DOCX_TEXT_STYLE_PROPS = [
+    'color',
+    'font-family',
+    'font-size',
+    'font-weight',
+    'line-height',
+    'text-align',
+    'vertical-align',
+];
+
+async function inlineDocxSupportedStyles(html) {
+    if (!html || typeof html !== 'string') return html;
+
+    let browser = null;
+    try {
+        browser = await puppeteer.launch({
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        });
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'domcontentloaded' });
+
+        const inlined = await page.evaluate((styleProps, textStyleProps) => {
+            const isTransparent = (value) => {
+                const v = String(value || '').trim().toLowerCase();
+                return v === 'transparent' || v === 'rgba(0, 0, 0, 0)' || v === 'rgba(0,0,0,0)';
+            };
+
+            const isZeroBorder = (value) => {
+                const v = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                if (!v || v === 'none' || v === '0') return true;
+                return /^0(?:px|pt|cm|mm|in|pc|em|rem)?(?:\s+none)?(?:\s+rgb\([^)]+\)|\s+rgba\([^)]+\)|\s+#[0-9a-f]+)?$/.test(v);
+            };
+
+            const normalizeValue = (prop, rawValue) => {
+                let value = String(rawValue || '').trim();
+                if (!value) return '';
+
+                if (prop === 'text-align') {
+                    if (value === 'start') value = 'left';
+                    if (value === 'end') value = 'right';
+                    if (!['left', 'right', 'center', 'justify'].includes(value)) return '';
+                }
+
+                if (prop === 'font-weight') {
+                    const numeric = Number.parseInt(value, 10);
+                    const isBold = Number.isFinite(numeric) ? numeric >= 600 : /bold/i.test(value);
+                    return isBold ? 'bold' : '';
+                }
+
+                if (prop === 'line-height' && value === 'normal') return '';
+                if ((prop === 'background-color' || prop === 'color') && isTransparent(value)) return '';
+
+                if (
+                    (prop === 'width' || prop === 'height' || prop === 'min-width' || prop === 'max-width') &&
+                    (value === 'auto' || value === 'none')
+                ) {
+                    return '';
+                }
+
+                if ((prop === 'border' || prop.startsWith('border-')) && isZeroBorder(value)) return '';
+                if (prop === 'border-collapse' && value !== 'collapse') return '';
+                if (prop === 'column-span' && (value === 'none' || value === '1')) return '';
+
+                return value;
+            };
+
+            const all = Array.from(document.querySelectorAll('*'));
+            for (const el of all) {
+                const computed = window.getComputedStyle(el);
+                const styleChunks = [];
+
+                for (const prop of styleProps) {
+                    const normalized = normalizeValue(prop, computed.getPropertyValue(prop));
+                    if (!normalized) continue;
+                    styleChunks.push(`${prop}: ${normalized}`);
+                }
+
+                if (!styleChunks.length) continue;
+
+                const existing = String(el.getAttribute('style') || '').trim();
+                if (existing) {
+                    const trimmed = existing.replace(/;+\s*$/, '');
+                    el.setAttribute('style', `${trimmed}; ${styleChunks.join('; ')};`);
+                } else {
+                    el.setAttribute('style', `${styleChunks.join('; ')};`);
+                }
+            }
+
+            const textStyleFromComputed = (target) => {
+                const computed = window.getComputedStyle(target);
+                const chunks = [];
+                for (const prop of textStyleProps) {
+                    const normalized = normalizeValue(prop, computed.getPropertyValue(prop));
+                    if (!normalized) continue;
+                    chunks.push(`${prop}: ${normalized}`);
+                }
+                return chunks.join('; ');
+            };
+
+            for (const el of all) {
+                const tag = String(el.tagName || '').toLowerCase();
+                if (tag === 'script' || tag === 'style' || tag === 'noscript') continue;
+
+                const textStyle = textStyleFromComputed(el);
+                if (!textStyle) continue;
+
+                const childNodes = Array.from(el.childNodes || []);
+                for (const node of childNodes) {
+                    if (!node || node.nodeType !== Node.TEXT_NODE) continue;
+                    const text = String(node.textContent || '');
+                    if (!text.trim()) continue;
+
+                    const span = document.createElement('span');
+                    span.setAttribute('style', `${textStyle};`);
+                    span.textContent = text;
+                    el.replaceChild(span, node);
+                }
+            }
+
+            const normalizeHeaderTitle = () => {
+                const titleNodes = Array.from(document.querySelectorAll('.header .title, .resume-header .role'));
+                for (const node of titleNodes) {
+                    if (!node || String(node.tagName || '').toLowerCase() === 'p') continue;
+                    const p = document.createElement('p');
+                    const style = node.getAttribute('style');
+                    if (style) p.setAttribute('style', style);
+                    p.innerHTML = node.innerHTML;
+                    node.replaceWith(p);
+                }
+            };
+
+            const normalizeContactRows = () => {
+                const rows = Array.from(document.querySelectorAll('.contact-info, .header-detail'));
+                for (const row of rows) {
+                    const elementChildren = Array.from(row.children || []);
+                    const textItems = elementChildren
+                        .filter((child) => child && child.nodeType === Node.ELEMENT_NODE)
+                        .map((child) => {
+                            const text = String(child.textContent || '').replace(/\s+/g, ' ').trim();
+                            if (!text) return null;
+                            return { text, style: child.getAttribute('style') || '' };
+                        })
+                        .filter(Boolean);
+
+                    if (!textItems.length) continue;
+
+                    const p = document.createElement('p');
+                    const rowStyle = row.getAttribute('style');
+                    if (rowStyle) p.setAttribute('style', rowStyle);
+
+                    for (let i = 0; i < textItems.length; i++) {
+                        const item = textItems[i];
+                        const span = document.createElement('span');
+                        if (item.style) span.setAttribute('style', item.style);
+                        span.textContent = item.text;
+                        p.appendChild(span);
+
+                        if (i < textItems.length - 1) {
+                            const sep = document.createElement('span');
+                            sep.textContent = ' | ';
+                            p.appendChild(sep);
+                        }
+                    }
+
+                    row.replaceWith(p);
+                }
+            };
+
+            normalizeHeaderTitle();
+            normalizeContactRows();
+
+            document.querySelectorAll('script').forEach((node) => node.remove());
+            return `<!DOCTYPE html>${document.documentElement.outerHTML}`;
+        }, DOCX_SUPPORTED_INLINE_PROPS, DOCX_TEXT_STYLE_PROPS);
+
+        return typeof inlined === 'string' && inlined.trim() ? inlined : html;
+    } catch (error) {
+        console.warn('[inlineDocxSupportedStyles] failed, using non-inlined html', error);
+        return html;
+    } finally {
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (closeError) {
+                console.warn('[inlineDocxSupportedStyles] browser close failed', closeError);
+            }
+        }
+    }
+}
+
 async function sendDocxBuffer(docHtml, vars, margin, fullName, filename, res) {
     const options = buildDocxOptions(vars, margin, fullName);
     const out = await HTMLtoDOCX(docHtml, null, options, null);
@@ -270,7 +488,10 @@ async function sendDocFromHtml(html, res, options = {}) {
     }
 
     const prepared = buildDocxHtml(safeHtml, options);
-    return sendDocxBuffer(prepared.docHtml, prepared.vars, prepared.margin, prepared.fullName, filename, res);
+    const docHtmlForExport = options.preInlined
+        ? prepared.docHtml
+        : await inlineDocxSupportedStyles(prepared.docHtml);
+    return sendDocxBuffer(docHtmlForExport, prepared.vars, prepared.margin, prepared.fullName, filename, res);
 }
 
 async function sendDocResume(resume, res) {
@@ -283,7 +504,8 @@ async function sendDocResume(resume, res) {
     const filename = (resume.name || 'resume').replace(/"/g, '');
 
     const prepared = buildDocxHtml(html, { fullName, margin });
-    return sendDocxBuffer(prepared.docHtml, prepared.vars, prepared.margin, prepared.fullName, filename, res);
+    const inlinedDocHtml = await inlineDocxSupportedStyles(prepared.docHtml);
+    return sendDocxBuffer(inlinedDocHtml, prepared.vars, prepared.margin, prepared.fullName, filename, res);
 }
 
 module.exports = {
@@ -300,6 +522,7 @@ module.exports = {
     marginFromVars,
     injectInlineResumeStyles,
     buildDocxHtml,
+    inlineDocxSupportedStyles,
     sendDocFromHtml,
     sendDocResume,
 };

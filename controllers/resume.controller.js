@@ -152,6 +152,16 @@ function normalizeEducation(education) {
     .filter((e) => e.universityName || e.degreeLevel || e.major || e.startDate || e.endDate);
 }
 
+function extractVisibleTextFromHtml(html) {
+  return String(html || "")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** $set fields present on the payload only (PATCH-style updates). */
 function mapUpdatePayloadToSet(payload) {
   if (!payload || typeof payload !== "object") return {};
@@ -161,11 +171,14 @@ function mapUpdatePayloadToSet(payload) {
     set.name = n != null && String(n).trim() !== "" ? n : "Untitled Resume";
   }
   if ("profile" in payload || "profileId" in payload) {
-    const profileId = payload.profile?.id ?? payload.profileId;
-    set.profileId = profileId || null;
+    // Guard: only update profile when a concrete id is provided.
+    // If profile/profileId key exists but id is missing/empty, preserve current profile linkage.
+    const profileId = toCleanString(payload.profile?.id ?? payload.profile?._id ?? payload.profileId);
+    if (profileId) set.profileId = profileId;
   }
   if ("template" in payload || "templateId" in payload) {
-    set.templateId = payload.template?.id ?? payload.templateId ?? null;
+    const templateId = toCleanString(payload.template?.id ?? payload.template?._id ?? payload.templateId);
+    if (templateId) set.templateId = templateId;
   }
   if ("stack" in payload || "stackId" in payload) {
     set.stackId = payload.stack?.id ?? payload.stackId ?? null;
@@ -208,9 +221,9 @@ function payloadTouchesEmbeddingFields(payload) {
 }
 
 function mapPayloadToModel(payload, userId) {
-  const profileId = payload.profile?.id ?? payload.profileId;
-  const templateId = payload.template?.id ?? payload.templateId;
-  const stackId = payload.stack?.id ?? payload.stackId;
+  const profileId = payload.profile?.id ?? payload.profile?._id ?? payload.profileId;
+  const templateId = payload.template?.id ?? payload.template?._id ?? payload.templateId;
+  const stackId = payload.stack?.id ?? payload.stack?._id ?? payload.stackId;
   return {
     userId,
     name: payload.name || "Untitled Resume",
@@ -416,7 +429,7 @@ exports.downloadResume = asyncErrorHandler(async (req, res) => {
 exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { resumeId } = req.params;
-  const { fileType, html, name } = req.body;
+  const { fileType, html, name, preInlined } = req.body;
 
   const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
     .populate("templateId")
@@ -436,11 +449,18 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
       margin: effectiveMargin,
     });
     case "docx":
-    case "doc": return sendDocFromHtml(html, res, {
-      name,
-      fullName: resume.profileId?.fullName || "",
-      margin: effectiveMargin,
-    });
+    case "doc": {
+      const htmlText = extractVisibleTextFromHtml(html);
+      if (!htmlText) {
+        return sendDocResume(resume, res);
+      }
+      return sendDocFromHtml(html, res, {
+        name,
+        fullName: resume.profileId?.fullName || "",
+        margin: effectiveMargin,
+        preInlined: !!preInlined,
+      });
+    }
     case "html": {
       const fullName = resume.profileId?.fullName || "";
       const htmlWithMeta = typeof injectHtmlDownloadMetadata === "function"
