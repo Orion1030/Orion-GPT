@@ -1,7 +1,16 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
-const { sendPdfResume, sendHtmlResume, sendDocResume, sendPdfFromHtml, sendDocFromHtml, injectHtmlDownloadMetadata } = require("../utils/resumeUtils");
+const {
+  sendPdfResume,
+  sendHtmlResume,
+  sendDocResume,
+  sendPdfFromHtml,
+  sendDocFromHtml,
+  injectHtmlDownloadMetadata,
+  getConfig,
+  getMargins,
+} = require("../utils/resumeUtils");
 const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
 
 function toCleanString(value) {
@@ -398,6 +407,7 @@ exports.downloadResume = asyncErrorHandler(async (req, res) => {
   switch (fileType) {
     case "pdf": return sendPdfResume(resume, res);
     case "html": return sendHtmlResume(resume, res);
+    case "docx":
     case "doc": return sendDocResume(resume, res);
     default: return sendJsonResult(res, false, null, "Invalid file type", 400);
   }
@@ -417,14 +427,19 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Missing html payload", 400);
   }
 
+  const effectiveMargin = getMargins(getConfig(resume));
+
   switch (fileType) {
     case "pdf": return sendPdfFromHtml(html, res, {
       name,
       fullName: resume.profileId?.fullName || "",
+      margin: effectiveMargin,
     });
+    case "docx":
     case "doc": return sendDocFromHtml(html, res, {
       name,
       fullName: resume.profileId?.fullName || "",
+      margin: effectiveMargin,
     });
     case "html": {
       const fullName = resume.profileId?.fullName || "";

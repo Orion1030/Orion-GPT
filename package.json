@@ -31,6 +31,7 @@
     "express": "5.2.1",
     "express-session": "1.19.0",
     "express-validator": "7.3.2",
+    "html-to-docx": "1.8.0",
     "jsonwebtoken": "9.0.3",
     "mongodb": "7.1.1",
     "mongoose": "9.3.3",
@@ -80,4 +81,3 @@
   "license": "ISC",
   "packageManager": "npm@11.5.1"
 }
-

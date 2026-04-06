@@ -1,30 +1,65 @@
 const { buildResumeHtml, getConfig, getMargins } = require('./templateRenderer');
+const HTMLtoDOCX = require('html-to-docx');
 
 function buildExperienceBreakGuardStyles() {
     return `
   .exp-item{
     break-inside: auto;
     page-break-inside: auto;
-    -webkit-column-break-inside: auto;
-    mso-keep-together: no;
   }
   .exp-item .exp-header,
   .exp-item .exp-company,
   .exp-item h3{
     break-after: avoid-page;
     page-break-after: avoid;
-    mso-keep-with-next: yes;
   }
   .exp-item ul > li:first-child,
   .exp-item ol > li:first-child{
     break-before: avoid-page;
     page-break-before: avoid;
-    mso-keep-with-previous: yes;
   }
 `;
 }
 
-const WORD_PRINT_VIEW_XML = `<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->`;
+function toTwipFromPx(px) {
+    return Math.max(0, Math.round(Number(px || 0) * 15));
+}
+
+function pickPrimaryFontFamily(vars) {
+    const raw = String(vars['font-family'] || vars.fontFamily || 'Arial').trim();
+    const first = raw.split(',')[0] || 'Arial';
+    return first.replace(/['"]/g, '').trim() || 'Arial';
+}
+
+function parseFontSizePt(vars) {
+    const raw = vars['font-size'] || vars.fontSize || '10pt';
+    const n = parseFloat(String(raw).replace(/pt|px|em|rem/gi, ''));
+    return Number.isFinite(n) ? n : 10;
+}
+
+function buildDocxOptions(vars, margin, fullName) {
+    const title = String(fullName || '').trim() || 'Resume';
+    return {
+        orientation: 'portrait',
+        pageSize: { width: '8.5in', height: '11in' },
+        margins: {
+            top: toTwipFromPx(margin?.top ?? 54),
+            right: toTwipFromPx(margin?.right ?? 54),
+            bottom: toTwipFromPx(margin?.bottom ?? 54),
+            left: toTwipFromPx(margin?.left ?? 54),
+            header: 720,
+            footer: 720,
+            gutter: 0,
+        },
+        title,
+        creator: title,
+        lastModifiedBy: title,
+        font: pickPrimaryFontFamily(vars),
+        fontSize: `${parseFontSizePt(vars)}pt`,
+        decodeUnicode: true,
+        lang: 'en-US',
+    };
+}
 
 function escapeHtmlAttr(text) {
     return String(text)
@@ -54,7 +89,7 @@ function extractCombinedCssFromHead(headHtml) {
 
 /**
  * If client sends paged-preview HTML (with runtime wrapper script),
- * extract the original .resume markup so DOC export keeps styles
+ * extract the original .resume markup so DOCX export keeps styles
  * without preview-frame artifacts.
  */
 function sanitizePagedPreviewHtmlForDoc(html) {
@@ -121,32 +156,28 @@ function replaceCssVarsInText(text, vars) {
 }
 
 function resolveCalcFontSize(text, vars) {
-    const raw = vars['font-size'] || vars['fontSize'] || '10pt';
+    const raw = vars['font-size'] || vars.fontSize || '10pt';
     const num = parseFloat(String(raw).replace(/pt|px|em|rem/gi, '')) || 10;
     return text
-        .replace(/calc\s*\(\s*var\s*\(\s*--font-size\s*\)\s*\+\s*([\d.]+)\s*pt\s*\)/gi, (_, a) => `${(num + parseFloat(a)).toFixed(2)}pt`)
-        .replace(/calc\s*\(\s*var\s*\(\s*--font-size\s*\)\s*-\s*([\d.]+)\s*pt\s*\)/gi, (_, a) => `${(num - parseFloat(a)).toFixed(2)}pt`);
+        .replace(/calc\s*\(\s*var\s*\(\s*--font-size\s*\)\s*\+\s*([\d.]+)\s*pt\s*\)/gi, (_m, add) => `${(num + parseFloat(add)).toFixed(2)}pt`)
+        .replace(/calc\s*\(\s*var\s*\(\s*--font-size\s*\)\s*-\s*([\d.]+)\s*pt\s*\)/gi, (_m, sub) => `${(num - parseFloat(sub)).toFixed(2)}pt`);
 }
 
-function buildDocPageAndBodyStyles(vars, marginPx) {
-    const m = marginPx || { top: 54, right: 54, bottom: 54, left: 54 };
-    const toCm = (px) => (Number(px) / 96 * 2.54).toFixed(2);
-    const fontFamily = vars['font-family'] || vars['fontFamily'] || 'Arial, sans-serif';
-    const fontSize = vars['font-size'] || vars['fontSize'] || '10pt';
-    const lineHeight = vars['line-height'] || vars['lineHeight'] || '1.4';
+function buildDocBaseStyles(vars) {
+    const fontFamily = vars['font-family'] || vars.fontFamily || 'Arial, sans-serif';
+    const fontSize = vars['font-size'] || vars.fontSize || '10pt';
+    const lineHeight = vars['line-height'] || vars.lineHeight || '1.4';
     return `
-  @page {
-    size: letter;
-    margin: ${toCm(m.top)}cm ${toCm(m.right)}cm ${toCm(m.bottom)}cm ${toCm(m.left)}cm;
-  }
-  body {
+  html, body {
     margin: 0;
     padding: 0;
+    background: #fff;
+  }
+  body {
     font-family: ${fontFamily};
     font-size: ${fontSize};
     line-height: ${lineHeight};
     color: #1f2937;
-    background: #fff;
   }
 `;
 }
@@ -166,69 +197,43 @@ function marginFromVars(vars) {
     };
 }
 
-function injectInlineResumeStyles(bodyHtml, vars, margin) {
-    const fontFamily = vars['font-family'] || vars['fontFamily'] || '';
-    const fontSize = vars['font-size'] || vars['fontSize'] || '';
-    const lineHeight = vars['line-height'] || vars['lineHeight'] || '';
-    const PW = 816;
-    const ML = margin?.left || 54;
-    const MR = margin?.right || 54;
-    const CW = PW - ML - MR;
-
-    const inlineParts = [];
-    if (fontFamily) inlineParts.push(`font-family: ${fontFamily};`);
-    if (fontSize) inlineParts.push(`font-size: ${fontSize};`);
-    if (lineHeight) inlineParts.push(`line-height: ${lineHeight};`);
-    inlineParts.push(`max-width: ${CW}px;`);
-    inlineParts.push('margin: 0 auto;');
-    inlineParts.push('box-sizing: border-box;');
-    const inline = inlineParts.join(' ');
-
-    const resumeOpenTagRegex = /<div\b([^>]*)class=(?:'|")[^'"]*\bresume\b[^'"]*(?:'|")([^>]*)>/i;
+function injectInlineResumeStyles(bodyHtml, _vars, _margin) {
+    const resumeOpenTagRegex = /<div\b[^>]*class=(["'])[^"']*\bresume\b[^"']*\1[^>]*>/i;
     if (resumeOpenTagRegex.test(bodyHtml)) {
-        return bodyHtml.replace(resumeOpenTagRegex, (m, g1, g2) => {
-            if (/style\s*=/.test(g1 + g2)) {
-                return m.replace(/style=(["'])(.*?)\1/, (mm, q, val) => `style=${q}${val} ${inline}${q}`);
-            }
-            return `<div ${g1}class="resume"${g2} style="${inline}">`;
-        });
+        return bodyHtml;
     }
-    return `<div class="resume" style="${inline}">${bodyHtml}</div>`;
+    return `<div class="resume">${bodyHtml}</div>`;
 }
 
-function sendDocFromHtml(html, res, options = {}) {
-    const filename = (options.name || 'resume').replace(/"/g, '');
+function buildDocxHtml(html, options = {}) {
     const fullName = String(options.fullName || '').trim();
-
-    try {
-        html = sanitizePagedPreviewHtmlForDoc(html);
-    } catch (e) {
-        console.warn('[sendDocFromHtml] sanitizePagedPreviewHtmlForDoc failed, continuing with original html', e);
-    }
-
     const parts = extractHeadAndBody(html);
     const combinedStyles = extractCombinedCssFromHead(parts.head);
     const vars = parseCssVars(combinedStyles);
     const margin = options.margin || marginFromVars(vars);
 
+    // Keep original template CSS and add flattened CSS as fallback for var()/calc().
+    const originalStyles = combinedStyles;
     let flattenedStyles = replaceCssVarsInText(combinedStyles, vars);
     flattenedStyles = resolveCalcFontSize(flattenedStyles, vars);
-    const pageAndBodyStyles = buildDocPageAndBodyStyles(vars, margin);
-    const breakGuardStyles = buildExperienceBreakGuardStyles();
 
     let flattenedBody = replaceCssVarsInText(parts.body, vars);
     flattenedBody = injectInlineResumeStyles(flattenedBody, vars, margin);
 
-    const docContent = `<!DOCTYPE html>
-<html xmlns:o='urn:schemas-microsoft-com:office:office'
-        xmlns:w='urn:schemas-microsoft-com:office:word'
-        xmlns='http://www.w3.org/TR/REC-html40'>
+    const baseStyles = buildDocBaseStyles(vars);
+    const breakGuardStyles = buildExperienceBreakGuardStyles();
+    const headMetadata = fullName
+        ? `<title>${escapeHtmlAttr(fullName)}</title><meta name="author" content="${escapeHtmlAttr(fullName)}" />`
+        : '';
+
+    const docHtml = `<!DOCTYPE html>
+<html>
   <head>
     <meta charset="utf-8" />
-    ${fullName ? `<title>${escapeHtmlAttr(fullName)}</title><meta name="author" content="${escapeHtmlAttr(fullName)}" />` : ''}
-    ${WORD_PRINT_VIEW_XML}
+    ${headMetadata}
     <style>
-      ${pageAndBodyStyles}
+      ${baseStyles}
+      ${originalStyles}
       ${flattenedStyles}
       ${breakGuardStyles}
     </style>
@@ -238,57 +243,47 @@ function sendDocFromHtml(html, res, options = {}) {
   </body>
 </html>`;
 
-    res.set({
-        'Content-Type': 'application/msword',
-        'Content-Disposition': `attachment; filename="${filename}.doc"`,
-    });
-    res.send(docContent);
+    return { docHtml, vars, margin, fullName };
 }
 
-function sendDocResume(resume, res) {
-    const bodyHtml = buildResumeHtml(resume);
+async function sendDocxBuffer(docHtml, vars, margin, fullName, filename, res) {
+    const options = buildDocxOptions(vars, margin, fullName);
+    const out = await HTMLtoDOCX(docHtml, null, options, null);
+    const docxBuffer = Buffer.isBuffer(out) ? out : Buffer.from(out);
+
+    res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Disposition': `attachment; filename="${filename}.docx"`,
+        'Content-Length': docxBuffer.length,
+    });
+    return res.end(docxBuffer);
+}
+
+async function sendDocFromHtml(html, res, options = {}) {
+    const filename = (options.name || 'resume').replace(/"/g, '');
+
+    let safeHtml = html;
+    try {
+        safeHtml = sanitizePagedPreviewHtmlForDoc(html);
+    } catch (error) {
+        console.warn('[sendDocFromHtml] sanitizePagedPreviewHtmlForDoc failed, using original html', error);
+    }
+
+    const prepared = buildDocxHtml(safeHtml, options);
+    return sendDocxBuffer(prepared.docHtml, prepared.vars, prepared.margin, prepared.fullName, filename, res);
+}
+
+async function sendDocResume(resume, res) {
+    const html = buildResumeHtml(resume);
     const fullName = resume?.profileId && typeof resume.profileId === 'object'
         ? String(resume.profileId.fullName || '').trim()
         : '';
     const config = getConfig(resume);
-    const m = getMargins(config);
+    const margin = getMargins(config);
+    const filename = (resume.name || 'resume').replace(/"/g, '');
 
-    const parts = extractHeadAndBody(bodyHtml);
-    const combinedStyles = extractCombinedCssFromHead(parts.head);
-    const vars = parseCssVars(combinedStyles);
-
-    let flattenedStyles = replaceCssVarsInText(combinedStyles, vars);
-    flattenedStyles = resolveCalcFontSize(flattenedStyles, vars);
-    const pageAndBodyStyles = buildDocPageAndBodyStyles(vars, m);
-    const breakGuardStyles = buildExperienceBreakGuardStyles();
-
-    let flattenedBody = replaceCssVarsInText(parts.body, vars);
-    flattenedBody = injectInlineResumeStyles(flattenedBody, vars, m);
-
-    const docContent = `<!DOCTYPE html>
-<html xmlns:o='urn:schemas-microsoft-com:office:office'
-        xmlns:w='urn:schemas-microsoft-com:office:word'
-        xmlns='http://www.w3.org/TR/REC-html40'>
-  <head>
-    <meta charset="utf-8">
-    ${fullName ? `<title>${escapeHtmlAttr(fullName)}</title><meta name="author" content="${escapeHtmlAttr(fullName)}" />` : ''}
-    ${WORD_PRINT_VIEW_XML}
-    <style>
-      ${pageAndBodyStyles}
-      ${flattenedStyles}
-      ${breakGuardStyles}
-    </style>
-  </head>
-  <body>
-    ${flattenedBody}
-  </body>
-</html>`;
-
-    res.set({
-        'Content-Type': 'application/msword',
-        'Content-Disposition': `attachment; filename="${(resume.name || 'resume').replace(/"/g, '')}.doc"`,
-    });
-    res.send(docContent);
+    const prepared = buildDocxHtml(html, { fullName, margin });
+    return sendDocxBuffer(prepared.docHtml, prepared.vars, prepared.margin, prepared.fullName, filename, res);
 }
 
 module.exports = {
@@ -298,10 +293,13 @@ module.exports = {
     parseCssVars,
     replaceCssVarsInText,
     resolveCalcFontSize,
-    buildDocPageAndBodyStyles,
+    parseFontSizePt,
+    buildDocBaseStyles,
     buildExperienceBreakGuardStyles,
+    buildDocxOptions,
     marginFromVars,
     injectInlineResumeStyles,
+    buildDocxHtml,
     sendDocFromHtml,
     sendDocResume,
 };
