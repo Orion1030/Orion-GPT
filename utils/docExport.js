@@ -393,6 +393,117 @@ async function inlineDocxSupportedStyles(html) {
                 }
             }
 
+            const parseRgb = (value) => {
+                const v = String(value || '').trim().toLowerCase();
+                if (!v) return null;
+
+                const rgb = v.match(/^rgba?\(([^)]+)\)$/i);
+                if (rgb) {
+                    const parts = rgb[1].split(',').map((p) => p.trim());
+                    if (parts.length < 3) return null;
+                    const r = Number(parts[0]);
+                    const g = Number(parts[1]);
+                    const b = Number(parts[2]);
+                    const a = parts.length >= 4 ? Number(parts[3]) : 1;
+                    if (![r, g, b, a].every(Number.isFinite)) return null;
+                    return { r, g, b, a };
+                }
+
+                const hex = v.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+                if (hex) {
+                    const raw = hex[1];
+                    if (raw.length === 3) {
+                        return {
+                            r: Number.parseInt(raw[0] + raw[0], 16),
+                            g: Number.parseInt(raw[1] + raw[1], 16),
+                            b: Number.parseInt(raw[2] + raw[2], 16),
+                            a: 1,
+                        };
+                    }
+                    return {
+                        r: Number.parseInt(raw.slice(0, 2), 16),
+                        g: Number.parseInt(raw.slice(2, 4), 16),
+                        b: Number.parseInt(raw.slice(4, 6), 16),
+                        a: 1,
+                    };
+                }
+
+                return null;
+            };
+
+            const isTransparentColor = (value) => {
+                const parsed = parseRgb(value);
+                if (parsed) return parsed.a <= 0.01;
+                const v = String(value || '').trim().toLowerCase();
+                return !v || v === 'transparent' || v === 'rgba(0, 0, 0, 0)' || v === 'rgba(0,0,0,0)';
+            };
+
+            const luminance = (value) => {
+                const parsed = parseRgb(value);
+                if (!parsed) return null;
+                return (0.2126 * parsed.r + 0.7152 * parsed.g + 0.0722 * parsed.b) / 255;
+            };
+
+            const isLightColor = (value) => {
+                const l = luminance(value);
+                return l != null && l >= 0.75;
+            };
+
+            const isDarkColor = (value) => {
+                const l = luminance(value);
+                return l != null && l <= 0.35;
+            };
+
+            const appendInlineStyles = (el, declarations) => {
+                if (!declarations || !declarations.length) return;
+                const existing = String(el.getAttribute('style') || '').trim().replace(/;+\s*$/, '');
+                const next = existing
+                    ? `${existing}; ${declarations.join('; ')};`
+                    : `${declarations.join('; ')};`;
+                el.setAttribute('style', next);
+            };
+
+            const nearestSolidBackground = (start) => {
+                let cursor = start;
+                while (cursor) {
+                    const bg = window.getComputedStyle(cursor).backgroundColor;
+                    if (!isTransparentColor(bg)) return bg;
+                    cursor = cursor.parentElement;
+                }
+                return '';
+            };
+
+            const normalizeBackgroundContrastForDocx = () => {
+                const nodes = Array.from(document.querySelectorAll('*'));
+                for (const el of nodes) {
+                    const hasDirectText = Array.from(el.childNodes || [])
+                        .some((node) => node && node.nodeType === Node.TEXT_NODE && String(node.textContent || '').trim().length > 0);
+                    if (!hasDirectText) continue;
+
+                    const computed = window.getComputedStyle(el);
+                    const fg = computed.color;
+                    if (!isLightColor(fg)) continue;
+
+                    const ownBg = computed.backgroundColor;
+                    if (!isTransparentColor(ownBg)) continue;
+
+                    const ancestorBg = nearestSolidBackground(el.parentElement);
+                    if (ancestorBg && isDarkColor(ancestorBg)) {
+                        const existing = String(el.getAttribute('style') || '');
+                        const add = [];
+                        if (!/\bbackground(?:-color)?\s*:/i.test(existing)) {
+                            add.push(`background-color: ${ancestorBg}`);
+                        }
+                        if (!/\bpadding-left\s*:/i.test(existing)) add.push('padding-left: 1px');
+                        if (!/\bpadding-right\s*:/i.test(existing)) add.push('padding-right: 1px');
+                        if (add.length) appendInlineStyles(el, add);
+                        continue;
+                    }
+
+                    appendInlineStyles(el, ['color: #111827']);
+                }
+            };
+
             const normalizeHeaderTitle = () => {
                 const titleNodes = Array.from(document.querySelectorAll('.header .title, .resume-header .role'));
                 for (const node of titleNodes) {
@@ -442,8 +553,68 @@ async function inlineDocxSupportedStyles(html) {
                 }
             };
 
+            const normalizeSkillsForDocx = () => {
+                const candidates = Array.from(
+                    document.querySelectorAll(
+                        ".skills-list, .skill-list, .skill-tags, .skills-tags, [class*='skills-list'], [class*='skill-list'], [class*='skill-tag']",
+                    ),
+                );
+
+                const parseDelimitedSkills = (text) => String(text || '')
+                    .split(/[\n|•·;]+/g)
+                    .map((s) => s.replace(/\s+/g, ' ').trim())
+                    .filter(Boolean);
+
+                for (const container of candidates) {
+                    if (!container || !container.isConnected) continue;
+
+                    const tag = String(container.tagName || '').toLowerCase();
+                    if (tag === 'ul' || tag === 'ol') continue;
+
+                    const className = String(container.className || '').toLowerCase();
+                    const isSingleSkillTagNode = className.includes('skill-tag')
+                        && !className.includes('skills-list')
+                        && !className.includes('skill-list')
+                        && !className.includes('skills-tags')
+                        && !className.includes('skill-tags')
+                        && (!container.children || container.children.length === 0);
+                    if (isSingleSkillTagNode) continue;
+
+                    const directItems = Array.from(container.children || [])
+                        .map((child) => String(child.textContent || '').replace(/\s+/g, ' ').trim())
+                        .filter(Boolean);
+
+                    let skills = directItems;
+                    if (!skills.length) {
+                        skills = parseDelimitedSkills(container.textContent || '');
+                    }
+
+                    if (!skills.length) continue;
+
+                    const list = document.createElement('ul');
+                    list.setAttribute('style', 'margin: 0; padding-left: 18px;');
+
+                    const containerTextStyle = textStyleFromComputed(container);
+                    for (const skill of skills) {
+                        const li = document.createElement('li');
+                        li.setAttribute('style', 'margin: 0 0 2px 0;');
+
+                        const span = document.createElement('span');
+                        if (containerTextStyle) span.setAttribute('style', `${containerTextStyle};`);
+                        span.textContent = skill;
+
+                        li.appendChild(span);
+                        list.appendChild(li);
+                    }
+
+                    container.replaceWith(list);
+                }
+            };
+
             normalizeHeaderTitle();
             normalizeContactRows();
+            normalizeSkillsForDocx();
+            normalizeBackgroundContrastForDocx();
 
             document.querySelectorAll('script').forEach((node) => node.remove());
             return `<!DOCTYPE html>${document.documentElement.outerHTML}`;
@@ -488,9 +659,14 @@ async function sendDocFromHtml(html, res, options = {}) {
     }
 
     const prepared = buildDocxHtml(safeHtml, options);
-    const docHtmlForExport = options.preInlined
-        ? prepared.docHtml
-        : await inlineDocxSupportedStyles(prepared.docHtml);
+    // Even if client says pre-inlined, keep a backend safety pass when light text exists.
+    // This protects against stale frontend builds/caches where white-on-transparent text can disappear.
+    const hasLightTextRisk = /(?:color\s*:\s*(?:white|#fff\b|#ffffff\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)|rgba\(\s*255\s*,\s*255\s*,\s*255\s*,))/i
+        .test(prepared.docHtml);
+    const shouldInlineOnBackend = !options.preInlined || hasLightTextRisk;
+    const docHtmlForExport = shouldInlineOnBackend
+        ? await inlineDocxSupportedStyles(prepared.docHtml)
+        : prepared.docHtml;
     return sendDocxBuffer(docHtmlForExport, prepared.vars, prepared.margin, prepared.fullName, filename, res);
 }
 
