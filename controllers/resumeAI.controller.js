@@ -232,6 +232,41 @@ exports.parseJdAndMatchProfiles = asyncErrorHandler(async (req, res) => {
 });
 
 /**
+ * Return the most recently used JD context for wizard prefill.
+ * Body: none. Returns { lastUsedJd } where lastUsedJd may be null.
+ */
+exports.getLastUsedJd = asyncErrorHandler(async (req, res) => {
+  const userId = req.user._id;
+  const latest = await JobDescriptionModel.findOne({
+    userId,
+    context: /\S/,
+  })
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .select("_id context title company updatedAt createdAt")
+    .lean();
+
+  if (!latest) {
+    return sendJsonResult(res, true, { lastUsedJd: null }, null, 200);
+  }
+
+  return sendJsonResult(
+    res,
+    true,
+    {
+      lastUsedJd: {
+        jdId: latest._id.toString(),
+        context: latest.context || "",
+        title: latest.title || "",
+        company: latest.company || "",
+        updatedAt: latest.updatedAt || latest.createdAt || null,
+      },
+    },
+    null,
+    200
+  );
+});
+
+/**
  * Find top matching resumes for a given JD + selected profile (second step of the new wizard).
  * Body: { jdId, profileId }. Returns { topResumes }.
  */

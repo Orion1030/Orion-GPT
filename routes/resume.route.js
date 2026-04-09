@@ -11,7 +11,7 @@ const {
 } = require('../controllers/resume.controller')
 const {
   parseTextResume, importJdAndMatch, generateResumeFromJD, refineResume,
-  parseJdAndMatchProfiles, matchResumesForProfile,
+  parseJdAndMatchProfiles, matchResumesForProfile, getLastUsedJd,
 } = require('../controllers/resumeAI.controller')
 const { requireNoRunningJob, requireNoRunningJobOfType } = require('../middlewares/requireNoRunningJob')
 const { createResumeRules, generateResumeRules, refineResumeRules, jdParsingRules, parseJdRules, matchResumesRules } = require('../validators/resume.validator')
@@ -37,6 +37,7 @@ router.route('/parse-text').post(...auth, parseTextResume)
 // Each route blocks only on job types that would conflict with its work.
 
 // New JD-first wizard: parse JD → suggest profiles → select profile → match resumes → generate
+router.get('/last-jd',         ...auth, getLastUsedJd)
 router.post('/parse-jd',        ...auth, parseJdRules, validate, requireNoRunningJobOfType('parse_jd'), parseJdAndMatchProfiles)
 router.post('/match-resumes',   ...auth, matchResumesRules, validate, matchResumesForProfile)
 
