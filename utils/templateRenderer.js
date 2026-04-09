@@ -109,7 +109,11 @@ function formatDate(date) {
     try {
         const d = new Date(date);
         if (isNaN(d.getTime())) return date;
-        return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        return d.toLocaleDateString('en-US', {
+            month: 'short',
+            year: 'numeric',
+            timeZone: 'UTC',
+        });
     } catch {
         return date;
     }
