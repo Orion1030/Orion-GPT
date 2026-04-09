@@ -4,6 +4,29 @@ const { buildResumeHtml, getConfig, getMargins } = require('./templateRenderer')
 const { runInBrowser } = require('./browserPool');
 
 const EXPERIENCE_BREAK_GUARD_STYLE = `<style id="jobsy-exp-break-guards">
+  .section > h2{
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+  .section > h2 + *{
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+  .edu-item{
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+  }
+  .section-education > h2 + .edu-item{
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+  .section-skills > h2 + .skills-list,
+  .section-skills > h2 + .skill-list,
+  .section-skills > h2 + .skills-inline{
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
   .exp-item{
     break-inside: auto;
     page-break-inside: auto;
@@ -21,6 +44,29 @@ const EXPERIENCE_BREAK_GUARD_STYLE = `<style id="jobsy-exp-break-guards">
     page-break-before: avoid;
   }
   @media print{
+    .section > h2{
+      break-after: avoid-page !important;
+      page-break-after: avoid !important;
+    }
+    .section > h2 + *{
+      break-before: avoid-page !important;
+      page-break-before: avoid !important;
+    }
+    .edu-item{
+      break-inside: avoid-page !important;
+      page-break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
+    }
+    .section-education > h2 + .edu-item{
+      break-before: avoid-page !important;
+      page-break-before: avoid !important;
+    }
+    .section-skills > h2 + .skills-list,
+    .section-skills > h2 + .skill-list,
+    .section-skills > h2 + .skills-inline{
+      break-before: avoid-page !important;
+      page-break-before: avoid !important;
+    }
     .exp-item{
       break-inside: auto !important;
       page-break-inside: auto !important;

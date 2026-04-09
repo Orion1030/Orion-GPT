@@ -4,6 +4,29 @@ const puppeteer = require('puppeteer');
 
 function buildExperienceBreakGuardStyles() {
     return `
+  .section > h2{
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+  .section > h2 + *{
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+  .edu-item{
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+  }
+  .section-education > h2 + .edu-item{
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+  .section-skills > h2 + .skills-list,
+  .section-skills > h2 + .skill-list,
+  .section-skills > h2 + .skills-inline{
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
   .exp-item{
     break-inside: auto;
     page-break-inside: auto;
