@@ -14,6 +14,13 @@ const {
   buildResumeGenerationSystemPrompt,
   buildResumeGenerationUserPrompt,
 } = require("./prompts/resumeGenerate.prompts");
+const {
+  buildEmploymentKey,
+  buildEmploymentBaseKey,
+  normalizeEmploymentDate,
+} = require("../../utils/employmentKey");
+
+const MAX_CAREER_HISTORY_ITEMS = 16;
 
 function sanitizeStr(s) {
   if (s == null) return "";
@@ -75,7 +82,7 @@ function profileKeyPointsToLines(keyPoints) {
 function normalizeCareerHistoryForPrompt(careerHistory) {
   if (!Array.isArray(careerHistory)) return [];
 
-  return careerHistory.slice(0, 12).map((item) => ({
+  return careerHistory.map((item) => ({
     companyName: sanitizePromptStr(item?.companyName, 120),
     roleTitle: sanitizePromptStr(item?.roleTitle, 120),
     startDate: formatDate(item?.startDate),
@@ -83,6 +90,281 @@ function normalizeCareerHistoryForPrompt(careerHistory) {
     companySummary: sanitizePromptStr(item?.companySummary, 500),
     keyPoints: profileKeyPointsToLines(item?.keyPoints),
   }));
+}
+
+function buildEmploymentKeyForPrompt(item) {
+  return buildEmploymentKey(
+    {
+      companyName: sanitizePromptStr(item?.companyName, 120),
+      roleTitle: sanitizePromptStr(item?.roleTitle ?? item?.title, 120),
+      startDate: formatDate(item?.startDate),
+      endDate: formatDate(item?.endDate),
+    },
+    { roleFields: ["roleTitle", "title"] }
+  );
+}
+
+function buildEmploymentBaseKeyForPrompt(item) {
+  return buildEmploymentBaseKey(
+    {
+      companyName: sanitizePromptStr(item?.companyName, 120),
+      roleTitle: sanitizePromptStr(item?.roleTitle ?? item?.title, 120),
+      startDate: formatDate(item?.startDate),
+      endDate: formatDate(item?.endDate),
+    },
+    { roleFields: ["roleTitle", "title"] }
+  );
+}
+
+function mergeUniqueStrings(current, incoming) {
+  const out = [];
+  const seen = new Set();
+  for (const value of [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])]) {
+    const clean = sanitizePromptStr(value, 350);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
+}
+
+function applyEmploymentHeaderFallback(target, source) {
+  if (!target.companyName && source.companyName) target.companyName = source.companyName;
+  if (!target.roleTitle && source.roleTitle) target.roleTitle = source.roleTitle;
+  if (!target.startDate && source.startDate) target.startDate = source.startDate;
+  if (!target.endDate && source.endDate) {
+    target.endDate = source.endDate;
+    return;
+  }
+
+  const targetEndDateKey = normalizeEmploymentDate(target.endDate);
+  const sourceEndDateKey = normalizeEmploymentDate(source.endDate);
+  // Prefer concrete dates over open-ended values when available.
+  if (targetEndDateKey === "open" && sourceEndDateKey && sourceEndDateKey !== "open") {
+    target.endDate = source.endDate;
+  }
+}
+
+function hasCompanyContextContent(item) {
+  if (!item || typeof item !== "object") return false;
+  const hasSummary = Boolean(sanitizePromptStr(item.companySummary, 500));
+  const hasPoints = Array.isArray(item.keyPoints) && item.keyPoints.length > 0;
+  return hasSummary || hasPoints;
+}
+
+function hasCandidateExperienceContent(item) {
+  if (!item || typeof item !== "object") return false;
+  const hasSummary = Boolean(sanitizePromptStr(item.summary, 500));
+  const hasDescriptions = Array.isArray(item.descriptions) && item.descriptions.length > 0;
+  return hasSummary || hasDescriptions;
+}
+
+function normalizeProfileEmploymentForPrompt(item) {
+  return {
+    companyName: sanitizePromptStr(item?.companyName, 120),
+    roleTitle: sanitizePromptStr(item?.roleTitle, 120),
+    startDate: formatDate(item?.startDate),
+    endDate: formatDate(item?.endDate),
+    companyContext: {
+      companySummary: sanitizePromptStr(item?.companySummary, 500),
+      keyPoints: profileKeyPointsToLines(item?.keyPoints),
+    },
+  };
+}
+
+function normalizeResumeEmploymentForPrompt(item) {
+  return {
+    companyName: sanitizePromptStr(item?.companyName, 120),
+    roleTitle: sanitizePromptStr(item?.title ?? item?.roleTitle, 120),
+    startDate: formatDate(item?.startDate),
+    endDate: formatDate(item?.endDate),
+    candidateExperience: {
+      summary: sanitizePromptStr(item?.summary, 500),
+      descriptions: Array.isArray(item?.descriptions)
+        ? item.descriptions.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 10)
+        : [],
+    },
+  };
+}
+
+function applyCareerHistoryLimit(items, maxItems = MAX_CAREER_HISTORY_ITEMS) {
+  if (!Array.isArray(items) || items.length <= maxItems) return Array.isArray(items) ? items : [];
+
+  const bothSources = [];
+  const resumeOnly = [];
+  const profileOnly = [];
+
+  for (const item of items) {
+    const hasProfile = Boolean(item?.sources?.profile);
+    const hasResume = Boolean(item?.sources?.resume);
+    if (hasProfile && hasResume) {
+      bothSources.push(item);
+      continue;
+    }
+    if (hasResume) {
+      resumeOnly.push(item);
+      continue;
+    }
+    profileOnly.push(item);
+  }
+
+  const out = bothSources.slice(0, maxItems);
+  let remaining = maxItems - out.length;
+  if (remaining <= 0) return out;
+
+  if (resumeOnly.length && profileOnly.length) {
+    let takeResume = Math.ceil(remaining / 2);
+    let takeProfile = remaining - takeResume;
+
+    takeResume = Math.min(takeResume, resumeOnly.length);
+    takeProfile = Math.min(takeProfile, profileOnly.length);
+
+    let leftover = remaining - (takeResume + takeProfile);
+    while (leftover > 0) {
+      if (resumeOnly.length > takeResume) {
+        takeResume += 1;
+        leftover -= 1;
+        continue;
+      }
+      if (profileOnly.length > takeProfile) {
+        takeProfile += 1;
+        leftover -= 1;
+        continue;
+      }
+      break;
+    }
+
+    const pickedResume = resumeOnly.slice(0, takeResume);
+    const pickedProfile = profileOnly.slice(0, takeProfile);
+    const maxPairLen = Math.max(pickedResume.length, pickedProfile.length);
+    for (let i = 0; i < maxPairLen && out.length < maxItems; i++) {
+      if (pickedResume[i] && out.length < maxItems) out.push(pickedResume[i]);
+      if (pickedProfile[i] && out.length < maxItems) out.push(pickedProfile[i]);
+    }
+
+    if (out.length < maxItems) {
+      const remainder = resumeOnly.slice(takeResume).concat(profileOnly.slice(takeProfile));
+      for (const item of remainder) {
+        if (out.length >= maxItems) break;
+        out.push(item);
+      }
+    }
+    return out;
+  }
+
+  const oneSided = resumeOnly.length ? resumeOnly : profileOnly;
+  return out.concat(oneSided.slice(0, remaining)).slice(0, maxItems);
+}
+
+function buildMergedCareerHistoryForPrompt(profileCareerHistory, resumeExperiences) {
+  const mergedByKey = new Map();
+  const mergedByBaseKey = new Map();
+
+  const ensureTarget = (sourceItem) => {
+    const key = buildEmploymentKeyForPrompt(sourceItem);
+    let target = mergedByKey.get(key);
+    if (!target) {
+      const baseKey = buildEmploymentBaseKeyForPrompt(sourceItem);
+      const sourceEndDateKey = normalizeEmploymentDate(sourceItem?.endDate);
+      const baseCandidates = mergedByBaseKey.get(baseKey) || [];
+      const openEndedCandidate = baseCandidates.find((candidate) => {
+        const candidateEndDateKey = normalizeEmploymentDate(candidate?.endDate);
+        return sourceEndDateKey === "open" || candidateEndDateKey === "open";
+      });
+
+      if (openEndedCandidate) {
+        target = openEndedCandidate;
+        mergedByKey.set(key, target);
+      } else {
+        target = {
+          companyName: sourceItem.companyName || "",
+          roleTitle: sourceItem.roleTitle || "",
+          startDate: sourceItem.startDate || "",
+          endDate: sourceItem.endDate || "",
+          companyContext: null,
+          candidateExperience: null,
+          sources: { profile: false, resume: false },
+        };
+        mergedByKey.set(key, target);
+        if (baseKey) {
+          mergedByBaseKey.set(baseKey, baseCandidates.concat(target));
+        }
+      }
+    }
+
+    applyEmploymentHeaderFallback(target, sourceItem);
+    return target;
+  };
+
+  const profileItems = normalizeCareerHistoryForPrompt(profileCareerHistory);
+  for (const profileItem of profileItems) {
+    const normalized = normalizeProfileEmploymentForPrompt(profileItem);
+    const target = ensureTarget(normalized);
+
+    if (hasCompanyContextContent(normalized.companyContext)) {
+      const existing = target.companyContext || { companySummary: "", keyPoints: [] };
+      const nextSummary = sanitizePromptStr(normalized.companyContext.companySummary, 500);
+      const mergedSummary = existing.companySummary && existing.companySummary.length >= nextSummary.length
+        ? existing.companySummary
+        : nextSummary;
+      target.companyContext = {
+        companySummary: mergedSummary,
+        keyPoints: mergeUniqueStrings(existing.keyPoints, normalized.companyContext.keyPoints),
+      };
+    }
+    target.sources.profile = true;
+  }
+
+  const resumeItems = Array.isArray(resumeExperiences) ? resumeExperiences : [];
+  for (const resumeItem of resumeItems) {
+    const normalized = normalizeResumeEmploymentForPrompt(resumeItem);
+    const target = ensureTarget(normalized);
+
+    if (hasCandidateExperienceContent(normalized.candidateExperience)) {
+      const existing = target.candidateExperience || { summary: "", descriptions: [] };
+      const nextSummary = sanitizePromptStr(normalized.candidateExperience.summary, 500);
+      const mergedSummary = existing.summary && existing.summary.length >= nextSummary.length
+        ? existing.summary
+        : nextSummary;
+      target.candidateExperience = {
+        summary: mergedSummary,
+        descriptions: mergeUniqueStrings(existing.descriptions, normalized.candidateExperience.descriptions),
+      };
+    }
+    target.sources.resume = true;
+  }
+
+  const normalizedItems = [...new Set(mergedByKey.values())]
+    .map((item) => {
+      const out = {
+        companyName: item.companyName,
+        roleTitle: item.roleTitle,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        sources: {
+          profile: Boolean(item.sources.profile),
+          resume: Boolean(item.sources.resume),
+        },
+      };
+      if (hasCompanyContextContent(item.companyContext)) {
+        out.companyContext = {
+          companySummary: sanitizePromptStr(item.companyContext.companySummary, 500),
+          keyPoints: mergeUniqueStrings([], item.companyContext.keyPoints).slice(0, 10),
+        };
+      }
+      if (hasCandidateExperienceContent(item.candidateExperience)) {
+        out.candidateExperience = {
+          summary: sanitizePromptStr(item.candidateExperience.summary, 500),
+          descriptions: mergeUniqueStrings([], item.candidateExperience.descriptions).slice(0, 12),
+        };
+      }
+      return out;
+    })
+    .filter((item) => item.companyName || item.roleTitle || item.startDate || item.endDate);
+
+  return applyCareerHistoryLimit(normalizedItems, MAX_CAREER_HISTORY_ITEMS);
 }
 
 function normalizeEducationForPrompt(education) {
@@ -102,19 +384,6 @@ function normalizeResumeForPrompt(resume) {
   return {
     title: sanitizePromptStr(resume?.title, 120),
     summary: sanitizePromptStr(resume?.summary, 700),
-    experiences: Array.isArray(resume?.experiences)
-      ? resume.experiences.slice(0, 12).map((item) => ({
-          title: sanitizePromptStr(item?.title ?? item?.roleTitle, 120),
-          companyName: sanitizePromptStr(item?.companyName, 120),
-          companyLocation: sanitizePromptStr(item?.companyLocation, 120),
-          summary: sanitizePromptStr(item?.summary, 500),
-          descriptions: Array.isArray(item?.descriptions)
-            ? item.descriptions.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 8)
-            : [],
-          startDate: formatDate(item?.startDate),
-          endDate: formatDate(item?.endDate),
-        }))
-      : [],
     skills: Array.isArray(resume?.skills)
       ? resume.skills.slice(0, 8).map((item) => ({
           title: sanitizePromptStr(item?.title, 100),
@@ -128,7 +397,7 @@ function normalizeResumeForPrompt(resume) {
 }
 
 function buildResumeGenerationInput({ jd, profile, baseResume }) {
-  return {
+  const input = {
     jobDescription: {
       title: sanitizePromptStr(jd?.title, 150),
       company: sanitizePromptStr(jd?.company, 120) || "N/A",
@@ -142,11 +411,19 @@ function buildResumeGenerationInput({ jd, profile, baseResume }) {
       fullName: sanitizePromptStr(profile?.fullName, 120),
       currentTitle: sanitizePromptStr(profile?.title, 120),
       mainStack: sanitizePromptStr(profile?.mainStack, 160),
-      careerHistoryContext: normalizeCareerHistoryForPrompt(profile?.careerHistory),
       education: normalizeEducationForPrompt(profile?.educations),
     },
-    originalResume: normalizeResumeForPrompt(baseResume),
+    careerHistory: buildMergedCareerHistoryForPrompt(
+      profile?.careerHistory,
+      Array.isArray(baseResume?.experiences) ? baseResume.experiences : []
+    ),
   };
+
+  if (baseResume) {
+    input.selectedResume = normalizeResumeForPrompt(baseResume);
+  }
+
+  return input;
 }
 
 function normalizeResumeJson(raw) {
@@ -188,8 +465,16 @@ function normalizeKey(value) {
   return sanitizeStr(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function makeExperienceKey(title, companyName) {
-  return `${normalizeKey(title)}|${normalizeKey(companyName)}`;
+function makeDateKey(value) {
+  return normalizeKey(formatDate(value));
+}
+
+function makeExperienceKey(title, companyName, startDate, endDate) {
+  return `${normalizeKey(title)}|${normalizeKey(companyName)}|${makeDateKey(startDate)}|${makeDateKey(endDate)}`;
+}
+
+function makeCompanyPeriodKey(companyName, startDate, endDate) {
+  return `${normalizeKey(companyName)}|${makeDateKey(startDate)}|${makeDateKey(endDate)}`;
 }
 
 function splitBulletCandidates(text) {
@@ -230,17 +515,22 @@ function getRoleBulletMinimum(title) {
 }
 
 function buildEvidenceMaps(profile, baseResume) {
-  const byRoleAndCompany = new Map();
+  const byRoleAndCompanyPeriod = new Map();
+  const byCompanyAndPeriod = new Map();
   const byCompany = new Map();
 
-  const addEvidence = (title, companyName, lines) => {
-    const key = makeExperienceKey(title, companyName);
+  const addEvidence = (title, companyName, startDate, endDate, lines) => {
+    const key = makeExperienceKey(title, companyName, startDate, endDate);
+    const companyPeriodKey = makeCompanyPeriodKey(companyName, startDate, endDate);
     const companyKey = normalizeKey(companyName);
     const prepared = dedupeStrings((lines || []).flatMap(splitBulletCandidates));
     if (!prepared.length) return;
 
-    const existingRoleCompany = byRoleAndCompany.get(key) || [];
-    byRoleAndCompany.set(key, dedupeStrings(existingRoleCompany.concat(prepared)));
+    const existingRoleCompany = byRoleAndCompanyPeriod.get(key) || [];
+    byRoleAndCompanyPeriod.set(key, dedupeStrings(existingRoleCompany.concat(prepared)));
+
+    const existingCompanyPeriod = byCompanyAndPeriod.get(companyPeriodKey) || [];
+    byCompanyAndPeriod.set(companyPeriodKey, dedupeStrings(existingCompanyPeriod.concat(prepared)));
 
     if (companyKey) {
       const existingCompany = byCompany.get(companyKey) || [];
@@ -250,7 +540,7 @@ function buildEvidenceMaps(profile, baseResume) {
 
   const baseExperiences = Array.isArray(baseResume?.experiences) ? baseResume.experiences : [];
   for (const exp of baseExperiences) {
-    addEvidence(exp?.title ?? exp?.roleTitle, exp?.companyName, [
+    addEvidence(exp?.title ?? exp?.roleTitle, exp?.companyName, exp?.startDate, exp?.endDate, [
       exp?.summary,
       ...(Array.isArray(exp?.descriptions) ? exp.descriptions : []),
     ]);
@@ -258,13 +548,13 @@ function buildEvidenceMaps(profile, baseResume) {
 
   const profileHistory = Array.isArray(profile?.careerHistory) ? profile.careerHistory : [];
   for (const exp of profileHistory) {
-    addEvidence(exp?.roleTitle, exp?.companyName, [
+    addEvidence(exp?.roleTitle, exp?.companyName, exp?.startDate, exp?.endDate, [
       exp?.companySummary,
       ...profileKeyPointsToLines(exp?.keyPoints),
     ]);
   }
 
-  return { byRoleAndCompany, byCompany };
+  return { byRoleAndCompanyPeriod, byCompanyAndPeriod, byCompany };
 }
 
 function enforceExperienceBullets(resume, profile, baseResume) {
@@ -282,16 +572,25 @@ function enforceExperienceBullets(resume, profile, baseResume) {
       return { ...exp, descriptions: existing.slice(0, maxBullets) };
     }
 
-    const key = makeExperienceKey(exp?.title, exp?.companyName);
+    const key = makeExperienceKey(exp?.title, exp?.companyName, exp?.startDate, exp?.endDate);
+    const companyPeriodKey = makeCompanyPeriodKey(exp?.companyName, exp?.startDate, exp?.endDate);
     const companyKey = normalizeKey(exp?.companyName);
-    const evidenceCandidates = dedupeStrings([
-      ...(evidence.byRoleAndCompany.get(key) || []),
-      ...(evidence.byCompany.get(companyKey) || []),
+    const scopedEvidence = dedupeStrings([
+      ...(evidence.byRoleAndCompanyPeriod.get(key) || []),
+      ...(evidence.byCompanyAndPeriod.get(companyPeriodKey) || []),
+    ]);
+    let evidenceCandidates = dedupeStrings([
+      ...scopedEvidence,
       ...splitBulletCandidates(exp?.summary),
       ...existing.flatMap(splitBulletCandidates),
     ]);
 
-    const filled = dedupeStrings(existing.concat(evidenceCandidates));
+    let filled = dedupeStrings(existing.concat(evidenceCandidates));
+    if (filled.length < minimum && !scopedEvidence.length) {
+      evidenceCandidates = dedupeStrings(evidenceCandidates.concat(evidence.byCompany.get(companyKey) || []));
+      filled = dedupeStrings(existing.concat(evidenceCandidates));
+    }
+
     const finalDescriptions = filled.slice(0, maxBullets);
     return { ...exp, descriptions: finalDescriptions };
   });
@@ -367,8 +666,14 @@ function isReasoningSaturated(body) {
 }
 
 function buildFallbackResume({ jd, profile }) {
-  const skillItems = Array.isArray(profile?.mainStack)
-    ? [String(profile.mainStack)]
+  const profileStackItems = Array.isArray(profile?.mainStack)
+    ? profile.mainStack.map((s) => sanitizeStr(s)).filter(Boolean)
+    : (() => {
+        const single = sanitizeStr(profile?.mainStack);
+        return single ? [single] : [];
+      })();
+  const skillItems = profileStackItems.length
+    ? profileStackItems.slice(0, 20)
     : Array.isArray(jd?.skills)
       ? jd.skills.slice(0, 20).map((s) => String(s))
       : [];
@@ -468,4 +773,10 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
   }
 }
 
-module.exports = { generateResumeFromJD };
+module.exports = {
+  generateResumeFromJD,
+  _buildResumeGenerationInput: buildResumeGenerationInput,
+  _buildMergedCareerHistoryForPrompt: buildMergedCareerHistoryForPrompt,
+  _buildEmploymentKeyForPrompt: buildEmploymentKeyForPrompt,
+  _enforceExperienceBullets: enforceExperienceBullets,
+};

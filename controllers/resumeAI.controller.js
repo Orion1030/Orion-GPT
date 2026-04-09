@@ -12,6 +12,7 @@ const {
   tryFindTopProfilesForJobDescription,
   toPublicParsedJD,
 } = require("../services/jdImport.service");
+const { buildEmploymentKey, areEmploymentsEquivalent } = require("../utils/employmentKey");
 
 function normalizeParsedEducation(education) {
   if (!Array.isArray(education)) return [];
@@ -33,6 +34,38 @@ function normalizeParsedEducation(education) {
       endDate: item?.endDate || "",
     };
   });
+}
+
+function doesSelectedResumeMatchProfileCareerHistory(profile, baseResume) {
+  const profileHistory = Array.isArray(profile?.careerHistory) ? profile.careerHistory : [];
+  const resumeExperiences = Array.isArray(baseResume?.experiences) ? baseResume.experiences : [];
+
+  if (profileHistory.length !== resumeExperiences.length) {
+    return false;
+  }
+
+  // First consume strict exact-key matches to avoid over-using open-ended fallbacks.
+  const remainingResume = [...resumeExperiences];
+  const unmatchedProfile = [];
+  for (const profileItem of profileHistory) {
+    const exactProfileKey = buildEmploymentKey(profileItem);
+    const exactMatchIndex = remainingResume.findIndex((resumeItem) => buildEmploymentKey(resumeItem) === exactProfileKey);
+    if (exactMatchIndex >= 0) {
+      remainingResume.splice(exactMatchIndex, 1);
+      continue;
+    }
+    unmatchedProfile.push(profileItem);
+  }
+
+  for (const profileItem of unmatchedProfile) {
+    const compatibleIndex = remainingResume.findIndex((resumeItem) =>
+      areEmploymentsEquivalent(profileItem, resumeItem, { allowOpenEndDateMismatch: true })
+    );
+    if (compatibleIndex < 0) return false;
+    remainingResume.splice(compatibleIndex, 1);
+  }
+
+  return remainingResume.length === 0;
 }
 
 /** Parse plain text resume using server-side LLM and suggest matching profile. */
@@ -153,14 +186,31 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
   }
 
   let baseResume = null;
-  if (baseResumeId) {
-    baseResume = await ResumeModel.findOne({ _id: baseResumeId, userId, isDeleted: { $ne: true } }).populate("profileId").lean();
-  } else {
-    // Auto-seed generation with the latest resume for the selected profile when explicit baseResumeId is not provided.
-    baseResume = await ResumeModel.findOne({ userId, profileId, isDeleted: { $ne: true } })
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .populate("profileId")
-      .lean();
+  const selectedBaseResumeId = typeof baseResumeId === "string" ? baseResumeId.trim() : "";
+  if (selectedBaseResumeId) {
+    baseResume = await ResumeModel.findOne({ _id: selectedBaseResumeId, userId, isDeleted: { $ne: true } }).populate("profileId").lean();
+    if (!baseResume) {
+      return sendJsonResult(res, false, null, "Selected resume not found", 404);
+    }
+
+    const resumeProfileId = baseResume?.profileId?._id
+      ? String(baseResume.profileId._id)
+      : baseResume?.profileId
+        ? String(baseResume.profileId)
+        : "";
+    if (resumeProfileId && resumeProfileId !== String(profileId)) {
+      return sendJsonResult(res, false, null, "Selected resume does not belong to the selected profile", 400);
+    }
+
+    if (!doesSelectedResumeMatchProfileCareerHistory(profile, baseResume)) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        "Selected resume experiences must match the selected profile career history (company, role, start date, end date).",
+        400
+      );
+    }
   }
 
   const { result: genResult, error: genError } = await tryGenerateResumeJsonFromJD({ jd, profile, baseResume });

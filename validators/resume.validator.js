@@ -13,6 +13,7 @@ exports.createResumeRules = [
 exports.generateResumeRules = [
   body('jdId').notEmpty().withMessage('jdId is required'),
   body('profileId').notEmpty().withMessage('profileId is required'),
+  body('baseResumeId').optional({ nullable: true }).isString().withMessage('baseResumeId must be a string'),
 ];
 
 exports.refineResumeRules = [
