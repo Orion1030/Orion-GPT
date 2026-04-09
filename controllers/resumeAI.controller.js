@@ -13,6 +13,7 @@ const {
   toPublicParsedJD,
 } = require("../services/jdImport.service");
 const { buildEmploymentKey, areEmploymentsEquivalent } = require("../utils/employmentKey");
+const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
 
 function normalizeParsedEducation(education) {
   if (!Array.isArray(education)) return [];
@@ -167,6 +168,12 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
     }
     : null;
   const matches = scoredMatches.map((m) => m.profile);
+  if (bestMatch?.profileSnapshot) {
+    parsed.experiences = alignResumeExperiencesToCareerHistory(
+      bestMatch.profileSnapshot.careerHistory,
+      parsed.experiences
+    );
+  }
 
   return sendJsonResult(res, true, { parsed, bestMatch, matches, createNewProfileSuggested: false });
 });

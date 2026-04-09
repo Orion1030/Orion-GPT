@@ -19,6 +19,7 @@ const {
   buildEmploymentBaseKey,
   normalizeEmploymentDate,
 } = require("../../utils/employmentKey");
+const { alignResumeExperiencesToCareerHistory } = require("../../utils/experienceAdapter");
 
 const MAX_CAREER_HISTORY_ITEMS = 16;
 
@@ -442,7 +443,7 @@ function normalizeResumeJson(raw) {
     : [];
 
   const skills = Array.isArray(raw?.skills)
-    ? raw.skills.slice(0, 10).map((s) => ({
+    ? raw.skills.slice(0, 50).map((s) => ({
         title: sanitizeStr(s?.title) || "Skills",
         items: Array.isArray(s?.items) ? s.items.map(sanitizeStr).filter(Boolean).slice(0, 50) : [],
       }))
@@ -459,6 +460,12 @@ function normalizeResumeJson(raw) {
     : [];
 
   return { name, summary, experiences, skills, education, pageFrameConfig: null };
+}
+
+function alignResumeWithProfileCareerHistory(resume, profile) {
+  if (!resume || typeof resume !== "object") return resume;
+  const experiences = alignResumeExperiencesToCareerHistory(profile?.careerHistory, resume.experiences);
+  return { ...resume, experiences };
 }
 
 function normalizeKey(value) {
@@ -754,21 +761,30 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
       console.error("Response:", e?.body || e?.response?.data || e);
 
       // Fail fast to fallback on any LLM error/timeouts.
-      const fallback = normalizeResumeJson(buildFallbackResume({ jd, profile }));
+      const fallback = alignResumeWithProfileCareerHistory(
+        normalizeResumeJson(buildFallbackResume({ jd, profile })),
+        profile
+      );
       return enforceExperienceBullets(fallback, profile, baseResume);
     }
 
     if (!rawJson) {
       console.warn("[Generate] No valid JSON; returning fallback resume");
-      const fallback = normalizeResumeJson(buildFallbackResume({ jd, profile }));
+      const fallback = alignResumeWithProfileCareerHistory(
+        normalizeResumeJson(buildFallbackResume({ jd, profile })),
+        profile
+      );
       return enforceExperienceBullets(fallback, profile, baseResume);
     }
 
-    const normalized = normalizeResumeJson(rawJson);
+    const normalized = alignResumeWithProfileCareerHistory(normalizeResumeJson(rawJson), profile);
     return enforceExperienceBullets(normalized, profile, baseResume);
   } catch (e) {
     console.error("[Generate] unexpected error, returning fallback resume", e);
-    const fallback = normalizeResumeJson(buildFallbackResume({ jd, profile }));
+    const fallback = alignResumeWithProfileCareerHistory(
+      normalizeResumeJson(buildFallbackResume({ jd, profile })),
+      profile
+    );
     return enforceExperienceBullets(fallback, profile, baseResume);
   }
 }

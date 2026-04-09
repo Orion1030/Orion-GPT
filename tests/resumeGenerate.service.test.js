@@ -33,6 +33,57 @@ describe('generateResumeFromJD', () => {
     expect(chatCompletions).toHaveBeenCalled();
   });
 
+  it('anchors generated experience dates to profile career history dates', async () => {
+    const profileWithCareer = {
+      ...profile,
+      careerHistory: [
+        {
+          companyName: 'Acme',
+          roleTitle: 'Data Engineer',
+          startDate: '2022-01-01',
+          endDate: '2023-12-31',
+          companySummary: 'Built data platform.',
+          keyPoints: ['Scaled ingestion pipelines'],
+        },
+      ],
+    };
+
+    chatCompletions.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  name: 'Generated',
+                  summary: '',
+                  experiences: [
+                    {
+                      title: 'Data Engineer',
+                      companyName: 'Acme',
+                      summary: 'Generated summary',
+                      descriptions: ['Generated bullet'],
+                      startDate: '2022-07-01',
+                      endDate: 'Present',
+                    },
+                  ],
+                  skills: [],
+                  education: [],
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const res = await generateResumeFromJD({ jd, profile: profileWithCareer, baseResume: null });
+    expect(res.experiences).toHaveLength(1);
+    expect(res.experiences[0].startDate).toBe('2022-01-01');
+    expect(res.experiences[0].endDate).toBe('2023-12-31');
+  });
+
   it('returns fallback resume when all providers fail', async () => {
     chatCompletions.mockRejectedValue(new Error('chat down'));
     const res = await generateResumeFromJD({ jd, profile, baseResume: null });

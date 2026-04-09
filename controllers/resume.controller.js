@@ -1,5 +1,5 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
-const { ResumeModel } = require("../dbModels");
+const { ResumeModel, ProfileModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const {
   sendPdfResume,
@@ -12,6 +12,7 @@ const {
   getMargins,
 } = require("../utils/resumeUtils");
 const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
+const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
 
 function toCleanString(value) {
   if (value == null) return "";
@@ -241,6 +242,11 @@ function mapPayloadToModel(payload, userId) {
   };
 }
 
+function isImportResumePayload(payload) {
+  const source = toCleanString(payload?.source).toLowerCase();
+  return source === "import";
+}
+
 exports.createResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const payload = req.body.resume ?? req.body;
@@ -248,6 +254,16 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
 
   if (!data.profileId) {
     return sendJsonResult(res, false, null, "A profile must be selected to create a resume", 400);
+  }
+
+  if (isImportResumePayload(payload)) {
+    const profile = await ProfileModel.findOne({ _id: data.profileId, userId: user._id })
+      .select("careerHistory")
+      .lean();
+    if (!profile) {
+      return sendJsonResult(res, false, null, "Profile not found", 404);
+    }
+    data.experiences = alignResumeExperiencesToCareerHistory(profile.careerHistory, data.experiences);
   }
 
   const newResume = new ResumeModel(data);

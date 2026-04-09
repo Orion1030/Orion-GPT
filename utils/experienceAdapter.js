@@ -7,9 +7,33 @@
  * Resume experience fields:
  *   title, companyName, companyLocation, summary, descriptions[], startDate, endDate
  */
+const {
+  buildEmploymentKey,
+  areEmploymentsEquivalent,
+  normalizeEmploymentText,
+} = require("./employmentKey");
 
 function sanitizeString(value) {
   return String(value || "").trim();
+}
+
+function normalizeDateString(value) {
+  const raw = sanitizeString(value);
+  if (!raw) return "";
+  if (/^(present|current|ongoing|now)$/i.test(raw)) return "Present";
+  if (value instanceof Date) {
+    const date = value;
+    if (Number.isNaN(date.getTime())) return raw;
+    return date.toISOString().slice(0, 10);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}$/.test(raw)) return raw;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  // Normalize ISO-like date strings that include time components.
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) return date.toISOString().slice(0, 10);
+  return raw;
 }
 
 function stripHtml(value) {
@@ -73,12 +97,120 @@ function descriptionsToKeyPoints(value) {
 }
 
 /**
+ * Normalize any resume/profile-like experience payload into Resume.experiences shape.
+ * @param {object} value
+ * @returns {object}
+ */
+function normalizeResumeExperience(value) {
+  return {
+    title: sanitizeString(value?.title ?? value?.roleTitle),
+    companyName: sanitizeString(value?.companyName),
+    companyLocation: sanitizeString(value?.companyLocation),
+    summary: sanitizeString(value?.summary ?? value?.companySummary),
+    descriptions: Array.isArray(value?.descriptions)
+      ? value.descriptions.map((item) => sanitizeString(item)).filter(Boolean)
+      : keyPointsToDescriptions(value?.keyPoints),
+    startDate: normalizeDateString(value?.startDate),
+    endDate: normalizeDateString(value?.endDate),
+  };
+}
+
+function makeRoleCompanyKey(entry) {
+  const role = normalizeEmploymentText(entry?.roleTitle ?? entry?.title);
+  const company = normalizeEmploymentText(entry?.companyName);
+  return `${company}|${role}`;
+}
+
+function makeCompanyKey(entry) {
+  return normalizeEmploymentText(entry?.companyName);
+}
+
+function removeFirstMatch(items, predicate) {
+  const index = items.findIndex(predicate);
+  if (index < 0) return null;
+  const [matched] = items.splice(index, 1);
+  return matched;
+}
+
+/**
+ * Align resume experiences to profile career history.
+ * Profile start/end dates are treated as source-of-truth for matching roles.
+ * @param {Array<object>} profileCareerHistory
+ * @param {Array<object>} resumeExperiences
+ * @returns {Array<object>}
+ */
+function alignResumeExperiencesToCareerHistory(profileCareerHistory, resumeExperiences) {
+  const profileItems = Array.isArray(profileCareerHistory) ? profileCareerHistory : [];
+  const candidateItems = Array.isArray(resumeExperiences) ? resumeExperiences : [];
+
+  if (!profileItems.length) {
+    return candidateItems.map((item) => normalizeResumeExperience(item));
+  }
+
+  const remainingCandidates = candidateItems.map((item) => normalizeResumeExperience(item));
+  const aligned = [];
+
+  for (const profileItem of profileItems) {
+    const profileExperience = normalizeResumeExperience(profileExperienceToResumeExperience(profileItem));
+    const exactProfileKey = buildEmploymentKey(profileItem, { roleFields: ["roleTitle", "title"] });
+    const roleCompanyKey = makeRoleCompanyKey(profileItem);
+    const companyKey = makeCompanyKey(profileItem);
+
+    let matched = removeFirstMatch(
+      remainingCandidates,
+      (candidate) =>
+        buildEmploymentKey(candidate, { roleFields: ["roleTitle", "title"] }) === exactProfileKey
+    );
+
+    if (!matched) {
+      matched = removeFirstMatch(
+        remainingCandidates,
+        (candidate) =>
+          areEmploymentsEquivalent(profileItem, candidate, {
+            allowOpenEndDateMismatch: true,
+            roleFields: ["roleTitle", "title"],
+          })
+      );
+    }
+
+    if (!matched && roleCompanyKey) {
+      matched = removeFirstMatch(
+        remainingCandidates,
+        (candidate) => makeRoleCompanyKey(candidate) === roleCompanyKey
+      );
+    }
+
+    if (!matched && companyKey) {
+      matched = removeFirstMatch(
+        remainingCandidates,
+        (candidate) => makeCompanyKey(candidate) === companyKey
+      );
+    }
+
+    const normalizedMatch = matched ? normalizeResumeExperience(matched) : null;
+    aligned.push({
+      title: profileExperience.title || normalizedMatch?.title || "",
+      companyName: profileExperience.companyName || normalizedMatch?.companyName || "",
+      companyLocation: normalizedMatch?.companyLocation || profileExperience.companyLocation || "",
+      summary: normalizedMatch?.summary || profileExperience.summary || "",
+      descriptions: (normalizedMatch?.descriptions || []).length
+        ? normalizedMatch.descriptions
+        : profileExperience.descriptions,
+      startDate: profileExperience.startDate || normalizedMatch?.startDate || "",
+      endDate: profileExperience.endDate || normalizedMatch?.endDate || "",
+    });
+  }
+
+  return aligned;
+}
+
+/**
  * Convert a single Profile experience to a Resume experience.
  * @param {object} profileExp
  * @returns {object}
  */
 function profileExperienceToResumeExperience(profileExp) {
-  return {
+  return normalizeResumeExperience({
     title: profileExp.roleTitle || profileExp.title || "",
     companyName: profileExp.companyName || "",
     companyLocation: profileExp.companyLocation || "",
@@ -88,7 +220,7 @@ function profileExperienceToResumeExperience(profileExp) {
       : keyPointsToDescriptions(profileExp.keyPoints),
     startDate: profileExp.startDate || "",
     endDate: profileExp.endDate || "",
-  };
+  });
 }
 
 /**
@@ -115,4 +247,9 @@ function resumeExperienceToProfileExperience(resumeExp) {
   };
 }
 
-module.exports = { profileExperienceToResumeExperience, resumeExperienceToProfileExperience };
+module.exports = {
+  profileExperienceToResumeExperience,
+  resumeExperienceToProfileExperience,
+  normalizeResumeExperience,
+  alignResumeExperiencesToCareerHistory,
+};
