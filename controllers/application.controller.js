@@ -15,7 +15,6 @@ const {
 } = require('../services/applicationHistory.service')
 const {
   buildApplicationEventEnvelope,
-  publishApplicationEvent,
   subscribeApplicationEvents,
 } = require('../services/applicationRealtime.service')
 const {
@@ -72,32 +71,69 @@ function mapApplicationListItem(app) {
   }
 }
 
-function publishEnvelope(appDoc, type, data) {
-  publishApplicationEvent(
-    appDoc._id,
-    buildApplicationEventEnvelope({
-      type,
-      applicationId: appDoc._id,
-      version: appDoc.version,
-      data: data || mapApplicationListItem(appDoc),
-    }),
-    { userId: appDoc.userId }
-  )
-}
-
 function buildSsePayload(appDoc) {
+  const generationStatus = appDoc.generationStatus
+  const applicationStatus = appDoc.applicationStatus
+  const pipeline = appDoc.pipeline || {}
+  const resumeId = toIdString(appDoc.resumeId)
+  const resumeName = appDoc.resumeName || ''
+  const companyName = appDoc.companyName || ''
+  const jobTitle = appDoc.jobTitle || ''
+  const profileId = toIdString(appDoc.profileId)
+  const profileNameSnapshot = appDoc.profileNameSnapshot || ''
+  const baseResumeId = toIdString(appDoc.baseResumeId)
+
+  const outcomeCode =
+    generationStatus === 'completed'
+      ? 'success'
+      : generationStatus === 'failed'
+      ? 'error'
+      : 'running'
+
   return {
+    schemaVersion: 1,
+    channel: 'application_pipeline',
+    eventType: 'application.updated',
+    state: {
+      generationStatus,
+      applicationStatus,
+    },
+    pipeline,
+    entities: {
+      applicationId: toIdString(appDoc._id),
+      profileId,
+      resumeId,
+      generatedResumeId: null,
+      baseResumeId,
+    },
+    snapshot: {
+      companyName,
+      jobTitle,
+      resumeName,
+      profileNameSnapshot,
+    },
+    outcome: {
+      code: outcomeCode,
+      message: null,
+      error: pipeline?.lastError ? String(pipeline.lastError) : null,
+    },
+    // Legacy compatibility fields kept for current frontend consumers.
     applicationId: toIdString(appDoc._id),
-    generationStatus: appDoc.generationStatus,
-    applicationStatus: appDoc.applicationStatus,
-    pipeline: appDoc.pipeline || {},
-    resumeId: toIdString(appDoc.resumeId),
-    resumeName: appDoc.resumeName || '',
-    companyName: appDoc.companyName || '',
-    jobTitle: appDoc.jobTitle || '',
-    profileId: toIdString(appDoc.profileId),
-    profileNameSnapshot: appDoc.profileNameSnapshot || '',
-    baseResumeId: toIdString(appDoc.baseResumeId),
+    generationStatus,
+    applicationStatus,
+    pipeline,
+    resumeId,
+    resumeName,
+    companyName,
+    jobTitle,
+    profileId,
+    profileNameSnapshot,
+    baseResumeId,
+    data: {
+      generatedResumeId: null,
+      profileId,
+      baseResumeId,
+    },
   }
 }
 
@@ -224,10 +260,6 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
     requestId,
     source: 'api',
   })
-
-  if (updated) {
-    publishEnvelope(updated, 'application.created', buildSsePayload(updated))
-  }
 
   return sendJsonResult(
     res,
@@ -459,7 +491,6 @@ exports.patchApplication = asyncErrorHandler(async (req, res) => {
     index += 1
   }
 
-  publishEnvelope(updated, 'application.updated', buildSsePayload(updated))
   return sendJsonResult(res, true, updated, 'Application updated successfully')
 })
 
@@ -498,7 +529,7 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
     chatSessionId = created._id.toString()
     isNew = true
 
-    const updated = await ApplicationModel.findOneAndUpdate(
+    await ApplicationModel.findOneAndUpdate(
       { _id: applicationId, userId },
       {
         $set: {
@@ -509,10 +540,6 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
       },
       { returnDocument: 'after' }
     ).lean()
-
-    if (updated) {
-      publishEnvelope(updated, 'application.updated', buildSsePayload(updated))
-    }
 
     await appendApplicationHistory({
       applicationId,

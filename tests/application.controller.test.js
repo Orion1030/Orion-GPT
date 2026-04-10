@@ -15,7 +15,6 @@ describe('application.controller', () => {
 
   it('returns 400 when jdContext is missing on apply', async () => {
     const appendApplicationHistory = jest.fn()
-    const publishApplicationEvent = jest.fn()
 
     jest.doMock('../dbModels', () => ({
       ApplicationModel: jest.fn(),
@@ -31,7 +30,6 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope: jest.fn(),
-      publishApplicationEvent,
       subscribeApplicationEvents: jest.fn(),
     }))
 
@@ -46,12 +44,10 @@ describe('application.controller', () => {
     await invoke(controller.applyForApplication, req, res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(appendApplicationHistory).not.toHaveBeenCalled()
-    expect(publishApplicationEvent).not.toHaveBeenCalled()
   })
 
   it('returns 404 when manualProfileId is invalid on apply', async () => {
     const appendApplicationHistory = jest.fn()
-    const publishApplicationEvent = jest.fn()
 
     const ProfileModel = {
       findOne: jest.fn().mockReturnValue({
@@ -75,7 +71,6 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope: jest.fn(),
-      publishApplicationEvent,
       subscribeApplicationEvents: jest.fn(),
     }))
 
@@ -96,13 +91,11 @@ describe('application.controller', () => {
     expect(ProfileModel.findOne).toHaveBeenCalled()
     expect(res.status).toHaveBeenCalledWith(404)
     expect(appendApplicationHistory).not.toHaveBeenCalled()
-    expect(publishApplicationEvent).not.toHaveBeenCalled()
   })
 
   it('creates application + job and returns apply payload', async () => {
     const appendApplicationHistory = jest.fn().mockResolvedValue(null)
     const buildApplicationEventEnvelope = jest.fn().mockReturnValue({ type: 'application.created' })
-    const publishApplicationEvent = jest.fn()
 
     const applicationSave = jest.fn().mockResolvedValue(undefined)
     const jobSave = jest.fn().mockResolvedValue(undefined)
@@ -143,7 +136,6 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope,
-      publishApplicationEvent,
       subscribeApplicationEvents: jest.fn(),
     }))
 
@@ -170,8 +162,7 @@ describe('application.controller', () => {
         source: 'api',
       })
     )
-    expect(buildApplicationEventEnvelope).toHaveBeenCalled()
-    expect(publishApplicationEvent).toHaveBeenCalled()
+    expect(buildApplicationEventEnvelope).not.toHaveBeenCalled()
     expect(res.status).toHaveBeenCalledWith(201)
     const body = res.json.mock.calls[0][0]
     expect(body.success).toBe(true)
@@ -182,7 +173,6 @@ describe('application.controller', () => {
   it('writes status and field history on patch', async () => {
     const appendApplicationHistory = jest.fn().mockResolvedValue(null)
     const buildApplicationEventEnvelope = jest.fn().mockReturnValue({ type: 'application.updated' })
-    const publishApplicationEvent = jest.fn()
 
     const ApplicationModel = {
       findOne: jest.fn().mockReturnValue({
@@ -225,7 +215,6 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope,
-      publishApplicationEvent,
       subscribeApplicationEvents: jest.fn(),
     }))
 
@@ -258,8 +247,7 @@ describe('application.controller', () => {
         payload: expect.objectContaining({ field: 'applicationStatus' }),
       })
     )
-    expect(buildApplicationEventEnvelope).toHaveBeenCalled()
-    expect(publishApplicationEvent).toHaveBeenCalled()
+    expect(buildApplicationEventEnvelope).not.toHaveBeenCalled()
     expect(res.status).toHaveBeenCalledWith(200)
   })
 
@@ -298,7 +286,6 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope: jest.fn(),
-      publishApplicationEvent: jest.fn(),
       subscribeApplicationEvents: jest.fn(),
     }))
 
@@ -343,7 +330,6 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope: jest.fn(),
-      publishApplicationEvent: jest.fn(),
       subscribeApplicationEvents: jest.fn(),
     }))
 
@@ -403,7 +389,6 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope,
-      publishApplicationEvent: jest.fn(),
       subscribeApplicationEvents,
     }))
 

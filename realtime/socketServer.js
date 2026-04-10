@@ -101,6 +101,21 @@ function leaveApplicationRoom(socket, payload) {
   socket.leave(buildApplicationRoom(rawId))
 }
 
+function emitToRoom(room, eventName, payload) {
+  if (!ioInstance) return false
+  if (!room || !eventName) return false
+  ioInstance.to(room).emit(eventName, payload)
+  return true
+}
+
+function emitToApplicationRoom(applicationId, eventName, payload) {
+  return emitToRoom(buildApplicationRoom(applicationId), eventName, payload)
+}
+
+function emitToUserRoom(userId, eventName, payload) {
+  return emitToRoom(buildUserRoom(userId), eventName, payload)
+}
+
 function initSocketServer(httpServer) {
   if (ioInstance) return ioInstance
 
@@ -145,14 +160,12 @@ function initSocketServer(httpServer) {
   return ioInstance
 }
 
-function getSocketServer() {
-  return ioInstance
-}
-
 module.exports = {
   SOCKET_PATH,
   initSocketServer,
-  getSocketServer,
   buildUserRoom,
   buildApplicationRoom,
+  emitToRoom,
+  emitToApplicationRoom,
+  emitToUserRoom,
 }

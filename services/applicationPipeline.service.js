@@ -37,6 +37,131 @@ function sanitizeError(error) {
   return String(message).slice(0, 1000)
 }
 
+function toIdString(value) {
+  if (value == null || value === '') return null
+  return String(value)
+}
+
+// Canonical realtime payload contract for application pipeline events.
+// Keep legacy compatibility fields at the root while standard fields live under:
+// { schemaVersion, channel, eventType, state, pipeline, entities, snapshot, outcome }.
+function buildStandardizedRealtimeData({ app, eventType, eventData = null }) {
+  const legacyData = eventData && typeof eventData === 'object' ? eventData : {}
+  const legacyNestedData =
+    legacyData.data && typeof legacyData.data === 'object' ? legacyData.data : {}
+
+  const generationStatus =
+    typeof legacyData.generationStatus === 'string'
+      ? legacyData.generationStatus
+      : app.generationStatus
+  const applicationStatus =
+    typeof legacyData.applicationStatus === 'string'
+      ? legacyData.applicationStatus
+      : app.applicationStatus
+  const pipeline =
+    legacyData.pipeline && typeof legacyData.pipeline === 'object'
+      ? legacyData.pipeline
+      : app.pipeline || {}
+
+  const generatedResumeId = toIdString(
+    legacyNestedData.generatedResumeId || legacyData.generatedResumeId || null
+  )
+  const profileId = toIdString(
+    legacyNestedData.profileId || legacyData.profileId || app.profileId || null
+  )
+  const baseResumeId = toIdString(
+    legacyNestedData.baseResumeId !== undefined
+      ? legacyNestedData.baseResumeId
+      : legacyData.baseResumeId !== undefined
+      ? legacyData.baseResumeId
+      : app.baseResumeId || null
+  )
+  const resumeId = toIdString(legacyData.resumeId || generatedResumeId || app.resumeId || null)
+
+  const resumeName =
+    typeof legacyData.resumeName === 'string' ? legacyData.resumeName : app.resumeName || ''
+  const companyName =
+    typeof legacyData.companyName === 'string' ? legacyData.companyName : app.companyName || ''
+  const jobTitle =
+    typeof legacyData.jobTitle === 'string' ? legacyData.jobTitle : app.jobTitle || ''
+  const profileNameSnapshot =
+    typeof legacyData.profileNameSnapshot === 'string'
+      ? legacyData.profileNameSnapshot
+      : app.profileNameSnapshot || ''
+
+  let outcomeCode = 'running'
+  if (legacyData.status === 'success' || generationStatus === 'completed') {
+    outcomeCode = 'success'
+  } else if (legacyData.status === 'error' || generationStatus === 'failed') {
+    outcomeCode = 'error'
+  }
+
+  const message = typeof legacyData.msg === 'string' ? legacyData.msg : ''
+  const errorText =
+    typeof legacyData.error === 'string'
+      ? legacyData.error
+      : outcomeCode === 'error'
+      ? String(pipeline?.lastError || '')
+      : ''
+
+  const standardData = {
+    schemaVersion: 1,
+    channel: 'application_pipeline',
+    eventType,
+    state: {
+      generationStatus,
+      applicationStatus,
+    },
+    pipeline,
+    entities: {
+      applicationId: String(app._id),
+      profileId,
+      resumeId,
+      generatedResumeId,
+      baseResumeId,
+    },
+    snapshot: {
+      companyName,
+      jobTitle,
+      resumeName,
+      profileNameSnapshot,
+    },
+    outcome: {
+      code: outcomeCode,
+      message: message || null,
+      error: errorText || null,
+    },
+  }
+
+  // Legacy compatibility fields kept for current frontend consumers.
+  return {
+    ...standardData,
+    status:
+      outcomeCode === 'success'
+        ? 'success'
+        : outcomeCode === 'error'
+        ? 'error'
+        : undefined,
+    data: {
+      generatedResumeId,
+      profileId,
+      baseResumeId,
+    },
+    msg: message || undefined,
+    error: errorText || undefined,
+    generationStatus,
+    applicationStatus,
+    pipeline,
+    resumeId,
+    resumeName,
+    companyName,
+    jobTitle,
+    profileId,
+    profileNameSnapshot,
+    baseResumeId,
+  }
+}
+
 async function updateAndPublish({
   applicationId,
   userId,
@@ -81,7 +206,11 @@ async function updateAndPublish({
       type: eventType,
       applicationId: app._id,
       version: app.version,
-      data: eventData || buildPipelineData(app),
+      data: buildStandardizedRealtimeData({
+        app,
+        eventType,
+        eventData: eventData || buildPipelineData(app),
+      }),
     }),
     { userId: app.userId }
   )
