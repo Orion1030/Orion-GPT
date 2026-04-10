@@ -495,7 +495,7 @@ exports.patchApplication = asyncErrorHandler(async (req, res) => {
     index += 1
   }
 
-  return sendJsonResult(res, true, updated, 'Application updated successfully')
+  return sendJsonResult(res, true, null, null)
 })
 
 exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
