@@ -1,0 +1,149 @@
+const jwt = require('jsonwebtoken')
+const { Server } = require('socket.io')
+const { ApplicationModel, UserModel } = require('../dbModels')
+const { getJwtSecret } = require('../utils')
+
+const SOCKET_PATH = '/realtime/socket.io'
+
+let ioInstance = null
+
+function buildUserRoom(userId) {
+  return `user:${String(userId)}`
+}
+
+function buildApplicationRoom(applicationId) {
+  return `application:${String(applicationId)}`
+}
+
+function extractTokenFromHandshake(handshake) {
+  const authToken =
+    handshake?.auth && typeof handshake.auth.token === 'string'
+      ? handshake.auth.token.trim()
+      : ''
+  if (authToken) return authToken
+
+  const queryToken =
+    handshake?.query && typeof handshake.query.token === 'string'
+      ? handshake.query.token.trim()
+      : ''
+  if (queryToken) return queryToken
+
+  const headerValue =
+    handshake?.headers && typeof handshake.headers.authorization === 'string'
+      ? handshake.headers.authorization.trim()
+      : ''
+  if (headerValue.toLowerCase().startsWith('bearer ')) {
+    return headerValue.slice(7).trim()
+  }
+  return ''
+}
+
+async function verifySocketIdentity(socket, next) {
+  const token = extractTokenFromHandshake(socket.handshake)
+  if (!token) {
+    return next(new Error('unauthorized'))
+  }
+
+  let decoded
+  try {
+    decoded = jwt.verify(token, getJwtSecret())
+  } catch {
+    return next(new Error('unauthorized'))
+  }
+
+  const user = await UserModel.findOne({ _id: decoded.id }).select('_id role').lean()
+  if (!user) {
+    return next(new Error('unauthorized'))
+  }
+
+  socket.data.userId = String(user._id)
+  socket.data.role = user.role
+  return next()
+}
+
+async function joinApplicationRoom(socket, payload) {
+  const rawId =
+    payload && typeof payload.applicationId === 'string'
+      ? payload.applicationId.trim()
+      : ''
+  if (!rawId) return
+
+  try {
+    const exists = await ApplicationModel.exists({
+      _id: rawId,
+      userId: socket.data.userId,
+    })
+    if (!exists) {
+      socket.emit('applications:error', {
+        code: 'not_found',
+        applicationId: rawId,
+        message: 'Application not found',
+      })
+      return
+    }
+    socket.join(buildApplicationRoom(rawId))
+  } catch {
+    socket.emit('applications:error', {
+      code: 'invalid_application_id',
+      applicationId: rawId,
+      message: 'Invalid application identifier',
+    })
+  }
+}
+
+function leaveApplicationRoom(socket, payload) {
+  const rawId =
+    payload && typeof payload.applicationId === 'string'
+      ? payload.applicationId.trim()
+      : ''
+  if (!rawId) return
+  socket.leave(buildApplicationRoom(rawId))
+}
+
+function initSocketServer(httpServer) {
+  if (ioInstance) return ioInstance
+
+  ioInstance = new Server(httpServer, {
+    path: SOCKET_PATH,
+    cors: {
+      origin: true,
+      credentials: true,
+    },
+  })
+
+  ioInstance.use((socket, next) => {
+    verifySocketIdentity(socket, next).catch(() => next(new Error('unauthorized')))
+  })
+
+  ioInstance.on('connection', (socket) => {
+    const userRoom = buildUserRoom(socket.data.userId)
+    socket.join(userRoom)
+
+    socket.on('applications:subscribe_list', () => {
+      socket.join(userRoom)
+    })
+
+    socket.on('applications:subscribe_detail', (payload) => {
+      joinApplicationRoom(socket, payload).catch(() => {})
+    })
+
+    socket.on('applications:unsubscribe_detail', (payload) => {
+      leaveApplicationRoom(socket, payload)
+    })
+  })
+
+  return ioInstance
+}
+
+function getSocketServer() {
+  return ioInstance
+}
+
+module.exports = {
+  SOCKET_PATH,
+  initSocketServer,
+  getSocketServer,
+  buildUserRoom,
+  buildApplicationRoom,
+}
+

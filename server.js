@@ -13,7 +13,9 @@ if (!hasJwtSecret) {
 
 const { Environments } = require("./utils/constants");
 const serverless = require("serverless-http");
+const http = require('http')
 const { DBConnection, UserModel } = require("./dbModels");
+const { initSocketServer } = require('./realtime/socketServer')
 
 DBConnection.on("connected", async () => {
   console.log("Connected to appDB");
@@ -22,7 +24,9 @@ DBConnection.on("connected", async () => {
 const app = require("./app");
 const PORT = process.env.PORT || 5050;
 const env = process.env.NODE_ENV || "development";
-app.listen(PORT, () => {
+const httpServer = http.createServer(app)
+initSocketServer(httpServer)
+httpServer.listen(PORT, () => {
   console.log(
     `Server is running${env === Environments.LOCAL ? ` on port ${PORT}` : ''}`,
   );

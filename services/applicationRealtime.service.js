@@ -1,4 +1,9 @@
 const crypto = require('crypto')
+const {
+  getSocketServer,
+  buildApplicationRoom,
+  buildUserRoom,
+} = require('../realtime/socketServer')
 
 const connectionsByApplicationId = new Map()
 
@@ -35,11 +40,31 @@ function writeSseEnvelope(res, envelope) {
   }
 }
 
-function publishApplicationEvent(applicationId, envelope) {
+function publishApplicationEvent(applicationId, envelope, options = {}) {
   const bucket = connectionsByApplicationId.get(String(applicationId))
-  if (!bucket || !bucket.size) return
-  for (const res of bucket.values()) {
-    writeSseEnvelope(res, envelope)
+  if (bucket && bucket.size) {
+    for (const res of bucket.values()) {
+      writeSseEnvelope(res, envelope)
+    }
+  }
+
+  const io = getSocketServer()
+  if (!io) return
+
+  const appRoom = buildApplicationRoom(applicationId)
+  io.to(appRoom).emit('applications:event', envelope)
+
+  if (envelope?.type && typeof envelope.type === 'string') {
+    io.to(appRoom).emit(envelope.type, envelope)
+  }
+
+  const userId = options.userId || envelope?.userId || envelope?.data?.userId
+  if (userId) {
+    const userRoom = buildUserRoom(userId)
+    io.to(userRoom).emit('applications:event', envelope)
+    if (envelope?.type && typeof envelope.type === 'string') {
+      io.to(userRoom).emit(envelope.type, envelope)
+    }
   }
 }
 
@@ -59,4 +84,3 @@ module.exports = {
   publishApplicationEvent,
   buildApplicationEventEnvelope,
 }
-

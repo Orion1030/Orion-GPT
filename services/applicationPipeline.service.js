@@ -80,7 +80,8 @@ async function updateAndPublish({
       applicationId: app._id,
       version: app.version,
       data: eventData || buildPipelineData(app),
-    })
+    }),
+    { userId: app.userId }
   )
 
   return app
@@ -494,4 +495,3 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
 module.exports = {
   runApplicationPipeline,
 }
-

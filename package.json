@@ -42,6 +42,7 @@
     "puppeteer-cluster": "0.25.0",
     "sanitize-html": "2.17.2",
     "serverless-http": "4.0.0",
+    "socket.io": "4.8.3",
     "validator": "13.15.26"
   },
   "engines": {

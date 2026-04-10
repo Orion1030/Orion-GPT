@@ -78,7 +78,8 @@ function publishEnvelope(appDoc, type, data) {
       applicationId: appDoc._id,
       version: appDoc.version,
       data: data || mapApplicationListItem(appDoc),
-    })
+    }),
+    { userId: appDoc.userId }
   )
 }
 
