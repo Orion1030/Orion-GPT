@@ -3,25 +3,50 @@ require('dotenv').config()
 
 const { isAuthenticatedUser, permit } = require('../middlewares/auth.middleware')
 const { RoleLevels } = require('../utils/constants')
+const { validate } = require('../middlewares/validate')
 const {
-  getAllApplications,
-  getApplicationsByProfileId,
-  createApplication,
-  updateApplication,
+  applyRules,
+  listRules,
+  patchRules,
+  historyQueryRules,
+} = require('../validators/application.validator')
+const {
+  applyForApplication,
+  listApplications,
+  getApplicationDetail,
+  patchApplication,
+  getApplicationHistory,
+  resolveApplicationChat,
+  streamApplicationEvents,
   deleteApplication,
+  getApplicationsByProfileId,
 } = require('../controllers/application.controller')
 
 const router = express.Router()
+const auth = [isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User])]
 
 router.route('/')
-  .get(isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]), getAllApplications)
-  .post(isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]), createApplication)
+  .get(...auth, listRules, validate, listApplications)
+
+router.route('/apply')
+  .post(...auth, applyRules, validate, applyForApplication)
 
 router.route('/profile/:profileId')
-  .get(isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]), getApplicationsByProfileId)
+  .get(...auth, getApplicationsByProfileId)
 
-router.route('/:id')
-  .put(isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]), updateApplication)
-  .delete(isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]), deleteApplication)
+router.route('/:applicationId/history')
+  .get(...auth, historyQueryRules, validate, getApplicationHistory)
+
+router.route('/:applicationId/chat/resolve')
+  .post(...auth, resolveApplicationChat)
+
+router.route('/:applicationId/events')
+  .get(...auth, streamApplicationEvents)
+
+router.route('/:applicationId')
+  .get(...auth, getApplicationDetail)
+  .patch(...auth, patchRules, validate, patchApplication)
+  .put(...auth, patchRules, validate, patchApplication)
+  .delete(...auth, deleteApplication)
 
 module.exports = router

@@ -35,6 +35,7 @@ try {
   try { jobRunner.registerHandler('parse_jd', require('./agents/jdParser')) } catch (e) { console.warn('Could not register jdParser', e) }
   try { jobRunner.registerHandler('find_top_resumes', require('./agents/atsScorer')) } catch (e) { console.warn('Could not register atsScorer', e) }
   try { jobRunner.registerHandler('generate_resume', require('./agents/resumeGenerator')) } catch (e) { console.warn('Could not register resumeGenerator', e) }
+  try { jobRunner.registerHandler('generate_application_resume', require('./agents/applicationResumeGenerator')) } catch (e) { console.warn('Could not register applicationResumeGenerator', e) }
   jobRunner.start();
 } catch (e) {
   console.warn('Job runner not started', e);

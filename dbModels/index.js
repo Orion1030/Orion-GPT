@@ -35,6 +35,7 @@ const RequestModel = require("./Request.Model");
 const PromptModel = require("./Prompt.Model");
 const ProfileModel = require("./Profile.Model");
 const ApplicationModel = require("./Application.Model");
+const ApplicationEventModel = require("./ApplicationEvent.Model");
 const BlacklistModel = require("./BlackList.Model");
 const WhitelistModel = require("./WhiteList.Model");
 const ResumeModel = require("./Resume.Model");
@@ -54,6 +55,7 @@ const RequestModelForApp = DBConnection.model("Request", RequestModel.schema);
 const PromptModelForApp = DBConnection.model("Prompt", PromptModel.schema);
 const ProfileModelForApp = DBConnection.model("Profile", ProfileModel.schema);
 const ApplicationModelForApp = DBConnection.model("Application", ApplicationModel.schema);
+const ApplicationEventModelForApp = DBConnection.model("ApplicationEvent", ApplicationEventModel.schema);
 const BlacklistModelForApp = DBConnection.model("Blacklist", BlacklistModel.schema);
 const WhitelistModelForApp = DBConnection.model("Whitelist", WhitelistModel.schema);
 const ResumeModelForApp = DBConnection.model("Resume", ResumeModel.schema);
@@ -71,6 +73,7 @@ module.exports = {
   PromptModel: PromptModelForApp,
   ProfileModel: ProfileModelForApp,
   ApplicationModel: ApplicationModelForApp,
+  ApplicationEventModel: ApplicationEventModelForApp,
   BlacklistModel: BlacklistModelForApp,
   WhitelistModel: WhitelistModelForApp,
   ResumeModel: ResumeModelForApp,

@@ -20,9 +20,12 @@ exports.getReport = asyncErrorHandler(async (req, res) => {
     createdAt: { $gte: since },
   }).lean()
 
+  const resolveStatus = (app) => app.applicationStatus || app.status || 'unknown'
+
   // Aggregate by status
   const byStatus = applications.reduce((acc, app) => {
-    acc[app.status] = (acc[app.status] || 0) + 1
+    const status = resolveStatus(app)
+    acc[status] = (acc[status] || 0) + 1
     return acc
   }, {})
 
@@ -40,7 +43,8 @@ exports.getReport = asyncErrorHandler(async (req, res) => {
       const uid = String(app.userId)
       if (!byUser[uid]) byUser[uid] = { total: 0, byStatus: {} }
       byUser[uid].total++
-      byUser[uid].byStatus[app.status] = (byUser[uid].byStatus[app.status] || 0) + 1
+      const status = resolveStatus(app)
+      byUser[uid].byStatus[status] = (byUser[uid].byStatus[status] || 0) + 1
     }
   }
 

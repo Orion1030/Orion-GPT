@@ -1,5 +1,5 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
-const { ResumeModel, ProfileModel } = require("../dbModels");
+const { ResumeModel, ProfileModel, ApplicationModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const {
   sendPdfResume,
@@ -12,6 +12,7 @@ const {
   getMargins,
 } = require("../utils/resumeUtils");
 const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
+const { appendApplicationHistory } = require("../services/applicationHistory.service");
 const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
 
 function toCleanString(value) {
@@ -161,6 +162,41 @@ function extractVisibleTextFromHtml(html) {
     .replace(/&nbsp;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+async function appendDownloadHistoryEvent({
+  userId,
+  applicationId,
+  resumeId,
+  fileType,
+}) {
+  if (!applicationId) return;
+  const app = await ApplicationModel.findOne({
+    _id: applicationId,
+    userId,
+  })
+    .select("_id resumeId")
+    .lean();
+  if (!app) return;
+
+  if (app.resumeId && String(app.resumeId) !== String(resumeId)) {
+    return;
+  }
+
+  const normalizedFileType = fileType === "pdf" ? "pdf" : "docx";
+  await appendApplicationHistory({
+    applicationId: app._id,
+    userId,
+    eventType: normalizedFileType === "pdf" ? "download_pdf" : "download_docx",
+    actorType: "user",
+    actorId: userId,
+    payload: {
+      resumeId: String(resumeId),
+      fileType: normalizedFileType,
+    },
+    requestId: `download-${String(app._id)}-${normalizedFileType}-${Date.now()}`,
+    source: "api",
+  }).catch(() => {});
 }
 
 /** $set fields present on the payload only (PATCH-style updates). */
@@ -426,7 +462,7 @@ exports.getAllResumes = asyncErrorHandler(async (req, res) => {
 exports.downloadResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { resumeId } = req.params;
-  const { fileType } = req.query;
+  const { fileType, applicationId } = req.query;
 
   const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
     .populate("templateId")
@@ -434,10 +470,14 @@ exports.downloadResume = asyncErrorHandler(async (req, res) => {
   if (!resume) return sendJsonResult(res, false, null, "Resume not found", 404);
 
   switch (fileType) {
-    case "pdf": return sendPdfResume(resume, res);
+    case "pdf":
+      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "pdf" });
+      return sendPdfResume(resume, res);
     case "html": return sendHtmlResume(resume, res);
     case "docx":
-    case "doc": return sendDocResume(resume, res);
+    case "doc":
+      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "docx" });
+      return sendDocResume(resume, res);
     default: return sendJsonResult(res, false, null, "Invalid file type", 400);
   }
 });
@@ -445,7 +485,7 @@ exports.downloadResume = asyncErrorHandler(async (req, res) => {
 exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { resumeId } = req.params;
-  const { fileType, html, name, preInlined } = req.body;
+  const { fileType, html, name, preInlined, applicationId } = req.body;
 
   const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
     .populate("templateId")
@@ -459,13 +499,16 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
   const effectiveMargin = getMargins(getConfig(resume));
 
   switch (fileType) {
-    case "pdf": return sendPdfFromHtml(html, res, {
-      name,
-      fullName: resume.profileId?.fullName || "",
-      margin: effectiveMargin,
-    });
+    case "pdf":
+      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "pdf" });
+      return sendPdfFromHtml(html, res, {
+        name,
+        fullName: resume.profileId?.fullName || "",
+        margin: effectiveMargin,
+      });
     case "docx":
     case "doc": {
+      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "docx" });
       const htmlText = extractVisibleTextFromHtml(html);
       if (!htmlText) {
         return sendDocResume(resume, res);
