@@ -64,7 +64,7 @@
   "overrides": {
     "ajv": "6.14.0",
     "@aws-sdk/xml-builder": "3.972.16",
-    "basic-ftp": "5.2.0",
+    "basic-ftp": "5.2.2",
     "flatted": "3.4.2",
     "fast-xml-parser": "5.5.9",
     "js-yaml": "4.1.1",
