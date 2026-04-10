@@ -1,6 +1,6 @@
 const { runApplicationPipeline } = require('../services/applicationPipeline.service')
 
-module.exports = async function applicationResumeGenerator(job, updateProgress) {
+module.exports = async function applicationResumeGenerator(job) {
   const { applicationId } = job.payload || {}
   if (!applicationId) {
     throw new Error('applicationId is required for generate_application_resume jobs')
@@ -11,7 +11,5 @@ module.exports = async function applicationResumeGenerator(job, updateProgress) 
     applicationId,
     userId,
     jobId: job._id,
-    updateProgress,
   })
 }
-

@@ -20,6 +20,7 @@ const {
 const {
   APPLICATION_STATUS,
   toCanonicalApplicationStatus,
+  toCanonicalApplicationEventType,
   toLegacyStatus,
   normalizeApplyConfig,
   sanitizeString,
@@ -74,7 +75,11 @@ function mapApplicationListItem(app) {
 function buildSsePayload(appDoc) {
   const generationStatus = appDoc.generationStatus
   const applicationStatus = appDoc.applicationStatus
-  const pipeline = appDoc.pipeline || {}
+  const pipeline = { ...(appDoc.pipeline || {}) }
+  // Progress percentages are intentionally omitted from realtime payloads.
+  if (Object.prototype.hasOwnProperty.call(pipeline, 'progress')) {
+    delete pipeline.progress
+  }
   const resumeId = toIdString(appDoc.resumeId)
   const resumeName = appDoc.resumeName || ''
   const companyName = appDoc.companyName || ''
@@ -205,7 +210,6 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
     pipeline: {
       jobId: null,
       currentStep: 'created',
-      progress: 0,
       lastError: '',
       startedAt: null,
       completedAt: null,
@@ -590,7 +594,13 @@ exports.getApplicationHistory = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'Application not found', 404)
   }
 
-  return sendJsonResult(res, true, result)
+  return sendJsonResult(res, true, {
+    ...result,
+    items: (result.items || []).map((event) => ({
+      ...event,
+      eventType: toCanonicalApplicationEventType(event.eventType),
+    })),
+  })
 })
 
 exports.streamApplicationEvents = async (req, res) => {

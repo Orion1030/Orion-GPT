@@ -353,6 +353,58 @@ describe('application.controller', () => {
     expect(res.status).toHaveBeenCalledWith(404)
   })
 
+  it('normalizes legacy pipeline history event types to canonical names', async () => {
+    const appendApplicationHistory = jest.fn()
+    const listApplicationHistory = jest.fn().mockResolvedValue({
+      items: [
+        {
+          _id: 'evt-1',
+          applicationId: 'app-1',
+          userId: 'user-1',
+          eventType: 'pipeline_step',
+          payload: { step: 'resume_saved' },
+          createdAt: '2026-04-10T00:00:00.000Z',
+        },
+      ],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    })
+
+    jest.doMock('../dbModels', () => ({
+      ApplicationModel: jest.fn(),
+      ApplicationEventModel: { deleteMany: jest.fn() },
+      ChatSessionModel: jest.fn(),
+      JobModel: jest.fn(),
+      ProfileModel: { findOne: jest.fn() },
+      ResumeModel: { findOne: jest.fn() },
+    }))
+    jest.doMock('../services/applicationHistory.service', () => ({
+      appendApplicationHistory,
+      listApplicationHistory,
+    }))
+    jest.doMock('../services/applicationRealtime.service', () => ({
+      buildApplicationEventEnvelope: jest.fn(),
+      subscribeApplicationEvents: jest.fn(),
+    }))
+
+    const controller = require('../controllers/application.controller')
+    const req = {
+      user: { _id: 'user-1' },
+      params: { applicationId: 'app-1' },
+      query: {},
+      headers: {},
+    }
+    const res = buildRes()
+
+    await invoke(controller.getApplicationHistory, req, res)
+
+    expect(res.status).toHaveBeenCalledWith(200)
+    const body = res.json.mock.calls[0][0]
+    expect(body.success).toBe(true)
+    expect(body.data.items[0].eventType).toBe('application.pipeline_step')
+  })
+
   it('streams SSE envelopes for authorized applications', async () => {
     const unsubscribe = jest.fn()
     const buildApplicationEventEnvelope = jest.fn().mockImplementation((payload) => ({

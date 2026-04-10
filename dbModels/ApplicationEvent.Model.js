@@ -4,9 +4,14 @@ const APPLICATION_EVENT_TYPES = [
   'created',
   'field_updated',
   'status_updated',
+  // Legacy pipeline history events (keep for existing rows)
   'pipeline_step',
   'pipeline_failed',
   'pipeline_completed',
+  // Canonical pipeline history events (match realtime envelope types)
+  'application.pipeline_step',
+  'application.failed',
+  'application.completed',
   'chat_linked',
   'chat_opened',
   'download_pdf',
@@ -89,4 +94,3 @@ const model = mongoose.model('ApplicationEvent', applicationEventSchema)
 model.APPLICATION_EVENT_TYPES = APPLICATION_EVENT_TYPES
 model.APPLICATION_EVENT_ACTOR_TYPES = APPLICATION_EVENT_ACTOR_TYPES
 module.exports = model
-

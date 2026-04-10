@@ -16,14 +16,25 @@ const APPLICATION_EVENT_TYPES = [
   'created',
   'field_updated',
   'status_updated',
+  // Legacy pipeline history events (keep for compatibility)
   'pipeline_step',
   'pipeline_failed',
   'pipeline_completed',
+  // Canonical pipeline history events (match realtime envelope types)
+  'application.pipeline_step',
+  'application.failed',
+  'application.completed',
   'chat_linked',
   'chat_opened',
   'download_pdf',
   'download_docx',
 ]
+
+const LEGACY_PIPELINE_EVENT_TO_CANONICAL = {
+  pipeline_step: 'application.pipeline_step',
+  pipeline_failed: 'application.failed',
+  pipeline_completed: 'application.completed',
+}
 
 const LEGACY_STATUS_TO_APPLICATION = {
   Applied: 'applied',
@@ -113,6 +124,12 @@ function sanitizeString(value) {
   return String(value).trim()
 }
 
+function toCanonicalApplicationEventType(value) {
+  const text = sanitizeString(value)
+  if (!text) return text
+  return LEGACY_PIPELINE_EVENT_TO_CANONICAL[text] || text
+}
+
 module.exports = {
   APPLICATION_STATUS,
   GENERATION_STATUS,
@@ -124,9 +141,9 @@ module.exports = {
   APPLICATION_TO_LEGACY_STATUS,
   toCanonicalApplicationStatus,
   toCanonicalGenerationStatus,
+  toCanonicalApplicationEventType,
   toLegacyStatus,
   normalizeApplyConfig,
   toObjectIdString,
   sanitizeString,
 }
-

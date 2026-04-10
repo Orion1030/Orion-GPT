@@ -58,10 +58,15 @@ function buildStandardizedRealtimeData({ app, eventType, eventData = null }) {
     typeof legacyData.applicationStatus === 'string'
       ? legacyData.applicationStatus
       : app.applicationStatus
-  const pipeline =
+  const rawPipeline =
     legacyData.pipeline && typeof legacyData.pipeline === 'object'
       ? legacyData.pipeline
       : app.pipeline || {}
+  const pipeline = { ...(rawPipeline || {}) }
+  // Progress percentages are intentionally omitted from realtime payloads.
+  if (Object.prototype.hasOwnProperty.call(pipeline, 'progress')) {
+    delete pipeline.progress
+  }
 
   const generatedResumeId = toIdString(
     legacyNestedData.generatedResumeId || legacyData.generatedResumeId || null
@@ -187,11 +192,16 @@ async function updateAndPublish({
     throw new Error('Application not found')
   }
 
-  if (history?.eventType) {
+  if (history) {
+    const historyEventType =
+      typeof history.eventType === 'string' && history.eventType.trim()
+        ? history.eventType.trim()
+        : eventType
+
     await appendApplicationHistory({
       applicationId: app._id,
       userId: app.userId,
-      eventType: history.eventType,
+      eventType: historyEventType,
       actorType: history.actorType || 'system',
       actorId: history.actorId || null,
       payload: history.payload || {},
@@ -293,7 +303,7 @@ async function persistGeneratedResume({ userId, profileId, generatedResume }) {
   return resumeDoc
 }
 
-async function runApplicationPipeline({ applicationId, userId, jobId, updateProgress }) {
+async function runApplicationPipeline({ applicationId, userId, jobId }) {
   const start = Date.now()
   const app = await ApplicationModel.findOne({ _id: applicationId, userId }).lean()
   if (!app) throw new Error('Application not found')
@@ -313,7 +323,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'created',
-          progress: 5,
           lastError: '',
           startedAt: new Date(),
           completedAt: null,
@@ -322,21 +331,16 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventType: 'application.pipeline_step',
       eventData: {
         generationStatus: 'running',
-        pipeline: { currentStep: 'created', progress: 5 },
+        pipeline: { currentStep: 'created' },
       },
       history: {
-        eventType: 'pipeline_step',
         payload: {
           step: 'created',
-          progress: 5,
           details: { jobId: String(jobId) },
         },
         requestId: `pipeline-${applicationId}-created`,
       },
     })
-    if (typeof updateProgress === 'function') {
-      await updateProgress(5)
-    }
 
     currentStep = 'jd_parsed'
     const { result: jdResult, error: jdError } = await tryParseAndPersistJobDescription({
@@ -358,7 +362,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'jd_parsed',
-          progress: 20,
           lastError: '',
           startedAt: new Date(app.pipeline?.startedAt || Date.now()),
           completedAt: null,
@@ -367,21 +370,16 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventType: 'application.pipeline_step',
       eventData: {
         generationStatus: 'running',
-        pipeline: { currentStep: 'jd_parsed', progress: 20 },
+        pipeline: { currentStep: 'jd_parsed' },
       },
       history: {
-        eventType: 'pipeline_step',
         payload: {
           step: 'jd_parsed',
-          progress: 20,
           details: { jobDescriptionId: String(jdId) },
         },
         requestId: `pipeline-${applicationId}-jd_parsed`,
       },
     })
-    if (typeof updateProgress === 'function') {
-      await updateProgress(20)
-    }
 
     currentStep = 'profile_selected'
     const profile = await resolveProfile({ application: app, jdId, userId })
@@ -395,7 +393,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'profile_selected',
-          progress: 40,
           lastError: '',
           startedAt: new Date(app.pipeline?.startedAt || Date.now()),
           completedAt: null,
@@ -404,23 +401,18 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventType: 'application.pipeline_step',
       eventData: {
         generationStatus: 'running',
-        pipeline: { currentStep: 'profile_selected', progress: 40 },
+        pipeline: { currentStep: 'profile_selected' },
         profileId: String(profile._id),
         profileNameSnapshot: profile.fullName || profile.title || '',
       },
       history: {
-        eventType: 'pipeline_step',
         payload: {
           step: 'profile_selected',
-          progress: 40,
           details: { profileId: String(profile._id) },
         },
         requestId: `pipeline-${applicationId}-profile_selected`,
       },
     })
-    if (typeof updateProgress === 'function') {
-      await updateProgress(40)
-    }
 
     currentStep = 'base_resume_selected'
     const baseResume = await resolveBaseResume({
@@ -438,7 +430,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'base_resume_selected',
-          progress: 55,
           lastError: '',
           startedAt: new Date(app.pipeline?.startedAt || Date.now()),
           completedAt: null,
@@ -447,22 +438,17 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventType: 'application.pipeline_step',
       eventData: {
         generationStatus: 'running',
-        pipeline: { currentStep: 'base_resume_selected', progress: 55 },
+        pipeline: { currentStep: 'base_resume_selected' },
         baseResumeId: baseResume?._id ? String(baseResume._id) : null,
       },
       history: {
-        eventType: 'pipeline_step',
         payload: {
           step: 'base_resume_selected',
-          progress: 55,
           details: { baseResumeId: baseResume?._id ? String(baseResume._id) : null },
         },
         requestId: `pipeline-${applicationId}-base_resume_selected`,
       },
     })
-    if (typeof updateProgress === 'function') {
-      await updateProgress(55)
-    }
 
     currentStep = 'resume_generated'
     const jd = await JobDescriptionModel.findOne({ _id: jdId, userId }).lean()
@@ -485,7 +471,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'resume_generated',
-          progress: 75,
           lastError: '',
           startedAt: new Date(app.pipeline?.startedAt || Date.now()),
           completedAt: null,
@@ -494,21 +479,16 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventType: 'application.pipeline_step',
       eventData: {
         generationStatus: 'running',
-        pipeline: { currentStep: 'resume_generated', progress: 75 },
+        pipeline: { currentStep: 'resume_generated' },
       },
       history: {
-        eventType: 'pipeline_step',
         payload: {
           step: 'resume_generated',
-          progress: 75,
           details: {},
         },
         requestId: `pipeline-${applicationId}-resume_generated`,
       },
     })
-    if (typeof updateProgress === 'function') {
-      await updateProgress(75)
-    }
 
     currentStep = 'resume_saved'
     const resumeDoc = await persistGeneratedResume({
@@ -526,7 +506,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'resume_saved',
-          progress: 90,
           lastError: '',
           startedAt: new Date(app.pipeline?.startedAt || Date.now()),
           completedAt: null,
@@ -535,23 +514,18 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventType: 'application.pipeline_step',
       eventData: {
         generationStatus: 'running',
-        pipeline: { currentStep: 'resume_saved', progress: 90 },
+        pipeline: { currentStep: 'resume_saved' },
         resumeId: String(resumeDoc._id),
         resumeName: resumeDoc.name || '',
       },
       history: {
-        eventType: 'pipeline_step',
         payload: {
           step: 'resume_saved',
-          progress: 90,
           details: { resumeId: String(resumeDoc._id) },
         },
         requestId: `pipeline-${applicationId}-resume_saved`,
       },
     })
-    if (typeof updateProgress === 'function') {
-      await updateProgress(90)
-    }
 
     const durationMs = Date.now() - start
     await updateAndPublish({
@@ -563,7 +537,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'completed',
-          progress: 100,
           lastError: '',
           startedAt: new Date(app.pipeline?.startedAt || Date.now()),
           completedAt: new Date(),
@@ -580,14 +553,13 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
         },
         msg: 'Resume generation completed successfully',
         generationStatus: 'completed',
-        pipeline: { currentStep: 'completed', progress: 100 },
+        pipeline: { currentStep: 'completed' },
         resumeId: String(resumeDoc._id),
         profileId: String(profile._id),
         baseResumeId: baseResume?._id ? String(baseResume._id) : null,
         profileNameSnapshot: profile.fullName || profile.title || '',
       },
       history: {
-        eventType: 'pipeline_completed',
         payload: {
           resumeId: String(resumeDoc._id),
           durationMs,
@@ -595,10 +567,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
         requestId: `pipeline-${applicationId}-completed`,
       },
     })
-    if (typeof updateProgress === 'function') {
-      await updateProgress(100, { resumeId: String(resumeDoc._id) })
-    }
-
     return {
       resumeId: String(resumeDoc._id),
       applicationId: String(applicationId),
@@ -614,7 +582,6 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
           ...(app.pipeline || {}),
           jobId,
           currentStep: 'failed',
-          progress: Number(app.pipeline?.progress || 0),
           lastError: safeError,
           startedAt: new Date(app.pipeline?.startedAt || Date.now()),
           completedAt: new Date(),
@@ -626,11 +593,10 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
         status: 'error',
         msg: safeError,
         generationStatus: 'failed',
-        pipeline: { currentStep: 'failed', progress: Number(app.pipeline?.progress || 0) },
+        pipeline: { currentStep: 'failed' },
         error: safeError,
       },
       history: {
-        eventType: 'pipeline_failed',
         payload: {
           step: currentStep,
           error: safeError,
