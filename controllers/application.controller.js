@@ -57,6 +57,8 @@ function mapApplicationListItem(app) {
     profileNameSnapshot: app.profileNameSnapshot || '',
     resumeId: toIdString(app.resumeId),
     resumeName: app.resumeName || '',
+    baseResumeId: toIdString(app.baseResumeId),
+    jobDescriptionId: toIdString(app.jobDescriptionId),
     companyName: app.companyName || '',
     jobTitle: app.jobTitle || '',
     applicationStatus: app.applicationStatus,
@@ -94,6 +96,8 @@ function buildSsePayload(appDoc) {
     companyName: appDoc.companyName || '',
     jobTitle: appDoc.jobTitle || '',
     profileId: toIdString(appDoc.profileId),
+    profileNameSnapshot: appDoc.profileNameSnapshot || '',
+    baseResumeId: toIdString(appDoc.baseResumeId),
   }
 }
 

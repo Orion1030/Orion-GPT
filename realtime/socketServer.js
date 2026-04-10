@@ -4,6 +4,7 @@ const { ApplicationModel, UserModel } = require('../dbModels')
 const { getJwtSecret } = require('../utils')
 
 const SOCKET_PATH = '/realtime/socket.io'
+const HEARTBEAT_INTERVAL_MS = 15000
 
 let ioInstance = null
 
@@ -118,6 +119,11 @@ function initSocketServer(httpServer) {
   ioInstance.on('connection', (socket) => {
     const userRoom = buildUserRoom(socket.data.userId)
     socket.join(userRoom)
+    const heartbeatTimer = setInterval(() => {
+      socket.emit('applications:heartbeat', {
+        timestamp: new Date().toISOString(),
+      })
+    }, HEARTBEAT_INTERVAL_MS)
 
     socket.on('applications:subscribe_list', () => {
       socket.join(userRoom)
@@ -129,6 +135,10 @@ function initSocketServer(httpServer) {
 
     socket.on('applications:unsubscribe_detail', (payload) => {
       leaveApplicationRoom(socket, payload)
+    })
+
+    socket.on('disconnect', () => {
+      clearInterval(heartbeatTimer)
     })
   })
 
@@ -146,4 +156,3 @@ module.exports = {
   buildUserRoom,
   buildApplicationRoom,
 }
-

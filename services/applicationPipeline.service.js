@@ -27,6 +27,8 @@ function buildPipelineData(app) {
     companyName: app.companyName || '',
     jobTitle: app.jobTitle || '',
     profileId: app.profileId || null,
+    profileNameSnapshot: app.profileNameSnapshot || '',
+    baseResumeId: app.baseResumeId || null,
   }
 }
 
@@ -274,6 +276,8 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventData: {
         generationStatus: 'running',
         pipeline: { currentStep: 'profile_selected', progress: 40 },
+        profileId: String(profile._id),
+        profileNameSnapshot: profile.fullName || profile.title || '',
       },
       history: {
         eventType: 'pipeline_step',
@@ -315,6 +319,7 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventData: {
         generationStatus: 'running',
         pipeline: { currentStep: 'base_resume_selected', progress: 55 },
+        baseResumeId: baseResume?._id ? String(baseResume._id) : null,
       },
       history: {
         eventType: 'pipeline_step',
@@ -402,6 +407,8 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       eventData: {
         generationStatus: 'running',
         pipeline: { currentStep: 'resume_saved', progress: 90 },
+        resumeId: String(resumeDoc._id),
+        resumeName: resumeDoc.name || '',
       },
       history: {
         eventType: 'pipeline_step',
@@ -435,9 +442,20 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       },
       eventType: 'application.completed',
       eventData: {
+        applicationId: String(applicationId),
+        status: 'success',
+        data: {
+          generatedResumeId: String(resumeDoc._id),
+          profileId: String(profile._id),
+          baseResumeId: baseResume?._id ? String(baseResume._id) : null,
+        },
+        msg: 'Resume generation completed successfully',
         generationStatus: 'completed',
         pipeline: { currentStep: 'completed', progress: 100 },
         resumeId: String(resumeDoc._id),
+        profileId: String(profile._id),
+        baseResumeId: baseResume?._id ? String(baseResume._id) : null,
+        profileNameSnapshot: profile.fullName || profile.title || '',
       },
       history: {
         eventType: 'pipeline_completed',
@@ -475,6 +493,9 @@ async function runApplicationPipeline({ applicationId, userId, jobId, updateProg
       },
       eventType: 'application.failed',
       eventData: {
+        applicationId: String(applicationId),
+        status: 'error',
+        msg: safeError,
         generationStatus: 'failed',
         pipeline: { currentStep: 'failed', progress: Number(app.pipeline?.progress || 0) },
         error: safeError,
