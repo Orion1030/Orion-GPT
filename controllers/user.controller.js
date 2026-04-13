@@ -1,6 +1,7 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { UserModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
+const { buildUsageMetricsMap, createEmptyUsageMetrics } = require("../services/usageMetrics.service");
 const { APP_URL } = process.env;
 
 // exports.getAuthUserInfo = asyncErrorHandler(async (req, res, next) => {
@@ -105,4 +106,20 @@ exports.changePassword = asyncErrorHandler(async (req, res, next) => {
   }
   await user.save();
   return sendJsonResult(res, true, null, "Password changed successfully");
+});
+
+exports.getAccountUsageMetrics = asyncErrorHandler(async (req, res) => {
+  const { user } = req;
+  if (!user?._id) {
+    return sendJsonResult(res, false, null, "User not found", 401);
+  }
+
+  const metricsByUserId = await buildUsageMetricsMap({ userIds: [user._id] });
+  const normalizedId = String(user._id);
+
+  return sendJsonResult(res, true, {
+    generatedAt: new Date().toISOString(),
+    userId: normalizedId,
+    metrics: metricsByUserId[normalizedId] || createEmptyUsageMetrics(),
+  });
 });
