@@ -25,6 +25,7 @@ const {
   normalizeApplyConfig,
   sanitizeString,
 } = require('../services/applicationContract')
+const { isAdminUser, buildUserScopeFilter } = require('../utils/access')
 
 function toIdString(value) {
   if (!value) return null
@@ -47,6 +48,19 @@ function getRequestId(req, fallbackPrefix = 'req') {
   const fromHeader = req.headers['x-request-id']
   if (typeof fromHeader === 'string' && fromHeader.trim()) return fromHeader.trim()
   return `${fallbackPrefix}-${crypto.randomUUID()}`
+}
+
+function toTargetUserId(req) {
+  const fromQuery = req.query?.userId
+  if (typeof fromQuery === 'string' && fromQuery.trim()) return fromQuery.trim()
+  const fromBody = req.body?.userId
+  if (typeof fromBody === 'string' && fromBody.trim()) return fromBody.trim()
+  return null
+}
+
+function buildApplicationScope(req, extras = {}) {
+  const targetUserId = isAdminUser(req.user) ? toTargetUserId(req) : null
+  return { ...buildUserScopeFilter(req.user, targetUserId), ...extras }
 }
 
 function mapApplicationListItem(app) {
@@ -143,7 +157,8 @@ function buildSsePayload(appDoc) {
 }
 
 exports.applyForApplication = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
+  const targetUserId = isAdminUser(req.user) ? toTargetUserId(req) : null
+  const userId = targetUserId || req.user._id
   const jdContext = sanitizeString(req.body?.jdContext)
   if (!jdContext) {
     return sendJsonResult(res, false, null, 'jdContext is required', 400)
@@ -246,7 +261,7 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
     userId,
     eventType: 'created',
     actorType: 'user',
-    actorId: userId,
+    actorId: req.user._id,
     payload: {
       applicationStatus: 'in_progress',
       generationStatus: 'queued',
@@ -283,7 +298,6 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
 })
 
 exports.listApplications = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const page = toSafePage(req.query.page, 1)
   const pageSize = toSafePageSize(req.query.pageSize, 20, 200)
   const sort = String(req.query.sort || '-createdAt')
@@ -291,7 +305,7 @@ exports.listApplications = asyncErrorHandler(async (req, res) => {
   const statusFilter = sanitizeString(req.query.status)
   const generationStatusFilter = sanitizeString(req.query.generationStatus)
 
-  const filter = { userId }
+  const filter = buildApplicationScope(req)
   if (statusFilter) {
     const mappedStatus = toCanonicalApplicationStatus(statusFilter)
     filter.applicationStatus = mappedStatus
@@ -334,10 +348,10 @@ exports.listApplications = asyncErrorHandler(async (req, res) => {
 })
 
 exports.getApplicationDetail = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const { applicationId } = req.params
+  const filter = buildApplicationScope(req, { _id: applicationId })
 
-  const application = await ApplicationModel.findOne({ _id: applicationId, userId })
+  const application = await ApplicationModel.findOne(filter)
     .populate('profileId', '_id fullName title')
     .populate('resumeId', '_id name profileId')
     .populate('baseResumeId', '_id name profileId')
@@ -430,14 +444,15 @@ function pickValueByPath(obj, fieldPath) {
 }
 
 exports.patchApplication = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
+  const actorId = req.user._id
   const { applicationId } = req.params
   const { updates, changedFields } = parsePatchBody(req.body || {})
   if (!changedFields.length) {
     return sendJsonResult(res, false, null, 'No updatable fields provided', 400)
   }
 
-  const existing = await ApplicationModel.findOne({ _id: applicationId, userId }).lean()
+  const scope = buildApplicationScope(req, { _id: applicationId })
+  const existing = await ApplicationModel.findOne(scope).lean()
   if (!existing) {
     return sendJsonResult(res, false, null, 'Application not found', 404)
   }
@@ -455,7 +470,7 @@ exports.patchApplication = asyncErrorHandler(async (req, res) => {
   }
 
   const updated = await ApplicationModel.findOneAndUpdate(
-    { _id: applicationId, userId },
+    scope,
     {
       $set: {
         ...updates,
@@ -480,10 +495,10 @@ exports.patchApplication = asyncErrorHandler(async (req, res) => {
     const isStatusUpdate = field === 'applicationStatus'
     await appendApplicationHistory({
       applicationId: updated._id,
-      userId,
+      userId: existing.userId,
       eventType: isStatusUpdate ? 'status_updated' : 'field_updated',
       actorType: 'user',
-      actorId: userId,
+      actorId,
       payload: {
         field,
         oldValue: oldValue === undefined ? null : oldValue,
@@ -499,12 +514,14 @@ exports.patchApplication = asyncErrorHandler(async (req, res) => {
 })
 
 exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
+  const actorId = req.user._id
   const { applicationId } = req.params
-  const app = await ApplicationModel.findOne({ _id: applicationId, userId }).lean()
+  const scope = buildApplicationScope(req, { _id: applicationId })
+  const app = await ApplicationModel.findOne(scope).lean()
   if (!app) {
     return sendJsonResult(res, false, null, 'Application not found', 404)
   }
+  const ownerUserId = app.userId
 
   let chatSessionId = app.chatSessionId ? String(app.chatSessionId) : null
   let isNew = false
@@ -512,7 +529,7 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
   if (chatSessionId) {
     const existingSession = await ChatSessionModel.findOne({
       _id: chatSessionId,
-      userId,
+      userId: ownerUserId,
     })
       .select('_id')
       .lean()
@@ -523,7 +540,7 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
 
   if (!chatSessionId) {
     const created = new ChatSessionModel({
-      userId,
+      userId: ownerUserId,
       profileId: app.profileId || null,
       jobDescriptionId: app.jobDescriptionId || null,
       chatType: 'jd',
@@ -534,7 +551,7 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
     isNew = true
 
     await ApplicationModel.findOneAndUpdate(
-      { _id: applicationId, userId },
+      scope,
       {
         $set: {
           chatSessionId: created._id,
@@ -547,10 +564,10 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
 
     await appendApplicationHistory({
       applicationId,
-      userId,
+      userId: ownerUserId,
       eventType: 'chat_linked',
       actorType: 'user',
-      actorId: userId,
+      actorId,
       payload: {
         chatSessionId,
         isNew: true,
@@ -562,10 +579,10 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
 
   await appendApplicationHistory({
     applicationId,
-    userId,
+    userId: ownerUserId,
     eventType: 'chat_opened',
     actorType: 'user',
-    actorId: userId,
+    actorId,
     payload: {
       chatSessionId,
       isNew,
@@ -578,18 +595,17 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
 })
 
 exports.getApplicationHistory = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const { applicationId } = req.params
   const page = toSafePage(req.query.page, 1)
   const pageSize = toSafePageSize(req.query.pageSize, 50, 200)
+  const targetUserId = isAdminUser(req.user) ? toTargetUserId(req) : null
 
   const result = await listApplicationHistory({
     applicationId,
-    userId,
+    userId: isAdminUser(req.user) ? (targetUserId || null) : req.user._id,
     page,
     pageSize,
   })
-
   if (!result) {
     return sendJsonResult(res, false, null, 'Application not found', 404)
   }
@@ -604,10 +620,10 @@ exports.getApplicationHistory = asyncErrorHandler(async (req, res) => {
 })
 
 exports.streamApplicationEvents = async (req, res) => {
-  const userId = req.user._id
   const { applicationId } = req.params
+  const scope = buildApplicationScope(req, { _id: applicationId })
 
-  const app = await ApplicationModel.findOne({ _id: applicationId, userId }).lean()
+  const app = await ApplicationModel.findOne(scope).lean()
   if (!app) {
     return res.status(404).json({
       success: false,
@@ -648,13 +664,10 @@ exports.streamApplicationEvents = async (req, res) => {
 }
 
 exports.deleteApplication = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const applicationId = req.params.applicationId || req.params.id
+  const scope = buildApplicationScope(req, { _id: applicationId })
 
-  const deleted = await ApplicationModel.findOneAndDelete({
-    _id: applicationId,
-    userId,
-  }).lean()
+  const deleted = await ApplicationModel.findOneAndDelete(scope).lean()
 
   if (!deleted) {
     return sendJsonResult(res, false, null, 'Application not found', 404)
@@ -665,9 +678,9 @@ exports.deleteApplication = asyncErrorHandler(async (req, res) => {
 })
 
 exports.getApplicationsByProfileId = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const { profileId } = req.params
-  const applications = await ApplicationModel.find({ userId, profileId })
+  const scope = buildApplicationScope(req, { profileId })
+  const applications = await ApplicationModel.find(scope)
     .sort({ createdAt: -1 })
     .lean()
   return sendJsonResult(res, true, (applications || []).map(mapApplicationListItem))

@@ -478,4 +478,134 @@ describe('application.controller', () => {
     closeHandlers.close()
     expect(unsubscribe).toHaveBeenCalled()
   })
+
+  it('listApplications returns all records for admin when no userId filter is provided', async () => {
+    const lean = jest.fn().mockResolvedValue([
+      {
+        _id: 'app-1',
+        userId: 'user-a',
+        applicationStatus: 'in_progress',
+        generationStatus: 'queued',
+      },
+    ])
+    const limit = jest.fn().mockReturnValue({ lean })
+    const skip = jest.fn().mockReturnValue({ limit })
+    const sort = jest.fn().mockReturnValue({ skip })
+    const ApplicationModel = {
+      find: jest.fn().mockReturnValue({ sort }),
+      countDocuments: jest.fn().mockResolvedValue(1),
+    }
+
+    jest.doMock('../dbModels', () => ({
+      ApplicationModel,
+      ApplicationEventModel: { deleteMany: jest.fn() },
+      ChatSessionModel: jest.fn(),
+      JobModel: jest.fn(),
+      ProfileModel: { findOne: jest.fn() },
+      ResumeModel: { findOne: jest.fn() },
+    }))
+    jest.doMock('../services/applicationHistory.service', () => ({
+      appendApplicationHistory: jest.fn(),
+      listApplicationHistory: jest.fn(),
+    }))
+    jest.doMock('../services/applicationRealtime.service', () => ({
+      buildApplicationEventEnvelope: jest.fn(),
+      subscribeApplicationEvents: jest.fn(),
+    }))
+
+    const controller = require('../controllers/application.controller')
+    const req = {
+      user: { _id: 'admin-1', role: 1 },
+      query: {},
+    }
+    const res = buildRes()
+
+    await invoke(controller.listApplications, req, res)
+
+    expect(ApplicationModel.find).toHaveBeenCalledWith({})
+    expect(ApplicationModel.countDocuments).toHaveBeenCalledWith({})
+    expect(res.status).toHaveBeenCalledWith(200)
+  })
+
+  it('listApplications scopes to target user for admin when userId is provided', async () => {
+    const lean = jest.fn().mockResolvedValue([])
+    const limit = jest.fn().mockReturnValue({ lean })
+    const skip = jest.fn().mockReturnValue({ limit })
+    const sort = jest.fn().mockReturnValue({ skip })
+    const ApplicationModel = {
+      find: jest.fn().mockReturnValue({ sort }),
+      countDocuments: jest.fn().mockResolvedValue(0),
+    }
+
+    jest.doMock('../dbModels', () => ({
+      ApplicationModel,
+      ApplicationEventModel: { deleteMany: jest.fn() },
+      ChatSessionModel: jest.fn(),
+      JobModel: jest.fn(),
+      ProfileModel: { findOne: jest.fn() },
+      ResumeModel: { findOne: jest.fn() },
+    }))
+    jest.doMock('../services/applicationHistory.service', () => ({
+      appendApplicationHistory: jest.fn(),
+      listApplicationHistory: jest.fn(),
+    }))
+    jest.doMock('../services/applicationRealtime.service', () => ({
+      buildApplicationEventEnvelope: jest.fn(),
+      subscribeApplicationEvents: jest.fn(),
+    }))
+
+    const controller = require('../controllers/application.controller')
+    const req = {
+      user: { _id: 'admin-1', role: 1 },
+      query: { userId: 'user-123' },
+    }
+    const res = buildRes()
+
+    await invoke(controller.listApplications, req, res)
+
+    expect(ApplicationModel.find).toHaveBeenCalledWith({ userId: 'user-123' })
+    expect(ApplicationModel.countDocuments).toHaveBeenCalledWith({ userId: 'user-123' })
+    expect(res.status).toHaveBeenCalledWith(200)
+  })
+
+  it('listApplications scopes to authenticated user for non-admin role', async () => {
+    const lean = jest.fn().mockResolvedValue([])
+    const limit = jest.fn().mockReturnValue({ lean })
+    const skip = jest.fn().mockReturnValue({ limit })
+    const sort = jest.fn().mockReturnValue({ skip })
+    const ApplicationModel = {
+      find: jest.fn().mockReturnValue({ sort }),
+      countDocuments: jest.fn().mockResolvedValue(0),
+    }
+
+    jest.doMock('../dbModels', () => ({
+      ApplicationModel,
+      ApplicationEventModel: { deleteMany: jest.fn() },
+      ChatSessionModel: jest.fn(),
+      JobModel: jest.fn(),
+      ProfileModel: { findOne: jest.fn() },
+      ResumeModel: { findOne: jest.fn() },
+    }))
+    jest.doMock('../services/applicationHistory.service', () => ({
+      appendApplicationHistory: jest.fn(),
+      listApplicationHistory: jest.fn(),
+    }))
+    jest.doMock('../services/applicationRealtime.service', () => ({
+      buildApplicationEventEnvelope: jest.fn(),
+      subscribeApplicationEvents: jest.fn(),
+    }))
+
+    const controller = require('../controllers/application.controller')
+    const req = {
+      user: { _id: 'user-1', role: 3 },
+      query: { userId: 'another-user' },
+    }
+    const res = buildRes()
+
+    await invoke(controller.listApplications, req, res)
+
+    expect(ApplicationModel.find).toHaveBeenCalledWith({ userId: 'user-1' })
+    expect(ApplicationModel.countDocuments).toHaveBeenCalledWith({ userId: 'user-1' })
+    expect(res.status).toHaveBeenCalledWith(200)
+  })
 })

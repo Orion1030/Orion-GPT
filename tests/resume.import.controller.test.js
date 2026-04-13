@@ -132,6 +132,12 @@ describe("resume.controller createResume import alignment", () => {
   });
 
   it("keeps non-import create payload experience dates unchanged", async () => {
+    const profileQuery = mockProfileLeanQuery({
+      _id: "profile-2",
+      careerHistory: [],
+    });
+    ProfileFindOneMock.mockReturnValue({ select: profileQuery.select });
+
     ResumeFindByIdMock.mockReturnValue(
       mockPopulateQuery({
         _id: "resume-1",
@@ -167,7 +173,7 @@ describe("resume.controller createResume import alignment", () => {
     expect(savedPayload.experiences).toHaveLength(1);
     expect(savedPayload.experiences[0].startDate).toBe("2023-06-01");
     expect(savedPayload.experiences[0].endDate).toBe("Present");
-    expect(ProfileFindOneMock).not.toHaveBeenCalled();
+    expect(ProfileFindOneMock).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(201);
   });
 

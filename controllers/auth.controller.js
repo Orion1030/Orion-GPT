@@ -16,7 +16,7 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }
 
-  const jwtPayload = { id: user.id, createdAt: Date.now() }
+  const jwtPayload = { id: user.id, role: user.role, createdAt: Date.now() }
   if (profileName) {
     const profileData = await ProfileModel.findOne({ userId: user._id, name: profileName })
     if (!profileData) {
@@ -49,7 +49,7 @@ exports.refresh = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'User not found', 401)
   }
 
-  const accessToken = generateJWT({ id: user.id, createdAt: Date.now() })
+  const accessToken = generateJWT({ id: user.id, role: user.role, createdAt: Date.now() })
   const newRefreshToken = generateRefreshToken({ id: user.id })
 
   sendJsonResult(res, true, { token: accessToken, refreshToken: newRefreshToken }, 'Token refreshed')

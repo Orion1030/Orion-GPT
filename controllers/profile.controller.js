@@ -1,6 +1,15 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ProfileModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
+const { isAdminUser, buildUserScopeFilter } = require("../utils/access");
+
+function toTargetUserId(req) {
+  const fromQuery = req.query?.userId;
+  if (typeof fromQuery === "string" && fromQuery.trim()) return fromQuery.trim();
+  const fromBody = req.body?.userId;
+  if (typeof fromBody === "string" && fromBody.trim()) return fromBody.trim();
+  return null;
+}
 
 function escapeHtml(value) {
   return String(value || "")
@@ -37,14 +46,16 @@ function normalizeCareerHistory(careerHistory) {
 
 exports.getProfiles = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
-  const profiles = await ProfileModel.find({ userId: user._id });
+  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
+  const profiles = await ProfileModel.find(scopeFilter).sort({ updatedAt: -1 });
   return sendJsonResult(res, true, profiles);
 });
 
 exports.getProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { profileId } = req.params;
-  const profile = await ProfileModel.findOne({ userId: user._id, _id: profileId });
+  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
+  const profile = await ProfileModel.findOne({ ...scopeFilter, _id: profileId });
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
@@ -64,9 +75,10 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     status
   } = req.body;
   const normalizedCareerHistory = normalizeCareerHistory(careerHistory);
+  const targetUserId = isAdminUser(user) ? toTargetUserId(req) : null;
 
   const profile = new ProfileModel({
-    userId: user._id,
+    userId: targetUserId || user._id,
     fullName,
     mainStack,
     title,
@@ -94,8 +106,9 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
     status
   } = req.body;
   const normalizedCareerHistory = normalizeCareerHistory(careerHistory);
+  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
 
-  const profile = await ProfileModel.findOne({ userId: user._id, _id: profileId });
+  const profile = await ProfileModel.findOne({ ...scopeFilter, _id: profileId });
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
@@ -116,7 +129,8 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
 exports.deleteProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { profileId } = req.params;
-  const profile = await ProfileModel.findOne({ userId: user._id, _id: profileId });
+  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
+  const profile = await ProfileModel.findOne({ ...scopeFilter, _id: profileId });
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }

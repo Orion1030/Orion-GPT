@@ -23,7 +23,7 @@ const {
 } = require('../controllers/application.controller')
 
 const router = express.Router()
-const auth = [isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User])]
+const auth = [isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager])]
 
 router.route('/')
   .get(...auth, listRules, validate, listApplications)

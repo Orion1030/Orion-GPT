@@ -14,6 +14,22 @@ const {
 const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.service");
 const { appendApplicationHistory } = require("../services/applicationHistory.service");
 const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
+const { isAdminUser, buildUserScopeFilter } = require("../utils/access");
+
+function toTargetUserId(req) {
+  const fromQuery = req.query?.userId;
+  if (typeof fromQuery === "string" && fromQuery.trim()) return fromQuery.trim();
+  const fromBody = req.body?.userId;
+  if (typeof fromBody === "string" && fromBody.trim()) return fromBody.trim();
+  const fromResumeBody = req.body?.resume?.userId;
+  if (typeof fromResumeBody === "string" && fromResumeBody.trim()) return fromResumeBody.trim();
+  return null;
+}
+
+function buildResumeScope(req) {
+  const targetUserId = isAdminUser(req.user) ? toTargetUserId(req) : null;
+  return buildUserScopeFilter(req.user, targetUserId);
+}
 
 function toCleanString(value) {
   if (value == null) return "";
@@ -166,16 +182,17 @@ function extractVisibleTextFromHtml(html) {
 
 async function appendDownloadHistoryEvent({
   userId,
+  actorId,
   applicationId,
   resumeId,
   fileType,
 }) {
   if (!applicationId) return;
-  const app = await ApplicationModel.findOne({
-    _id: applicationId,
-    userId,
-  })
-    .select("_id resumeId")
+  const appQuery = { _id: applicationId };
+  if (userId) appQuery.userId = userId;
+
+  const app = await ApplicationModel.findOne(appQuery)
+    .select("_id resumeId userId")
     .lean();
   if (!app) return;
 
@@ -186,10 +203,10 @@ async function appendDownloadHistoryEvent({
   const normalizedFileType = fileType === "pdf" ? "pdf" : "docx";
   await appendApplicationHistory({
     applicationId: app._id,
-    userId,
+    userId: app.userId || userId || null,
     eventType: normalizedFileType === "pdf" ? "download_pdf" : "download_docx",
     actorType: "user",
-    actorId: userId,
+    actorId: actorId || userId || null,
     payload: {
       resumeId: String(resumeId),
       fileType: normalizedFileType,
@@ -286,19 +303,33 @@ function isImportResumePayload(payload) {
 exports.createResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const payload = req.body.resume ?? req.body;
-  const data = mapPayloadToModel(payload, user._id);
+  const targetUserId = isAdminUser(user) ? toTargetUserId(req) : null;
+  const data = mapPayloadToModel(payload, targetUserId || user._id);
 
   if (!data.profileId) {
     return sendJsonResult(res, false, null, "A profile must be selected to create a resume", 400);
   }
 
-  if (isImportResumePayload(payload)) {
-    const profile = await ProfileModel.findOne({ _id: data.profileId, userId: user._id })
-      .select("careerHistory")
-      .lean();
-    if (!profile) {
-      return sendJsonResult(res, false, null, "Profile not found", 404);
+  const profileFilter = { _id: data.profileId };
+  if (!isAdminUser(user)) profileFilter.userId = user._id;
+
+  const profile = await ProfileModel.findOne(profileFilter)
+    .select("userId careerHistory")
+    .lean();
+  if (!profile) {
+    return sendJsonResult(res, false, null, "Profile not found", 404);
+  }
+
+  if (isAdminUser(user)) {
+    if (targetUserId && String(profile.userId) !== String(targetUserId)) {
+      return sendJsonResult(res, false, null, "Selected profile does not belong to the target user", 400);
     }
+    data.userId = targetUserId || profile.userId;
+  } else {
+    data.userId = user._id;
+  }
+
+  if (isImportResumePayload(payload)) {
     data.experiences = alignResumeExperiencesToCareerHistory(profile.careerHistory, data.experiences);
   }
 
@@ -313,10 +344,10 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
 });
 
 exports.getResume = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
   const { resumeId } = req.params;
+  const scope = buildResumeScope(req);
 
-  const resumeDoc = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
+  const resumeDoc = await ResumeModel.findOne({ ...scope, _id: resumeId, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
     .populate("stackId")
@@ -330,10 +361,10 @@ exports.getResume = asyncErrorHandler(async (req, res) => {
 });
 
 exports.getResumeByProfileAndId = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
   const { profileId, resumeId } = req.params;
+  const scope = buildResumeScope(req);
 
-  const resumeDoc = await ResumeModel.findOne({ _id: resumeId, userId: user._id, profileId, isDeleted: { $ne: true } })
+  const resumeDoc = await ResumeModel.findOne({ ...scope, _id: resumeId, profileId, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
     .populate("stackId")
@@ -350,8 +381,9 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   const { user } = req;
   const { resumeId } = req.params;
   const payload = req.body.resume ?? req.body;
+  const scope = buildResumeScope(req);
 
-  const currentResume = await ResumeModel.findOne({ userId: user._id, _id: resumeId, isDeleted: { $ne: true } }).lean();
+  const currentResume = await ResumeModel.findOne({ ...scope, _id: resumeId, isDeleted: { $ne: true } }).lean();
   if (!currentResume) {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
@@ -366,6 +398,23 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "A profile must be selected for the resume", 400);
   }
 
+  const profileFilter = { _id: effectiveProfileId };
+  if (!isAdminUser(user)) {
+    profileFilter.userId = user._id;
+  }
+  const profile = await ProfileModel.findOne(profileFilter).select("_id userId").lean();
+  if (!profile) {
+    return sendJsonResult(res, false, null, "Profile not found", 404);
+  }
+
+  if (isAdminUser(user)) {
+    const targetUserId = toTargetUserId(req);
+    if (targetUserId && String(profile.userId) !== String(targetUserId)) {
+      return sendJsonResult(res, false, null, "Selected profile does not belong to the target user", 400);
+    }
+    setDoc.userId = targetUserId || profile.userId;
+  }
+
   const shouldRefreshEmbedding = payloadTouchesEmbeddingFields(payload);
 
   if (Object.keys(setDoc).length === 0) {
@@ -377,7 +426,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   }
 
   const updatedResume = await ResumeModel.findOneAndUpdate(
-    { userId: user._id, _id: resumeId },
+    { ...scope, _id: resumeId, isDeleted: { $ne: true } },
     { $set: setDoc },
     { returnDocument: "after" }
   )
@@ -400,41 +449,44 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
 });
 
 exports.deleteResume = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
   const { resumeId } = req.params;
+  const scope = buildResumeScope(req);
   const update = await ResumeModel.updateOne(
-    { _id: resumeId, userId: user._id },
-    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+    { ...scope, _id: resumeId },
+    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: req.user._id } }
   );
   if (!update.matchedCount) return sendJsonResult(res, false, null, "Resume not found", 404);
   return sendJsonResult(res, true, null, "Resume deleted successfully");
 });
 
 exports.clearResume = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
+  const scope = buildResumeScope(req);
   const result = await ResumeModel.updateMany(
-    { userId: user._id },
-    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+    scope,
+    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: req.user._id } }
   );
   return sendJsonResult(res, true, { modifiedCount: result.modifiedCount }, "Resumes cleared successfully");
 });
 
 exports.deleteResumes = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
+  const scope = buildResumeScope(req);
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(Boolean) : [];
 
   // If no ids provided, fall back to clear-all (soft delete) to preserve previous behavior
   if (ids.length === 0) {
+    if (isAdminUser(req.user) && !toTargetUserId(req)) {
+      return sendJsonResult(res, false, null, "Admin bulk delete requires explicit ids or userId scope", 400);
+    }
     const result = await ResumeModel.updateMany(
-      { userId: user._id },
-      { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+      scope,
+      { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: req.user._id } }
     );
     return sendJsonResult(res, true, { modifiedCount: result.modifiedCount }, "Resumes deleted successfully");
   }
 
   const result = await ResumeModel.updateMany(
-    { userId: user._id, _id: { $in: ids } },
-    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: user._id } }
+    { ...scope, _id: { $in: ids } },
+    { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: req.user._id } }
   );
 
   if (result.matchedCount === 0) {
@@ -450,8 +502,8 @@ exports.deleteResumes = asyncErrorHandler(async (req, res) => {
 });
 
 exports.getAllResumes = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
-  const resumes = await ResumeModel.find({ userId: user._id, isDeleted: { $ne: true } })
+  const scope = buildResumeScope(req);
+  const resumes = await ResumeModel.find({ ...scope, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
     .populate("stackId")
@@ -460,34 +512,46 @@ exports.getAllResumes = asyncErrorHandler(async (req, res) => {
 });
 
 exports.downloadResume = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
   const { resumeId } = req.params;
   const { fileType, applicationId } = req.query;
+  const scope = buildResumeScope(req);
 
-  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
+  const resume = await ResumeModel.findOne({ ...scope, _id: resumeId, isDeleted: { $ne: true } })
     .populate("templateId")
     .populate("profileId");
   if (!resume) return sendJsonResult(res, false, null, "Resume not found", 404);
 
   switch (fileType) {
     case "pdf":
-      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "pdf" });
+      await appendDownloadHistoryEvent({
+        userId: resume.userId ? String(resume.userId) : null,
+        actorId: req.user._id,
+        applicationId,
+        resumeId,
+        fileType: "pdf",
+      });
       return sendPdfResume(resume, res);
     case "html": return sendHtmlResume(resume, res);
     case "docx":
     case "doc":
-      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "docx" });
+      await appendDownloadHistoryEvent({
+        userId: resume.userId ? String(resume.userId) : null,
+        actorId: req.user._id,
+        applicationId,
+        resumeId,
+        fileType: "docx",
+      });
       return sendDocResume(resume, res);
     default: return sendJsonResult(res, false, null, "Invalid file type", 400);
   }
 });
 
 exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
-  const { user } = req;
   const { resumeId } = req.params;
   const { fileType, html, name, preInlined, applicationId } = req.body;
+  const scope = buildResumeScope(req);
 
-  const resume = await ResumeModel.findOne({ _id: resumeId, userId: user._id, isDeleted: { $ne: true } })
+  const resume = await ResumeModel.findOne({ ...scope, _id: resumeId, isDeleted: { $ne: true } })
     .populate("templateId")
     .populate("profileId");
   if (!resume) return sendJsonResult(res, false, null, "Resume not found", 404);
@@ -500,7 +564,13 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
 
   switch (fileType) {
     case "pdf":
-      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "pdf" });
+      await appendDownloadHistoryEvent({
+        userId: resume.userId ? String(resume.userId) : null,
+        actorId: req.user._id,
+        applicationId,
+        resumeId,
+        fileType: "pdf",
+      });
       return sendPdfFromHtml(html, res, {
         name,
         fullName: resume.profileId?.fullName || "",
@@ -508,7 +578,13 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
       });
     case "docx":
     case "doc": {
-      await appendDownloadHistoryEvent({ userId: user._id, applicationId, resumeId, fileType: "docx" });
+      await appendDownloadHistoryEvent({
+        userId: resume.userId ? String(resume.userId) : null,
+        actorId: req.user._id,
+        applicationId,
+        resumeId,
+        fileType: "docx",
+      });
       const htmlText = extractVisibleTextFromHtml(html);
       if (!htmlText) {
         return sendDocResume(resume, res);

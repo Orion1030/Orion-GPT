@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken')
 const { Server } = require('socket.io')
 const { ApplicationModel, UserModel } = require('../dbModels')
 const { getJwtSecret } = require('../utils')
+const { RoleLevels } = require('../utils/constants')
 
 const SOCKET_PATH = '/realtime/socket.io'
 const HEARTBEAT_INTERVAL_MS = 15000
@@ -70,10 +71,11 @@ async function joinApplicationRoom(socket, payload) {
   if (!rawId) return
 
   try {
-    const exists = await ApplicationModel.exists({
-      _id: rawId,
-      userId: socket.data.userId,
-    })
+    const scope = { _id: rawId }
+    if (Number(socket.data.role) !== RoleLevels.ADMIN) {
+      scope.userId = socket.data.userId
+    }
+    const exists = await ApplicationModel.exists(scope)
     if (!exists) {
       socket.emit('applications:error', {
         code: 'not_found',

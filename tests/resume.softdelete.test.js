@@ -80,6 +80,46 @@ describe('Resume soft delete + filters', () => {
     expect(Array.isArray(payload.data)).toBe(true)
   })
 
+  it('getAllResumes returns all users resumes for admin by default', async () => {
+    const sort = jest.fn().mockResolvedValue([{ _id: 'r1' }, { _id: 'r2' }])
+    const populate = jest.fn().mockReturnThis()
+    const find = jest.fn().mockReturnValue({ populate, sort })
+
+    jest.doMock('../dbModels', () => ({
+      ResumeModel: { find },
+    }))
+
+    const controller = require('../controllers/resume.controller')
+    const req = { user: { _id: 'admin-1', role: 1 }, query: {} }
+    const res = createRes()
+
+    await controller.getAllResumes(req, res, jest.fn())
+
+    expect(find).toHaveBeenCalledWith({ isDeleted: { $ne: true } })
+    const payload = res.json.mock.calls[0][0]
+    expect(payload.success).toBe(true)
+  })
+
+  it('getAllResumes scopes admin query to target user when userId is provided', async () => {
+    const sort = jest.fn().mockResolvedValue([{ _id: 'r-user' }])
+    const populate = jest.fn().mockReturnThis()
+    const find = jest.fn().mockReturnValue({ populate, sort })
+
+    jest.doMock('../dbModels', () => ({
+      ResumeModel: { find },
+    }))
+
+    const controller = require('../controllers/resume.controller')
+    const req = { user: { _id: 'admin-1', role: 1 }, query: { userId: 'u-target' } }
+    const res = createRes()
+
+    await controller.getAllResumes(req, res, jest.fn())
+
+    expect(find).toHaveBeenCalledWith({ userId: 'u-target', isDeleted: { $ne: true } })
+    const payload = res.json.mock.calls[0][0]
+    expect(payload.success).toBe(true)
+  })
+
   it('single delete sets soft-delete flags', async () => {
     const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 })
     jest.doMock('../dbModels', () => ({
