@@ -14,6 +14,31 @@ const userSchema = new mongoose.Schema(
       default: '', // optional
       trim: true
     },
+    email: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true
+    },
+    contactNumber: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    avatarUrl: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    avatarStorageKey: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    avatarUpdatedAt: {
+      type: Date,
+      default: null
+    },
     password: {
       type: String,
       minlength: 8,

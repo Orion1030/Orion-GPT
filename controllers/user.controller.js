@@ -3,6 +3,7 @@ const { UserModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { buildUsageMetricsMap, createEmptyUsageMetrics } = require("../services/usageMetrics.service");
 const { APP_URL } = process.env;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // exports.getAuthUserInfo = asyncErrorHandler(async (req, res, next) => {
 //   const { user } = req
@@ -82,6 +83,112 @@ const { APP_URL } = process.env;
 //   await user.save()
 //   return sendToken(user, 200, res)
 // })
+
+function toAccountDto(user) {
+  return {
+    id: String(user._id),
+    name: user.name || "",
+    email: user.email || "",
+    contactNumber: user.contactNumber || "",
+    avatarUrl: user.avatarUrl || "",
+    avatarStorageKey: user.avatarStorageKey || "",
+    avatarUpdatedAt: user.avatarUpdatedAt || null,
+    team: user.team || "",
+    role: Number(user.role),
+    lastLogin: user.lastLogin || null,
+    createdAt: user.createdAt || null,
+    updatedAt: user.updatedAt || null,
+  };
+}
+
+exports.getAccountProfile = asyncErrorHandler(async (req, res) => {
+  const { user } = req;
+  if (!user?._id) {
+    return sendJsonResult(res, false, null, "User not found", 401);
+  }
+
+  return sendJsonResult(res, true, toAccountDto(user));
+});
+
+exports.updateAccountProfile = asyncErrorHandler(async (req, res) => {
+  const { user } = req;
+  if (!user?._id) {
+    return sendJsonResult(res, false, null, "User not found", 401);
+  }
+
+  const updates = {};
+  const body = req.body || {};
+
+  if (body.name !== undefined) {
+    const name = String(body.name || "").trim();
+    if (!name) {
+      return sendJsonResult(res, false, null, "Name is required", 400);
+    }
+    updates.name = name;
+  }
+
+  if (body.email !== undefined) {
+    const email = String(body.email || "").trim().toLowerCase();
+    if (email && !EMAIL_REGEX.test(email)) {
+      return sendJsonResult(res, false, null, "Invalid email format", 400);
+    }
+    updates.email = email;
+  }
+
+  if (body.contactNumber !== undefined) {
+    const contactNumber = String(body.contactNumber || "").trim();
+    if (contactNumber.length > 32) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        "Contact number is too long",
+        400,
+      );
+    }
+    updates.contactNumber = contactNumber;
+  }
+
+  if (body.avatarUrl !== undefined) {
+    const avatarUrl = String(body.avatarUrl || "").trim();
+    updates.avatarUrl = avatarUrl;
+    updates.avatarUpdatedAt = new Date();
+  }
+
+  if (body.avatarStorageKey !== undefined) {
+    updates.avatarStorageKey = String(body.avatarStorageKey || "").trim();
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return sendJsonResult(res, false, null, "No update fields provided", 400);
+  }
+
+  if (
+    updates.name &&
+    updates.name !== user.name &&
+    (await UserModel.exists({ name: updates.name, _id: { $ne: user._id } }))
+  ) {
+    return sendJsonResult(res, false, null, "Account name is already in use", 400);
+  }
+
+  if (
+    updates.email &&
+    updates.email !== user.email &&
+    (await UserModel.exists({ email: updates.email, _id: { $ne: user._id } }))
+  ) {
+    return sendJsonResult(res, false, null, "Email is already in use", 400);
+  }
+
+  Object.assign(user, updates);
+  await user.save();
+
+  return sendJsonResult(
+    res,
+    true,
+    toAccountDto(user),
+    "Account profile updated successfully",
+  );
+});
 
 exports.changePassword = asyncErrorHandler(async (req, res, next) => {
   const { newPassword, confirmPassword, oldPassword } = req.body;
