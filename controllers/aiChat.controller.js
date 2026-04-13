@@ -2,14 +2,49 @@ const fetch = global.fetch
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
+const { isAdminUser } = require('../utils/access')
 const { tryGetChatReply } = require('../services/llm/chatResponder.service')
 
 const DEFAULT_TITLE = 'New Chat'
 
+function toTargetUserId(req) {
+  const fromQuery = req.query?.userId
+  if (typeof fromQuery === 'string' && fromQuery.trim()) return fromQuery.trim()
+  const fromBody = req.body?.userId
+  if (typeof fromBody === 'string' && fromBody.trim()) return fromBody.trim()
+  return null
+}
+
+function toBooleanQuery(value, fallback = false) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  }
+  return fallback
+}
+
+function buildChatScope(req, extras = {}) {
+  const user = req.user
+  if (!isAdminUser(user)) {
+    return { userId: user._id, ...extras }
+  }
+
+  const targetUserId = toTargetUserId(req)
+  const includeOtherUsers = toBooleanQuery(
+    req.query?.includeOtherUsers ?? req.body?.includeOtherUsers,
+    false
+  )
+
+  if (targetUserId) return { userId: targetUserId, ...extras }
+  if (includeOtherUsers) return { ...extras }
+  return { userId: user._id, ...extras }
+}
+
 /** List all chat sessions for the authenticated user */
 exports.listSessions = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
-  const sessions = await ChatSessionModel.find({ userId })
+  const sessions = await ChatSessionModel.find(buildChatScope(req))
     .sort({ updatedAt: -1 })
     .populate('profileId')
     .lean()
@@ -70,9 +105,10 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
 
 /** Get one session and its messages (ownership checked) */
 exports.getSession = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const { sessionId } = req.params
-  const session = await ChatSessionModel.findOne({ _id: sessionId, userId }).populate('profileId').lean()
+  const session = await ChatSessionModel.findOne(buildChatScope(req, { _id: sessionId }))
+    .populate('profileId')
+    .lean()
   if (!session) {
     return sendJsonResult(res, false, null, 'Session not found', 404)
   }
@@ -102,9 +138,17 @@ exports.getSession = asyncErrorHandler(async (req, res) => {
 
 /** Rename a session (and optionally update profileId, jobDescriptionId, chatType) */
 exports.renameSession = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const { sessionId } = req.params
   const { title, profileId, jobDescriptionId, chatType } = req.body || {}
+  const existingSession = await ChatSessionModel.findOne(
+    buildChatScope(req, { _id: sessionId })
+  )
+    .select('_id userId')
+    .lean()
+  if (!existingSession) {
+    return sendJsonResult(res, false, null, 'Session not found', 404)
+  }
+  const scopeUserId = existingSession.userId
   const updates = {}
   const trimmed = typeof title === 'string' ? title.trim() : ''
   if (trimmed) updates.title = trimmed
@@ -112,7 +156,7 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
     if (profileId === null || profileId === '') {
       updates.profileId = null
     } else {
-      const profile = await ProfileModel.findOne({ _id: profileId, userId })
+      const profile = await ProfileModel.findOne({ _id: profileId, userId: scopeUserId })
       if (!profile) {
         return sendJsonResult(res, false, null, 'Profile not found', 404)
       }
@@ -123,7 +167,7 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
     if (jobDescriptionId === null || jobDescriptionId === '') {
       updates.jobDescriptionId = null
     } else {
-      const jd = await JobDescriptionModel.findOne({ _id: jobDescriptionId, userId })
+      const jd = await JobDescriptionModel.findOne({ _id: jobDescriptionId, userId: scopeUserId })
       if (jd) updates.jobDescriptionId = jd._id
     }
   }
@@ -134,7 +178,7 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'No updates provided', 400)
   }
   const session = await ChatSessionModel.findOneAndUpdate(
-    { _id: sessionId, userId },
+    { _id: sessionId, userId: scopeUserId },
     { $set: updates },
     { returnDocument: 'after' }
   )
@@ -161,11 +205,10 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
 
 /** Delete a session and all its messages */
 exports.deleteSession = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const { sessionId } = req.params
   // Use deleteOne to make the operation idempotent: if the session doesn't exist
   // or already deleted, return success to the client to avoid noisy 404s on repeated deletes.
-  const result = await ChatSessionModel.deleteOne({ _id: sessionId, userId })
+  const result = await ChatSessionModel.deleteOne(buildChatScope(req, { _id: sessionId }))
   // Remove any messages tied to this session regardless.
   await ChatMessageModel.deleteMany({ sessionId })
   if (result && result.deletedCount && result.deletedCount > 0) {
@@ -199,7 +242,6 @@ async function buildSessionContext(session, userId) {
 
 /** Send a message: append user message (or update and re-send if editMessageId), then generate assistant reply unless commandResend */
 exports.sendMessage = asyncErrorHandler(async (req, res) => {
-  const userId = req.user._id
   const { sessionId } = req.params
   const { content, editMessageId, commandResend, sessionUpdates } = req.body || {}
   const text = typeof content === 'string' ? content.trim() : ''
@@ -207,10 +249,11 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'Message content is required', 400)
   }
 
-  const session = await ChatSessionModel.findOne({ _id: sessionId, userId })
+  const session = await ChatSessionModel.findOne(buildChatScope(req, { _id: sessionId }))
   if (!session) {
     return sendJsonResult(res, false, null, 'Session not found', 404)
   }
+  const sessionUserId = session.userId || req.user._id
 
   let userMsg
   if (editMessageId) {
@@ -234,7 +277,7 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
       if (sessionUpdates && sessionUpdates.jobDescriptionId !== undefined) sessionSet.jobDescriptionId = sessionUpdates.jobDescriptionId
       if (sessionUpdates && sessionUpdates.chatType && VALID_CHAT_TYPES.includes(sessionUpdates.chatType)) sessionSet.chatType = sessionUpdates.chatType
       if (Object.keys(sessionSet).length > 0) {
-        await ChatSessionModel.updateOne({ _id: sessionId, userId }, { $set: sessionSet })
+        await ChatSessionModel.updateOne({ _id: sessionId, userId: sessionUserId }, { $set: sessionSet })
       }
       const messages = await ChatMessageModel.find({ sessionId }).sort({ createdAt: 1 }).lean()
       const messagesPayload = messages.map((m) => ({
@@ -252,7 +295,7 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
   }
 
   let assistantContent = 'I couldn\'t generate a reply right now. Please try again.'
-  const systemContext = await buildSessionContext(session, userId)
+  const systemContext = await buildSessionContext(session, sessionUserId)
   const recentMessages = await ChatMessageModel.find({ sessionId })
     .sort({ createdAt: 1 })
     .lean()
@@ -275,7 +318,7 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
 
   if (session.title === DEFAULT_TITLE) {
     const firstLine = text.slice(0, 50).split('\n')[0].trim() || DEFAULT_TITLE
-    await ChatSessionModel.updateOne({ _id: sessionId, userId }, { $set: { title: firstLine } })
+    await ChatSessionModel.updateOne({ _id: sessionId, userId: sessionUserId }, { $set: { title: firstLine } })
   }
 
   const messages = await ChatMessageModel.find({ sessionId }).sort({ createdAt: 1 }).lean()

@@ -11,6 +11,16 @@ function toTargetUserId(req) {
   return null;
 }
 
+function toBooleanQuery(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -46,7 +56,16 @@ function normalizeCareerHistory(careerHistory) {
 
 exports.getProfiles = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
-  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
+  let scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
+  if (isAdminUser(user)) {
+    const targetUserId = toTargetUserId(req);
+    const includeOtherUsers = toBooleanQuery(req.query?.includeOtherUsers, false);
+    if (targetUserId) {
+      scopeFilter = { userId: targetUserId };
+    } else {
+      scopeFilter = includeOtherUsers ? {} : { userId: user._id };
+    }
+  }
   const profiles = await ProfileModel.find(scopeFilter).sort({ updatedAt: -1 });
   return sendJsonResult(res, true, profiles);
 });
