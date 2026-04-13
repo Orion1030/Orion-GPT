@@ -3,7 +3,9 @@ const express = require('express')
 require('dotenv').config()
 
 const { isAuthenticatedUser, permit } = require('../middlewares/auth.middleware')
+const { requirePageAccess } = require('../middlewares/pageAccess.middleware')
 const { RoleLevels } = require('../utils/constants')
+const { PAGE_ACCESS_KEYS } = require('../utils/pageAccess')
 const {
   getAllResumes, getResume, getResumeByProfileAndId,
   createResume, updateResume, deleteResume, deleteResumes,
@@ -19,7 +21,11 @@ const { validate } = require('../middlewares/validate')
 
 const router = express.Router()
 
-const auth = [isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User])]
+const auth = [
+  isAuthenticatedUser,
+  permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
+  requirePageAccess(PAGE_ACCESS_KEYS.RESUMES),
+]
 
 router.route('/').get(...auth, getAllResumes)
 router.route('/').post(...auth, createResumeRules, validate, createResume)

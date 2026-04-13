@@ -2,7 +2,9 @@ const express = require('express')
 require('dotenv').config()
 
 const { isAuthenticatedUser, permit } = require('../middlewares/auth.middleware')
+const { requirePageAccess } = require('../middlewares/pageAccess.middleware')
 const { RoleLevels } = require('../utils/constants')
+const { PAGE_ACCESS_KEYS } = require('../utils/pageAccess')
 const { validate } = require('../middlewares/validate')
 const {
   applyRules,
@@ -23,7 +25,11 @@ const {
 } = require('../controllers/application.controller')
 
 const router = express.Router()
-const auth = [isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager])]
+const auth = [
+  isAuthenticatedUser,
+  permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager]),
+  requirePageAccess(PAGE_ACCESS_KEYS.APPLICATIONS),
+]
 
 router.route('/')
   .get(...auth, listRules, validate, listApplications)

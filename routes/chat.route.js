@@ -1,5 +1,7 @@
 const express = require('express')
 const { isAuthenticatedUser } = require('../middlewares/auth.middleware')
+const { requirePageAccess } = require('../middlewares/pageAccess.middleware')
+const { PAGE_ACCESS_KEYS } = require('../utils/pageAccess')
 const {
   listSessions,
   createSession,
@@ -12,6 +14,7 @@ const {
 const router = express.Router()
 
 router.use(isAuthenticatedUser)
+router.use(requirePageAccess(PAGE_ACCESS_KEYS.CHAT))
 
 router.get('/', listSessions)
 router.post('/', createSession)
