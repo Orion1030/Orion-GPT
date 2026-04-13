@@ -93,6 +93,58 @@ describe('application.controller', () => {
     expect(appendApplicationHistory).not.toHaveBeenCalled()
   })
 
+  it('ignores admin userId override on apply and scopes manual profile lookup to authenticated user', async () => {
+    const appendApplicationHistory = jest.fn()
+
+    const ProfileModel = {
+      findOne: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(null),
+        }),
+      }),
+    }
+
+    jest.doMock('../dbModels', () => ({
+      ApplicationModel: jest.fn(),
+      ApplicationEventModel: { deleteMany: jest.fn() },
+      ChatSessionModel: jest.fn(),
+      JobModel: jest.fn(),
+      ProfileModel,
+      ResumeModel: { findOne: jest.fn() },
+    }))
+    jest.doMock('../services/applicationHistory.service', () => ({
+      appendApplicationHistory,
+      listApplicationHistory: jest.fn(),
+    }))
+    jest.doMock('../services/applicationRealtime.service', () => ({
+      buildApplicationEventEnvelope: jest.fn(),
+      subscribeApplicationEvents: jest.fn(),
+    }))
+
+    const controller = require('../controllers/application.controller')
+    const req = {
+      user: { _id: 'admin-1', role: 1 },
+      query: { userId: 'user-2' },
+      body: {
+        userId: 'user-2',
+        jdContext: 'Platform engineer role',
+        profileSelectionMode: 'manual',
+        manualProfileId: 'profile-x',
+      },
+      headers: {},
+    }
+    const res = buildRes()
+
+    await invoke(controller.applyForApplication, req, res)
+
+    expect(ProfileModel.findOne).toHaveBeenCalledWith({
+      _id: 'profile-x',
+      userId: 'admin-1',
+    })
+    expect(res.status).toHaveBeenCalledWith(404)
+    expect(appendApplicationHistory).not.toHaveBeenCalled()
+  })
+
   it('creates application + job and returns apply payload', async () => {
     const appendApplicationHistory = jest.fn().mockResolvedValue(null)
     const buildApplicationEventEnvelope = jest.fn().mockReturnValue({ type: 'application.created' })

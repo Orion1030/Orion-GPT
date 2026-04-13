@@ -157,8 +157,10 @@ function buildSsePayload(appDoc) {
 }
 
 exports.applyForApplication = asyncErrorHandler(async (req, res) => {
-  const targetUserId = isAdminUser(req.user) ? toTargetUserId(req) : null
-  const userId = targetUserId || req.user._id
+  // Apply flow is always user-owned, including admins.
+  // Admins may inspect/manage other users in admin views, but cannot create
+  // application pipeline jobs on behalf of another user via this endpoint.
+  const userId = req.user._id
   const jdContext = sanitizeString(req.body?.jdContext)
   if (!jdContext) {
     return sendJsonResult(res, false, null, 'jdContext is required', 400)
