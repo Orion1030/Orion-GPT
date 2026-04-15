@@ -10,6 +10,7 @@ const app = require('../app');
 describe('POST /api/auth/signup', () => {
   const validPayload = {
     name: `testuser_${Date.now()}`,
+    email: `testuser_${Date.now()}@example.com`,
     password: 'SecurePass1!',
     confirmPassword: 'SecurePass1!',
     role: '1',
@@ -25,6 +26,7 @@ describe('POST /api/auth/signup', () => {
     const res = await request(app).post('/api/auth/signup').send({
       ...validPayload,
       name: `testuser_mismatch_${Date.now()}`,
+      email: `testuser_mismatch_${Date.now()}@example.com`,
       confirmPassword: 'DifferentPass1!',
     });
     expect(res.status).toBe(400);
@@ -32,7 +34,11 @@ describe('POST /api/auth/signup', () => {
   });
 
   test('returns 400 for duplicate username', async () => {
-    const payload = { ...validPayload, name: `dup_${Date.now()}` };
+    const payload = {
+      ...validPayload,
+      name: `dup_${Date.now()}`,
+      email: `dup_${Date.now()}@example.com`,
+    };
     await request(app).post('/api/auth/signup').send(payload);
     const res = await request(app).post('/api/auth/signup').send(payload);
     expect(res.status).toBe(400);
@@ -52,14 +58,14 @@ describe('POST /api/auth/signup', () => {
 describe('POST /api/auth/signin', () => {
   test('returns 401 for non-existent user', async () => {
     const res = await request(app).post('/api/auth/signin').send({
-      name: 'doesNotExist_xyzabc',
+      email: 'doesNotExist_xyzabc@example.com',
       password: 'anyPassword1!',
     });
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
   });
 
-  test('returns 400 when name is missing', async () => {
+  test('returns 400 when email is missing', async () => {
     const res = await request(app).post('/api/auth/signin').send({
       password: 'SomePass1!',
     });

@@ -5,15 +5,27 @@ const jwt = require('jsonwebtoken')
 const { RequestTypes } = require('../utils/constants')
 
 exports.signin = asyncErrorHandler(async (req, res, next) => {
-  const { name, password, profileName } = req.body
-  const user = await UserModel.findOne({ name: name, isActive: true })
+  const { email, password, profileName } = req.body
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  const user = await UserModel.findOne({ email: normalizedEmail })
   let accessToken = null
   if (!user) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }
+  if (!user.isActive) {
+    return sendJsonResult(res, false, null, 'Your account is pending approval. Please wait for an admin to activate it.', 403)
+  }
   const isPasswordMatched = user.name === "Test" || user.name === "Admin"|| await user.comparePassword(password)
   if (!isPasswordMatched) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
+  }
+
+  try {
+    user.lastLogin = new Date()
+    await user.save()
+  } catch (error) {
+    // Do not block login if tracking fails.
+    console.error('Failed to update lastLogin', error)
   }
 
   const jwtPayload = { id: user.id, role: user.role, createdAt: Date.now() }
@@ -56,14 +68,24 @@ exports.refresh = asyncErrorHandler(async (req, res) => {
 })
 
 exports.signup = asyncErrorHandler(async (req, res) => {
-  const { name, password, confirmPassword, role, team } = req.body
-  const existing = await UserModel.findOne({ name })
-  if (existing) {
+  const { name, email, password, confirmPassword, role, team } = req.body
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  if (!normalizedEmail) {
+    return sendJsonResult(res, false, null, 'Email is required', 400)
+  }
+
+  const existingByName = await UserModel.findOne({ name })
+  if (existingByName) {
     return sendJsonResult(res, false, null, 'Existing user', 400)
+  }
+
+  const existingByEmail = await UserModel.findOne({ email: normalizedEmail })
+  if (existingByEmail) {
+    return sendJsonResult(res, false, null, 'Email is already in use', 400)
   }
   if (password !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
 
-  const user = new UserModel({ name, password, role, team })
+  const user = new UserModel({ name, email: normalizedEmail, password, role, team })
   await user.save()
   const signupRequest = new RequestModel({
     from: user._id,
@@ -75,8 +97,9 @@ exports.signup = asyncErrorHandler(async (req, res) => {
 })
 
 exports.forgotPassword = asyncErrorHandler(async (req, res, next) => {
-  const { name } = req.body
-  const user = await UserModel.findOne({ name })
+  const { email } = req.body
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  const user = await UserModel.findOne({ email: normalizedEmail })
   if (!user) {
     return sendJsonResult(res, false, null, 'User not found', 400)
   }
