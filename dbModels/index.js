@@ -46,6 +46,7 @@ const ChatMessageModel = require("./ChatMessage.Model");
 const JobDescriptionModel = require("./JobDescription.Model");
 const JobModel = require("./Job.Model");
 const PageAccessModel = require("./PageAccess.Model");
+const NotificationModel = require("./Notification.Model");
 
 // Create connection to mongodb
 const DBConnection = mongoose.createConnection(uri, options);
@@ -67,6 +68,7 @@ const ChatMessageModelForApp = DBConnection.model("ChatMessage", ChatMessageMode
 const JobDescriptionModelForApp = DBConnection.model("JobDescription", JobDescriptionModel.schema);
 const JobModelForApp = DBConnection.model("Job", JobModel.schema);
 const PageAccessModelForApp = DBConnection.model("PageAccess", PageAccessModel.schema);
+const NotificationModelForApp = DBConnection.model("Notification", NotificationModel.schema);
 
 module.exports = {
   DBConnection,
@@ -86,4 +88,5 @@ module.exports = {
   JobDescriptionModel: JobDescriptionModelForApp,
   JobModel: JobModelForApp,
   PageAccessModel: PageAccessModelForApp,
+  NotificationModel: NotificationModelForApp,
 };

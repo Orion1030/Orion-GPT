@@ -16,9 +16,11 @@ const serverless = require("serverless-http");
 const http = require('http')
 const { DBConnection, UserModel } = require("./dbModels");
 const { initSocketServer } = require('./realtime/socketServer')
+const { startNotificationChangeStream } = require('./services/notificationStream.service')
 
 DBConnection.on("connected", async () => {
   console.log("Connected to appDB");
+  startNotificationChangeStream()
 });
 
 const app = require("./app");

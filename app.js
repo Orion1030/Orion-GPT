@@ -21,6 +21,7 @@ const applicationRoutes = require("./routes/application.route");
 const whitelistRoutes = require("./routes/whitelist.route");
 const blacklistRoutes = require("./routes/blacklist.route");
 const reportingRoutes = require("./routes/reporting.route");
+const notificationRoutes = require("./routes/notification.route");
 
 // app
 const app = express();
@@ -68,6 +69,7 @@ app.use("/api/applications", applicationRoutes);
 app.use("/api/whitelist", whitelistRoutes);
 app.use("/api/blacklist", blacklistRoutes);
 app.use("/api/reporting", reportingRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 
 // Health & readiness endpoints

@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken')
 const { Server } = require('socket.io')
-const { ApplicationModel, UserModel } = require('../dbModels')
+const { ApplicationModel, UserModel, NotificationModel } = require('../dbModels')
 const { getJwtSecret } = require('../utils')
 const { RoleLevels } = require('../utils/constants')
+const { toNotificationDto } = require('../controllers/notification.controller')
 
 const SOCKET_PATH = '/realtime/socket.io'
 const HEARTBEAT_INTERVAL_MS = 15000
@@ -152,6 +153,40 @@ function initSocketServer(httpServer) {
 
     socket.on('applications:unsubscribe_detail', (payload) => {
       leaveApplicationRoom(socket, payload)
+    })
+
+    socket.on('notifications:read', async (payload) => {
+      const notificationId =
+        payload && typeof payload.notificationId === 'string'
+          ? payload.notificationId.trim()
+          : ''
+      if (!notificationId) return
+      try {
+        const updated = await NotificationModel.findOneAndUpdate(
+          { _id: notificationId, userId: socket.data.userId },
+          { $set: { readAt: new Date() } },
+          { returnDocument: 'after' }
+        ).lean()
+        if (!updated) return
+        emitToUserRoom(socket.data.userId, 'notifications:read', toNotificationDto(updated))
+      } catch {
+        // ignore
+      }
+    })
+
+    socket.on('notifications:read_all', async () => {
+      try {
+        const readAt = new Date()
+        await NotificationModel.updateMany(
+          { userId: socket.data.userId, readAt: null },
+          { $set: { readAt } }
+        )
+        emitToUserRoom(socket.data.userId, 'notifications:read_all', {
+          readAt: readAt.toISOString(),
+        })
+      } catch {
+        // ignore
+      }
     })
 
     socket.on('disconnect', () => {

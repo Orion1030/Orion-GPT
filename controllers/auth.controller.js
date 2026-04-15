@@ -1,8 +1,8 @@
-const { UserModel, RequestModel, ProfileModel } = require('../dbModels')
+const { UserModel, RequestModel, ProfileModel, NotificationModel } = require('../dbModels')
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult, generateJWT, generateRefreshToken, verifyRefreshToken, getJwtSecret } = require('../utils')
 const jwt = require('jsonwebtoken')
-const { RequestTypes } = require('../utils/constants')
+const { RequestTypes, RoleLevels } = require('../utils/constants')
 
 exports.signin = asyncErrorHandler(async (req, res, next) => {
   const { email, password, profileName } = req.body
@@ -21,8 +21,19 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
   }
 
   try {
+    const isFirstLogin = !user.lastLogin
     user.lastLogin = new Date()
     await user.save()
+    if (isFirstLogin) {
+      await NotificationModel.create({
+        userId: user._id,
+        type: 'auth.welcome',
+        title: 'Welcome to Jobsy',
+        message: 'Your account is active. Explore your dashboard to get started.',
+        level: 'success',
+        link: '/dashboard',
+      })
+    }
   } catch (error) {
     // Do not block login if tracking fails.
     console.error('Failed to update lastLogin', error)
@@ -93,6 +104,28 @@ exports.signup = asyncErrorHandler(async (req, res) => {
     message: `Signup request from ${name}`,
   })
   await signupRequest.save()
+
+  try {
+    const admins = await UserModel.find({ role: RoleLevels.ADMIN, isActive: true })
+      .select('_id')
+      .lean()
+    if (admins.length > 0) {
+      await NotificationModel.insertMany(
+        admins.map((admin) => ({
+          userId: admin._id,
+          type: 'admin.signup_request',
+          title: 'New signup request',
+          message: `${name} (${normalizedEmail}) is waiting for approval.`,
+          level: 'info',
+          link: '/admin?tab=users',
+          metadata: { signupRequestId: String(signupRequest._id), userId: String(user._id) },
+        })),
+        { ordered: false }
+      )
+    }
+  } catch (error) {
+    console.warn('Failed to notify admins about signup request', error)
+  }
   return sendJsonResult(res, true, null, 'Please wait for admin approval', 201)
 })
 
