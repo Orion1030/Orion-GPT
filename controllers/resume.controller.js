@@ -235,7 +235,8 @@ function mapUpdatePayloadToSet(payload) {
     if (templateId) set.templateId = templateId;
   }
   if ("stack" in payload || "stackId" in payload) {
-    set.stackId = payload.stack?.id ?? payload.stackId ?? null;
+    const stackId = toCleanString(payload.stack?.id ?? payload.stack?._id ?? payload.stackId);
+    set.stackId = stackId || null;
   }
   if (Object.prototype.hasOwnProperty.call(payload, "note")) {
     set.note = payload.note ?? "";
@@ -314,7 +315,7 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
   if (!isAdminUser(user)) profileFilter.userId = user._id;
 
   const profile = await ProfileModel.findOne(profileFilter)
-    .select("userId careerHistory")
+    .select("userId careerHistory stackId")
     .lean();
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
@@ -331,6 +332,9 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
 
   if (isImportResumePayload(payload)) {
     data.experiences = alignResumeExperiencesToCareerHistory(profile.careerHistory, data.experiences);
+  }
+  if (!data.stackId) {
+    data.stackId = profile.stackId || null;
   }
 
   const newResume = new ResumeModel(data);
@@ -402,7 +406,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   if (!isAdminUser(user)) {
     profileFilter.userId = user._id;
   }
-  const profile = await ProfileModel.findOne(profileFilter).select("_id userId").lean();
+  const profile = await ProfileModel.findOne(profileFilter).select("_id userId stackId").lean();
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
@@ -413,6 +417,9 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
       return sendJsonResult(res, false, null, "Selected profile does not belong to the target user", 400);
     }
     setDoc.userId = targetUserId || profile.userId;
+  }
+  if (setDoc.stackId === undefined) {
+    setDoc.stackId = profile.stackId || null;
   }
 
   const shouldRefreshEmbedding = payloadTouchesEmbeddingFields(payload);

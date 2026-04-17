@@ -1,5 +1,5 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
-const { ProfileModel, TemplateModel } = require("../dbModels");
+const { ProfileModel, TemplateModel, StackModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { isAdminUser, buildUserScopeFilter } = require("../utils/access");
 
@@ -102,6 +102,47 @@ async function resolveDefaultTemplateAssignment({
   return { shouldSet: true, value: template._id };
 }
 
+async function resolveStackAssignment({ rawStackId, rawMainStack }) {
+  const parsedStackId = toNullableId(rawStackId);
+  const normalizedMainStack = String(rawMainStack || "").trim();
+
+  if (parsedStackId) {
+    const stack = await StackModel.findOne({ _id: parsedStackId })
+      .select("_id title")
+      .lean();
+    if (!stack) {
+      return {
+        shouldSet: false,
+        stackId: null,
+        mainStack: "",
+        error: "stackId is invalid",
+        status: 404,
+      };
+    }
+    return {
+      shouldSet: true,
+      stackId: stack._id,
+      mainStack: String(stack.title || "").trim(),
+    };
+  }
+
+  if (!normalizedMainStack) {
+    return {
+      shouldSet: false,
+      stackId: null,
+      mainStack: "",
+      error: "mainStack is required",
+      status: 400,
+    };
+  }
+
+  return {
+    shouldSet: true,
+    stackId: null,
+    mainStack: normalizedMainStack,
+  };
+}
+
 exports.getProfiles = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   let scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
@@ -132,6 +173,7 @@ exports.getProfile = asyncErrorHandler(async (req, res, next) => {
 exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const {
+    stackId,
     defaultTemplateId,
     fullName,
     mainStack,
@@ -149,6 +191,10 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     rawDefaultTemplateId: defaultTemplateId,
     ownerUserId,
   });
+  const stackAssignment = await resolveStackAssignment({
+    rawStackId: stackId,
+    rawMainStack: mainStack,
+  });
   if (templateAssignment.error) {
     return sendJsonResult(
       res,
@@ -158,11 +204,20 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
       templateAssignment.status || 400
     );
   }
+  if (stackAssignment.error) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      stackAssignment.error,
+      stackAssignment.status || 400
+    );
+  }
 
   const profilePayload = {
     userId: ownerUserId,
     fullName,
-    mainStack,
+    mainStack: stackAssignment.mainStack,
     title,
     link,
     contactInfo,
@@ -172,6 +227,9 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   };
   if (templateAssignment.shouldSet) {
     profilePayload.defaultTemplateId = templateAssignment.value;
+  }
+  if (stackAssignment.shouldSet) {
+    profilePayload.stackId = stackAssignment.stackId;
   }
 
   const profile = new ProfileModel(profilePayload);
@@ -183,6 +241,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { profileId } = req.params;
   const {
+    stackId,
     defaultTemplateId,
     fullName,
     mainStack,
@@ -204,6 +263,10 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
     rawDefaultTemplateId: defaultTemplateId,
     ownerUserId: profile.userId,
   });
+  const stackAssignment = await resolveStackAssignment({
+    rawStackId: stackId !== undefined ? stackId : profile.stackId,
+    rawMainStack: mainStack !== undefined ? mainStack : profile.mainStack,
+  });
   if (templateAssignment.error) {
     return sendJsonResult(
       res,
@@ -213,9 +276,18 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
       templateAssignment.status || 400
     );
   }
+  if (stackAssignment.error) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      stackAssignment.error,
+      stackAssignment.status || 400
+    );
+  }
 
   profile.fullName = fullName;
-  profile.mainStack = mainStack;
+  profile.mainStack = stackAssignment.mainStack;
   profile.title = title;
   profile.link = link;
   profile.contactInfo = contactInfo;
@@ -223,6 +295,9 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   profile.educations = educations;
   if (templateAssignment.shouldSet) {
     profile.defaultTemplateId = templateAssignment.value;
+  }
+  if (stackAssignment.shouldSet) {
+    profile.stackId = stackAssignment.stackId;
   }
   if (status !== undefined) profile.status = status;
 
