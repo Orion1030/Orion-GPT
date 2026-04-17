@@ -4,11 +4,21 @@ const { sendJsonResult } = require('../utils')
 
 function toNotificationDto(notification) {
   if (!notification) return null
-  const resolvedToUserId = notification.toUserId || notification.userId || null
+  const fromUserRef = notification.fromUserId
+  const resolvedFromUserId = fromUserRef
+    ? typeof fromUserRef === 'object' && fromUserRef._id
+      ? String(fromUserRef._id)
+      : String(fromUserRef)
+    : ''
+  const resolvedFromUserName =
+    fromUserRef && typeof fromUserRef === 'object' && typeof fromUserRef.name === 'string'
+      ? fromUserRef.name
+      : ''
   return {
     id: String(notification._id),
-    toUserId: resolvedToUserId ? String(resolvedToUserId) : '',
-    fromUserId: notification.fromUserId ? String(notification.fromUserId) : '',
+    toUserId: notification.toUserId ? String(notification.toUserId) : '',
+    fromUserId: resolvedFromUserId,
+    fromUserName: resolvedFromUserName,
     type: notification.type || '',
     title: notification.title || '',
     message: notification.message || '',
@@ -33,15 +43,14 @@ exports.listNotifications = asyncErrorHandler(async (req, res) => {
     String(req.query.unread || '').toLowerCase() === 'true' ||
     String(req.query.unreadOnly || '').toLowerCase() === 'true'
 
-  const filter = {
-    $or: [{ toUserId: user._id }, { userId: user._id }],
-  }
+  const filter = { toUserId: user._id }
   if (unreadOnly) {
     filter.readAt = null
   }
 
   const [items, total] = await Promise.all([
     NotificationModel.find(filter)
+      .populate('fromUserId', 'name')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -65,7 +74,7 @@ exports.markNotificationRead = asyncErrorHandler(async (req, res) => {
   }
 
   const notification = await NotificationModel.findOneAndUpdate(
-    { _id: id, $or: [{ toUserId: user._id }, { userId: user._id }] },
+    { _id: id, toUserId: user._id },
     { $set: { readAt: new Date() } },
     { returnDocument: 'after' }
   ).lean()
@@ -85,7 +94,7 @@ exports.markAllNotificationsRead = asyncErrorHandler(async (req, res) => {
 
   const readAt = new Date()
   await NotificationModel.updateMany(
-    { $or: [{ toUserId: user._id }, { userId: user._id }], readAt: null },
+    { toUserId: user._id, readAt: null },
     { $set: { readAt } }
   )
 

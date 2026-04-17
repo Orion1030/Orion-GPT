@@ -14,11 +14,23 @@ function startNotificationChangeStream() {
       { fullDocument: 'updateLookup' }
     )
 
-    changeStream.on('change', (event) => {
+    changeStream.on('change', async (event) => {
       const doc = event?.fullDocument
-      const targetUserId = doc?.toUserId || doc?.userId
-      if (!targetUserId) return
-      emitToUserRoom(String(targetUserId), 'notifications:new', toNotificationDto(doc))
+      if (!doc?.toUserId) return
+      let payload = toNotificationDto(doc)
+      if (!payload?.fromUserName && doc.fromUserId) {
+        try {
+          const hydrated = await NotificationModel.findById(doc._id)
+            .populate('fromUserId', 'name')
+            .lean()
+          if (hydrated) {
+            payload = toNotificationDto(hydrated)
+          }
+        } catch {
+          // ignore lookup failures; fallback to base payload
+        }
+      }
+      emitToUserRoom(String(doc.toUserId), 'notifications:new', payload)
     })
 
     changeStream.on('error', (error) => {

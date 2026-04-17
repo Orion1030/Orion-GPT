@@ -163,7 +163,7 @@ function initSocketServer(httpServer) {
       if (!notificationId) return
       try {
         const updated = await NotificationModel.findOneAndUpdate(
-          { _id: notificationId, $or: [{ toUserId: socket.data.userId }, { userId: socket.data.userId }] },
+          { _id: notificationId, toUserId: socket.data.userId },
           { $set: { readAt: new Date() } },
           { returnDocument: 'after' }
         ).lean()
@@ -178,7 +178,7 @@ function initSocketServer(httpServer) {
       try {
         const readAt = new Date()
         await NotificationModel.updateMany(
-          { $or: [{ toUserId: socket.data.userId }, { userId: socket.data.userId }], readAt: null },
+          { toUserId: socket.data.userId, readAt: null },
           { $set: { readAt } }
         )
         emitToUserRoom(socket.data.userId, 'notifications:read_all', {
