@@ -101,7 +101,10 @@ exports.signup = asyncErrorHandler(async (req, res) => {
   await user.save()
 
   try {
-    const admins = await UserModel.find({ role: RoleLevels.ADMIN, isActive: true })
+    const admins = await UserModel.find({
+      role: { $in: [RoleLevels.ADMIN, RoleLevels.SUPER_ADMIN] },
+      isActive: true,
+    })
       .select('_id')
       .lean()
     if (admins.length > 0) {

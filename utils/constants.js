@@ -1,4 +1,5 @@
 const RoleLevels = {
+  SUPER_ADMIN: 4,
   ADMIN: 1,
   Manager: 2,
   User: 3,

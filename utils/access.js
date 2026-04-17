@@ -1,7 +1,8 @@
 const { RoleLevels } = require('./constants')
 
 function isAdminUser(user) {
-  return Number(user?.role) === RoleLevels.ADMIN
+  const role = Number(user?.role)
+  return role === RoleLevels.ADMIN || role === RoleLevels.SUPER_ADMIN
 }
 
 /**

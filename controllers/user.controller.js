@@ -118,6 +118,20 @@ exports.updateAccountProfile = asyncErrorHandler(async (req, res) => {
 
   const updates = {};
   const body = req.body || {};
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(body, key);
+
+  if (hasOwn("role")) {
+    return sendJsonResult(res, false, null, "Role cannot be updated here", 403);
+  }
+  if (hasOwn("isActive")) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      "Account activation cannot be updated here",
+      403,
+    );
+  }
 
   if (body.name !== undefined) {
     const name = String(body.name || "").trim();

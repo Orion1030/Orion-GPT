@@ -18,7 +18,7 @@ const pageAccessSchema = new mongoose.Schema(
     },
     allowedRoles: {
       type: [Number],
-      default: [RoleLevels.ADMIN],
+      default: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN],
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,

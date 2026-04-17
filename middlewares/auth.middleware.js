@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken')
 const asyncErrorHandler = require('./asyncErrorHandler')
 const { UserModel, ProfileModel } = require('../dbModels')
 const { sendJsonResult, getJwtSecret } = require('../utils')
+const { RoleLevels } = require('../utils/constants')
 
 exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
   const authHeader = req.headers.authorization
@@ -36,7 +37,13 @@ exports.permit = (allowedRoles) => {
     if (!user) {
       return sendJsonResult(res, false, null, 'Please Login', 401)
     }
-    if (allowedRoles.findIndex((i) => i == user.role) < 0) {
+    const userRole = Number(user.role)
+    const normalizedAllowedRoles = Array.isArray(allowedRoles) ? allowedRoles.map((role) => Number(role)) : []
+    const superAdminAllowedAsAdmin =
+      userRole === Number(RoleLevels.SUPER_ADMIN) &&
+      normalizedAllowedRoles.includes(Number(RoleLevels.ADMIN))
+    const permitted = normalizedAllowedRoles.includes(userRole) || superAdminAllowedAsAdmin
+    if (!permitted) {
       return sendJsonResult(res, false, null, 'Insufficient permission', 403, { showNotification: true })
     }
     else next()

@@ -40,19 +40,19 @@ const PAGE_ACCESS_ORDER = [
 ];
 
 const PAGE_ACCESS_DEFAULTS = {
-  [PAGE_ACCESS_KEYS.DASHBOARD]: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.AICHAT]: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.APPLICATIONS]: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.PROFILES]: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.RESUMES]: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.TEMPLATES]: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.WHITELIST]: [RoleLevels.ADMIN],
-  [PAGE_ACCESS_KEYS.BLACKLIST]: [RoleLevels.ADMIN],
-  [PAGE_ACCESS_KEYS.REPORTS]: [RoleLevels.ADMIN],
-  [PAGE_ACCESS_KEYS.ACCOUNT]: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.DASHBOARD]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.AICHAT]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.APPLICATIONS]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.PROFILES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.RESUMES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.TEMPLATES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.WHITELIST]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN],
+  [PAGE_ACCESS_KEYS.BLACKLIST]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN],
+  [PAGE_ACCESS_KEYS.REPORTS]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN],
+  [PAGE_ACCESS_KEYS.ACCOUNT]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
 };
 
-const MANAGEABLE_ROLES = [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User];
+const MANAGEABLE_ROLES = [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User];
 
 function getPageAccessKeys() {
   return [...PAGE_ACCESS_ORDER];
@@ -69,7 +69,7 @@ function getPageNameByKey(pageKey) {
 
 function getDefaultAllowedRoles(pageKey) {
   const normalized = String(pageKey || "");
-  return [...(PAGE_ACCESS_DEFAULTS[normalized] || [RoleLevels.ADMIN])];
+  return [...(PAGE_ACCESS_DEFAULTS[normalized] || [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN])];
 }
 
 function normalizeAllowedRoles(allowedRoles, options = {}) {
@@ -85,6 +85,7 @@ function normalizeAllowedRoles(allowedRoles, options = {}) {
   }
 
   if (includeAdmin) {
+    normalized.add(RoleLevels.SUPER_ADMIN);
     normalized.add(RoleLevels.ADMIN);
   }
 
@@ -94,6 +95,7 @@ function normalizeAllowedRoles(allowedRoles, options = {}) {
 
 function toRoleLabel(role) {
   const normalized = Number(role);
+  if (normalized === RoleLevels.SUPER_ADMIN) return "Super Admin";
   if (normalized === RoleLevels.ADMIN) return "Admin";
   if (normalized === RoleLevels.Manager) return "Manager";
   if (normalized === RoleLevels.User) return "User";

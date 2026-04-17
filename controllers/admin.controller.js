@@ -6,6 +6,7 @@ const { buildUsageMetricsMap, createEmptyUsageMetrics } = require('../services/u
 
 function toRoleLabel(role) {
   const normalized = Number(role)
+  if (normalized === RoleLevels.SUPER_ADMIN) return 'Super Admin'
   if (normalized === RoleLevels.ADMIN) return 'Admin'
   if (normalized === RoleLevels.Manager) return 'Manager'
   if (normalized === RoleLevels.User) return 'User'
@@ -57,7 +58,23 @@ function toRoleNumber(value) {
 }
 
 function isValidManagedRole(role) {
-  return role === RoleLevels.ADMIN || role === RoleLevels.Manager || role === RoleLevels.User || role === RoleLevels.GUEST
+  return (
+    role === RoleLevels.ADMIN ||
+    role === RoleLevels.Manager ||
+    role === RoleLevels.User ||
+    role === RoleLevels.GUEST
+  )
+}
+
+function isAdminTierRole(role) {
+  return Number(role) === RoleLevels.ADMIN || Number(role) === RoleLevels.SUPER_ADMIN
+}
+
+function buildAdminVisibleUserFilter(requesterRole) {
+  if (Number(requesterRole) === RoleLevels.ADMIN) {
+    return { role: { $ne: RoleLevels.SUPER_ADMIN } }
+  }
+  return {}
 }
 
 exports.changeMemberPassword = asyncErrorHandler(async (req, res, next) => {
@@ -88,7 +105,8 @@ exports.allowMember = asyncErrorHandler(async (req, res, next) => {
 })
 
 exports.getUsageMetrics = asyncErrorHandler(async (req, res) => {
-  const users = await UserModel.find({})
+  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
+  const users = await UserModel.find(visibilityFilter)
     .select('_id name team role isActive lastLogin createdAt')
     .sort({ name: 1, createdAt: 1 })
     .lean()
@@ -113,7 +131,8 @@ exports.getUsageMetrics = asyncErrorHandler(async (req, res) => {
 exports.getUsageMetricsForUser = asyncErrorHandler(async (req, res) => {
   const { userId } = req.params
 
-  const user = await UserModel.findOne({ _id: userId })
+  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
+  const user = await UserModel.findOne({ _id: userId, ...visibilityFilter })
     .select('_id name team role isActive lastLogin createdAt')
     .lean()
 
@@ -132,7 +151,8 @@ exports.getUsageMetricsForUser = asyncErrorHandler(async (req, res) => {
 })
 
 exports.listUsers = asyncErrorHandler(async (req, res) => {
-  const users = await UserModel.find({})
+  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
+  const users = await UserModel.find(visibilityFilter)
     .select('_id name team role isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, createdAt: 1 })
     .lean()
@@ -142,25 +162,73 @@ exports.listUsers = asyncErrorHandler(async (req, res) => {
 
 exports.updateUser = asyncErrorHandler(async (req, res) => {
   const { userId } = req.params
+  const body = req.body || {}
   const updates = {}
+  const requesterId = String(req.user?._id || '')
+  const targetUserId = String(userId || '')
 
-  if (req.body?.name !== undefined) {
-    updates.name = String(req.body.name || '').trim()
+  const requesterRole = Number(req.user?.role)
+  const targetUser = await UserModel.findOne({ _id: userId }).select('_id role').lean()
+
+  if (!targetUser) {
+    return sendJsonResult(res, false, null, 'User not found', 404)
+  }
+
+  if (requesterId && requesterId === targetUserId) {
+    return sendJsonResult(res, false, null, 'You cannot manage your own account from Admin', 403)
+  }
+
+  // Admins cannot manage admin-tier accounts or promote users to admin-tier roles.
+  if (requesterRole === RoleLevels.ADMIN) {
+    if (isAdminTierRole(targetUser.role)) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        'Admin cannot manage Admin or Super Admin accounts',
+        403
+      )
+    }
+    if (body.role !== undefined) {
+      const requestedRole = toRoleNumber(body.role)
+      if (isAdminTierRole(requestedRole)) {
+        return sendJsonResult(
+          res,
+          false,
+          null,
+          'Admin cannot assign Admin or Super Admin role',
+          403
+        )
+      }
+    }
+  }
+
+  if (body.name !== undefined) {
+    updates.name = String(body.name || '').trim()
     if (!updates.name) {
       return sendJsonResult(res, false, null, 'Name is required', 400)
     }
   }
 
-  if (req.body?.team !== undefined) {
-    updates.team = String(req.body.team || '').trim()
+  if (body.team !== undefined) {
+    updates.team = String(body.team || '').trim()
   }
 
-  if (req.body?.isActive !== undefined) {
-    updates.isActive = Boolean(req.body.isActive)
+  if (body.isActive !== undefined) {
+    updates.isActive = Boolean(body.isActive)
   }
 
-  if (req.body?.role !== undefined) {
-    const parsedRole = toRoleNumber(req.body.role)
+  if (body.role !== undefined) {
+    const parsedRole = toRoleNumber(body.role)
+    if (parsedRole === RoleLevels.SUPER_ADMIN) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        'Super Admin role cannot be assigned from Admin page',
+        403
+      )
+    }
     if (parsedRole == null || !isValidManagedRole(parsedRole)) {
       return sendJsonResult(res, false, null, 'Invalid role', 400)
     }
@@ -172,7 +240,7 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
   }
 
   const updatedUser = await UserModel.findOneAndUpdate(
-    { _id: userId },
+    { _id: targetUser._id },
     { $set: updates },
     { returnDocument: 'after' }
   )
