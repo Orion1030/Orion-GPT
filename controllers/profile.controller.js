@@ -102,44 +102,37 @@ async function resolveDefaultTemplateAssignment({
   return { shouldSet: true, value: template._id };
 }
 
-async function resolveStackAssignment({ rawStackId, rawMainStack }) {
-  const parsedStackId = toNullableId(rawStackId);
-  const normalizedMainStack = String(rawMainStack || "").trim();
-
-  if (parsedStackId) {
-    const stack = await StackModel.findOne({ _id: parsedStackId })
-      .select("_id title")
-      .lean();
-    if (!stack) {
-      return {
-        shouldSet: false,
-        stackId: null,
-        mainStack: "",
-        error: "stackId is invalid",
-        status: 404,
-      };
-    }
-    return {
-      shouldSet: true,
-      stackId: stack._id,
-      mainStack: String(stack.title || "").trim(),
-    };
-  }
-
-  if (!normalizedMainStack) {
+async function resolveStackAssignment({ rawStackId, currentStackId = null }) {
+  const parsedStackId = toNullableId(
+    rawStackId !== undefined ? rawStackId : currentStackId
+  );
+  if (!parsedStackId) {
     return {
       shouldSet: false,
       stackId: null,
       mainStack: "",
-      error: "mainStack is required",
+      error: "stackId is required",
       status: 400,
+    };
+  }
+
+  const stack = await StackModel.findOne({ _id: parsedStackId })
+    .select("_id title")
+    .lean();
+  if (!stack) {
+    return {
+      shouldSet: false,
+      stackId: null,
+      mainStack: "",
+      error: "stackId is invalid",
+      status: 404,
     };
   }
 
   return {
     shouldSet: true,
-    stackId: null,
-    mainStack: normalizedMainStack,
+    stackId: stack._id,
+    mainStack: String(stack.title || "").trim(),
   };
 }
 
@@ -176,7 +169,6 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     stackId,
     defaultTemplateId,
     fullName,
-    mainStack,
     title,
     link,
     contactInfo,
@@ -193,7 +185,6 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   });
   const stackAssignment = await resolveStackAssignment({
     rawStackId: stackId,
-    rawMainStack: mainStack,
   });
   if (templateAssignment.error) {
     return sendJsonResult(
@@ -244,7 +235,6 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
     stackId,
     defaultTemplateId,
     fullName,
-    mainStack,
     title,
     link,
     contactInfo,
@@ -264,8 +254,8 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
     ownerUserId: profile.userId,
   });
   const stackAssignment = await resolveStackAssignment({
-    rawStackId: stackId !== undefined ? stackId : profile.stackId,
-    rawMainStack: mainStack !== undefined ? mainStack : profile.mainStack,
+    rawStackId: stackId,
+    currentStackId: profile.stackId,
   });
   if (templateAssignment.error) {
     return sendJsonResult(
