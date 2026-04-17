@@ -16,8 +16,9 @@ function startNotificationChangeStream() {
 
     changeStream.on('change', (event) => {
       const doc = event?.fullDocument
-      if (!doc?.userId) return
-      emitToUserRoom(String(doc.userId), 'notifications:new', toNotificationDto(doc))
+      const targetUserId = doc?.toUserId || doc?.userId
+      if (!targetUserId) return
+      emitToUserRoom(String(targetUserId), 'notifications:new', toNotificationDto(doc))
     })
 
     changeStream.on('error', (error) => {

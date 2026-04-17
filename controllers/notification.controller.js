@@ -4,9 +4,11 @@ const { sendJsonResult } = require('../utils')
 
 function toNotificationDto(notification) {
   if (!notification) return null
+  const resolvedToUserId = notification.toUserId || notification.userId || null
   return {
     id: String(notification._id),
-    userId: String(notification.userId),
+    toUserId: resolvedToUserId ? String(resolvedToUserId) : '',
+    fromUserId: notification.fromUserId ? String(notification.fromUserId) : '',
     type: notification.type || '',
     title: notification.title || '',
     message: notification.message || '',
@@ -31,7 +33,9 @@ exports.listNotifications = asyncErrorHandler(async (req, res) => {
     String(req.query.unread || '').toLowerCase() === 'true' ||
     String(req.query.unreadOnly || '').toLowerCase() === 'true'
 
-  const filter = { userId: user._id }
+  const filter = {
+    $or: [{ toUserId: user._id }, { userId: user._id }],
+  }
   if (unreadOnly) {
     filter.readAt = null
   }
@@ -61,7 +65,7 @@ exports.markNotificationRead = asyncErrorHandler(async (req, res) => {
   }
 
   const notification = await NotificationModel.findOneAndUpdate(
-    { _id: id, userId: user._id },
+    { _id: id, $or: [{ toUserId: user._id }, { userId: user._id }] },
     { $set: { readAt: new Date() } },
     { returnDocument: 'after' }
   ).lean()
@@ -81,7 +85,7 @@ exports.markAllNotificationsRead = asyncErrorHandler(async (req, res) => {
 
   const readAt = new Date()
   await NotificationModel.updateMany(
-    { userId: user._id, readAt: null },
+    { $or: [{ toUserId: user._id }, { userId: user._id }], readAt: null },
     { $set: { readAt } }
   )
 

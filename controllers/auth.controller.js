@@ -26,7 +26,8 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
     await user.save()
     if (isFirstLogin) {
       await NotificationModel.create({
-        userId: user._id,
+        toUserId: user._id,
+        fromUserId: null,
         type: 'auth.welcome',
         title: 'Welcome to Jobsy',
         message: 'Your account is active. Explore your dashboard to get started.',
@@ -106,7 +107,8 @@ exports.signup = asyncErrorHandler(async (req, res) => {
     if (admins.length > 0) {
       await NotificationModel.insertMany(
         admins.map((admin) => ({
-          userId: admin._id,
+          toUserId: admin._id,
+          fromUserId: user._id,
           type: 'admin.signup_request',
           title: 'New signup request',
           message: `${name} (${normalizedEmail}) is waiting for approval.`,

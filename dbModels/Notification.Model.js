@@ -2,10 +2,23 @@ const mongoose = require('mongoose')
 
 const notificationSchema = new mongoose.Schema(
   {
-    userId: {
+    toUserId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+      index: true,
+    },
+    fromUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
+    // Deprecated: use toUserId/fromUserId instead.
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
       index: true,
     },
     type: {
@@ -50,6 +63,7 @@ const notificationSchema = new mongoose.Schema(
   { timestamps: true }
 )
 
+notificationSchema.index({ toUserId: 1, readAt: 1, createdAt: -1 })
 notificationSchema.index({ userId: 1, readAt: 1, createdAt: -1 })
 
 module.exports = mongoose.model('Notification', notificationSchema)
