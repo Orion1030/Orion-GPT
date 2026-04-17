@@ -1,21 +1,2 @@
-const mongoose = require('mongoose')
-const validator = require('validator')
-
-const requestSchema = new mongoose.Schema(
-  {
-    from: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true
-    },
-    type: {
-      type: Number
-    },
-    message: {
-      type: String
-    }
-  },
-  { timestamps: true }
-)
-
-module.exports = mongoose.model('Request', requestSchema)
+// Deprecated: Request model is no longer used by the application.
+// Left intentionally empty to avoid accidental usage.

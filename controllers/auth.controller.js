@@ -1,8 +1,8 @@
-const { UserModel, RequestModel, ProfileModel, NotificationModel } = require('../dbModels')
+const { UserModel, ProfileModel, NotificationModel } = require('../dbModels')
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult, generateJWT, generateRefreshToken, verifyRefreshToken, getJwtSecret } = require('../utils')
 const jwt = require('jsonwebtoken')
-const { RequestTypes, RoleLevels } = require('../utils/constants')
+const { RoleLevels } = require('../utils/constants')
 
 exports.signin = asyncErrorHandler(async (req, res, next) => {
   const { email, password, profileName } = req.body
@@ -98,12 +98,6 @@ exports.signup = asyncErrorHandler(async (req, res) => {
 
   const user = new UserModel({ name, email: normalizedEmail, password, role, team })
   await user.save()
-  const signupRequest = new RequestModel({
-    from: user._id,
-    type: RequestTypes.SIGNUP,
-    message: `Signup request from ${name}`,
-  })
-  await signupRequest.save()
 
   try {
     const admins = await UserModel.find({ role: RoleLevels.ADMIN, isActive: true })
@@ -118,7 +112,7 @@ exports.signup = asyncErrorHandler(async (req, res) => {
           message: `${name} (${normalizedEmail}) is waiting for approval.`,
           level: 'info',
           link: '/admin?tab=users',
-          metadata: { signupRequestId: String(signupRequest._id), userId: String(user._id) },
+          metadata: { userId: String(user._id) },
         })),
         { ordered: false }
       )
@@ -136,12 +130,6 @@ exports.forgotPassword = asyncErrorHandler(async (req, res, next) => {
   if (!user) {
     return sendJsonResult(res, false, null, 'User not found', 400)
   }
-  var forgetPasswordRequest = new RequestModel({
-    from: user._id,
-    type: RequestTypes.FORGETPWD,
-    message: `Forget password`
-  })
-  await forgetPasswordRequest.save()
   return sendJsonResult(res, true, null, `Admin will send you with your reset password link`)
 })
 

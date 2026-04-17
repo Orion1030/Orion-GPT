@@ -5,12 +5,6 @@ const RoleLevels = {
   GUEST: 0,
 };
 
-const RequestTypes = {
-  FORGETPWD: 1,
-  CONTACT: 2,
-  SIGNUP: 0
-};
-
 const Environments = {
   PROD: "production",
   DEV: "development",
@@ -27,4 +21,4 @@ const StatusCodes = {
   ACTIVE: 1,
   INACTIVE: 0,
 };
-module.exports = { RoleLevels, RequestTypes, Environments, StatusCodes };
+module.exports = { RoleLevels, Environments, StatusCodes };
