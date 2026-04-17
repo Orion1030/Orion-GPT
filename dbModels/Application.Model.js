@@ -97,6 +97,11 @@ const applicationSchema = new mongoose.Schema(
         ref: 'Resume',
         default: null,
       },
+      selectedTemplateId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Template',
+        default: null,
+      },
     },
     pipeline: {
       jobId: {

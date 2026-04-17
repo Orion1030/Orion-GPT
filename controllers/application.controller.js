@@ -7,6 +7,7 @@ const {
   JobModel,
   ProfileModel,
   ResumeModel,
+  TemplateModel,
 } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
 const {
@@ -174,6 +175,7 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
     profileSelectionMode: req.body?.profileSelectionMode,
     manualProfileId: req.body?.manualProfileId,
     manualResumeId: req.body?.manualResumeId,
+    selectedTemplateId: req.body?.selectedTemplateId,
   })
 
   if (applyConfig.profileSelectionMode === 'manual' && !applyConfig.manualProfileId) {
@@ -210,6 +212,18 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
       .lean()
     if (!resume) {
       return sendJsonResult(res, false, null, 'manualResumeId is invalid', 404)
+    }
+  }
+
+  if (applyConfig.selectedTemplateId) {
+    const template = await TemplateModel.findOne({
+      _id: applyConfig.selectedTemplateId,
+      $or: [{ isBuiltIn: true }, { userId }],
+    })
+      .select('_id')
+      .lean()
+    if (!template) {
+      return sendJsonResult(res, false, null, 'selectedTemplateId is invalid', 404)
     }
   }
 
@@ -272,6 +286,7 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
         profileSelectionMode: applyConfig.profileSelectionMode,
         manualProfileId: applyConfig.manualProfileId || null,
         manualResumeId: applyConfig.manualResumeId || null,
+        selectedTemplateId: applyConfig.selectedTemplateId || null,
       },
       snapshot: {
         companyName: updated?.companyName || '',

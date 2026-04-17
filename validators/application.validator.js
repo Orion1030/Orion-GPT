@@ -30,6 +30,10 @@ exports.applyRules = [
     .optional({ nullable: true })
     .isString()
     .withMessage('manualResumeId must be a string'),
+  body('selectedTemplateId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('selectedTemplateId must be a string'),
   body()
     .custom((value) => {
       const profileSelectionMode = value?.profileSelectionMode

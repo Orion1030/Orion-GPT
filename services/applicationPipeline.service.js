@@ -3,6 +3,7 @@ const {
   JobDescriptionModel,
   ProfileModel,
   ResumeModel,
+  TemplateModel,
 } = require('../dbModels')
 const {
   tryParseAndPersistJobDescription,
@@ -287,10 +288,11 @@ async function resolveBaseResume({ application, jdId, userId, profileId }) {
   }).lean()
 }
 
-async function persistGeneratedResume({ userId, profileId, generatedResume }) {
+async function persistGeneratedResume({ userId, profileId, generatedResume, templateId = null }) {
   const resumeDoc = new ResumeModel({
     userId,
     profileId,
+    templateId,
     name: generatedResume?.name || 'Generated Resume',
     summary: generatedResume?.summary || '',
     experiences: Array.isArray(generatedResume?.experiences) ? generatedResume.experiences : [],
@@ -301,6 +303,21 @@ async function persistGeneratedResume({ userId, profileId, generatedResume }) {
   await resumeDoc.save()
   queueResumeEmbeddingRefresh(resumeDoc._id, { maxAttempts: 3 })
   return resumeDoc
+}
+
+async function resolveResumeTemplateId({ application, profile, userId }) {
+  const preferredTemplateId =
+    application?.applyConfig?.selectedTemplateId || profile?.defaultTemplateId || null
+  if (!preferredTemplateId) return null
+
+  const template = await TemplateModel.findOne({
+    _id: preferredTemplateId,
+    $or: [{ isBuiltIn: true }, { userId }],
+  })
+    .select('_id')
+    .lean()
+
+  return template?._id || null
 }
 
 async function runApplicationPipeline({ applicationId, userId, jobId }) {
@@ -491,10 +508,16 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
     })
 
     currentStep = 'resume_saved'
+    const selectedTemplateId = await resolveResumeTemplateId({
+      application: app,
+      profile,
+      userId,
+    })
     const resumeDoc = await persistGeneratedResume({
       userId,
       profileId: profile._id,
       generatedResume,
+      templateId: selectedTemplateId,
     })
     await updateAndPublish({
       applicationId,

@@ -35,6 +35,11 @@ const profileSchema = new mongoose.Schema(
       ref: 'User',
       required: true
     },
+    defaultTemplateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Template',
+      default: null
+    },
     fullName: {
       type: String,
       required: true

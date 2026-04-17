@@ -1,5 +1,5 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
-const { ProfileModel } = require("../dbModels");
+const { ProfileModel, TemplateModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { isAdminUser, buildUserScopeFilter } = require("../utils/access");
 
@@ -54,6 +54,54 @@ function normalizeCareerHistory(careerHistory) {
   }));
 }
 
+function toNullableId(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (typeof value === "object") {
+    const nestedId = value?._id ?? value?.id;
+    if (nestedId == null) return null;
+    const trimmed = String(nestedId).trim();
+    return trimmed || null;
+  }
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
+
+async function resolveDefaultTemplateAssignment({
+  rawDefaultTemplateId,
+  ownerUserId,
+}) {
+  const parsedId = toNullableId(rawDefaultTemplateId);
+  if (parsedId === undefined) {
+    return { shouldSet: false, value: null };
+  }
+  if (!parsedId) {
+    return { shouldSet: true, value: null };
+  }
+
+  const template = await TemplateModel.findOne({
+    _id: parsedId,
+    $or: [{ isBuiltIn: true }, { userId: ownerUserId }],
+  })
+    .select("_id")
+    .lean();
+
+  if (!template) {
+    return {
+      shouldSet: false,
+      value: null,
+      error: "defaultTemplateId is invalid",
+      status: 404,
+    };
+  }
+
+  return { shouldSet: true, value: template._id };
+}
+
 exports.getProfiles = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   let scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
@@ -84,6 +132,7 @@ exports.getProfile = asyncErrorHandler(async (req, res, next) => {
 exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const {
+    defaultTemplateId,
     fullName,
     mainStack,
     title,
@@ -95,9 +144,23 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   } = req.body;
   const normalizedCareerHistory = normalizeCareerHistory(careerHistory);
   const targetUserId = isAdminUser(user) ? toTargetUserId(req) : null;
+  const ownerUserId = targetUserId || user._id;
+  const templateAssignment = await resolveDefaultTemplateAssignment({
+    rawDefaultTemplateId: defaultTemplateId,
+    ownerUserId,
+  });
+  if (templateAssignment.error) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      templateAssignment.error,
+      templateAssignment.status || 400
+    );
+  }
 
-  const profile = new ProfileModel({
-    userId: targetUserId || user._id,
+  const profilePayload = {
+    userId: ownerUserId,
     fullName,
     mainStack,
     title,
@@ -106,7 +169,12 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     careerHistory: normalizedCareerHistory,
     educations,
     status
-  });
+  };
+  if (templateAssignment.shouldSet) {
+    profilePayload.defaultTemplateId = templateAssignment.value;
+  }
+
+  const profile = new ProfileModel(profilePayload);
   await profile.save();
   return sendJsonResult(res, true, profile);
 });
@@ -115,6 +183,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { profileId } = req.params;
   const {
+    defaultTemplateId,
     fullName,
     mainStack,
     title,
@@ -131,6 +200,19 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
+  const templateAssignment = await resolveDefaultTemplateAssignment({
+    rawDefaultTemplateId: defaultTemplateId,
+    ownerUserId: profile.userId,
+  });
+  if (templateAssignment.error) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      templateAssignment.error,
+      templateAssignment.status || 400
+    );
+  }
 
   profile.fullName = fullName;
   profile.mainStack = mainStack;
@@ -139,6 +221,9 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   profile.contactInfo = contactInfo;
   profile.careerHistory = normalizedCareerHistory;
   profile.educations = educations;
+  if (templateAssignment.shouldSet) {
+    profile.defaultTemplateId = templateAssignment.value;
+  }
   if (status !== undefined) profile.status = status;
 
   await profile.save();
