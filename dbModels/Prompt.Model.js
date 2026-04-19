@@ -1,29 +1,42 @@
-const mongoose = require('mongoose')
-const validator = require('validator')
-const { ObjectId } = require('mongodb')
+const mongoose = require("mongoose");
 
 const promptSchema = new mongoose.Schema(
   {
-    user: {
-      type: ObjectId,
-      ref: 'User'
-    },
-    title: {
+    promptName: {
       type: String,
       required: true,
+      trim: true,
+      maxlength: 120,
     },
-    prompt: {
+    type: {
       type: String,
       required: true,
-      validate: {
-        validator: (value) => {
-          return validator.isLength(value, { min: 10 })
-        },
-        message: 'Prompt should be a minimum length of 10'
-      }
+      trim: true,
+      lowercase: true,
+      maxlength: 50,
+    },
+    context: {
+      type: String,
+      required: true,
+      minlength: 10,
+      maxlength: 100000,
+    },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
   },
   { timestamps: true }
-)
+);
 
-module.exports = mongoose.model('Prompt', promptSchema)
+promptSchema.index({ promptName: 1, type: 1, owner: 1 }, { unique: true });
+promptSchema.index({ type: 1, promptName: 1, updatedAt: -1 });
+
+module.exports = mongoose.model("Prompt", promptSchema);

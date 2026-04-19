@@ -9,7 +9,9 @@
     "server": "nodemon server.js",
     "lint:fix": "eslint --fix ./**/*.js",
     "test": "jest",
-    "security:audit": "npm audit --audit-level=high"
+    "security:audit": "npm audit --audit-level=high",
+    "migrate:prompts:dry": "node scripts/migrations/migrate-hardcoded-prompts-to-db.js --dry-run",
+    "migrate:prompts": "node scripts/migrations/migrate-hardcoded-prompts-to-db.js --commit"
   },
   "jest": {
     "testEnvironment": "node",
