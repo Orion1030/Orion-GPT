@@ -158,10 +158,11 @@ function buildSsePayload(appDoc) {
 }
 
 exports.applyForApplication = asyncErrorHandler(async (req, res) => {
-  // Apply flow is always user-owned, including admins.
-  // Admins may inspect/manage other users in admin views, but cannot create
-  // application pipeline jobs on behalf of another user via this endpoint.
-  const userId = req.user._id
+  // Apply flow is user-owned by default.
+  // Admins can target another user implicitly by selecting that user's
+  // manual profile in applyConfig.
+  let userId = req.user._id
+  const adminActor = isAdminUser(req.user)
   const jdContext = sanitizeString(req.body?.jdContext)
   if (!jdContext) {
     return sendJsonResult(res, false, null, 'jdContext is required', 400)
@@ -189,17 +190,26 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
   let profileSnapshot = ''
   let profileId = null
   if (applyConfig.profileSelectionMode === 'manual' && applyConfig.manualProfileId) {
-    const profile = await ProfileModel.findOne({
+    const profileFilter = {
       _id: applyConfig.manualProfileId,
-      userId,
-    })
-      .select('_id fullName title')
+    }
+    if (!adminActor) {
+      profileFilter.userId = userId
+    }
+
+    const profile = await ProfileModel.findOne(profileFilter)
+      .select('_id userId fullName title')
       .lean()
     if (!profile) {
       return sendJsonResult(res, false, null, 'manualProfileId is invalid', 404)
     }
     profileId = profile._id
     profileSnapshot = profile.fullName || profile.title || ''
+
+    // Allow admin users to run the apply flow for the selected profile owner.
+    if (adminActor && profile.userId) {
+      userId = profile.userId
+    }
   }
 
   if (applyConfig.resumeReferenceMode === 'use_specific_resume' && applyConfig.manualResumeId) {

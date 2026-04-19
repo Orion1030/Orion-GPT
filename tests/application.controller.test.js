@@ -93,7 +93,7 @@ describe('application.controller', () => {
     expect(appendApplicationHistory).not.toHaveBeenCalled()
   })
 
-  it('ignores admin userId override on apply and scopes manual profile lookup to authenticated user', async () => {
+  it('allows admin manual apply profile lookup across users by profile id', async () => {
     const appendApplicationHistory = jest.fn()
 
     const ProfileModel = {
@@ -139,7 +139,6 @@ describe('application.controller', () => {
 
     expect(ProfileModel.findOne).toHaveBeenCalledWith({
       _id: 'profile-x',
-      userId: 'admin-1',
     })
     expect(res.status).toHaveBeenCalledWith(404)
     expect(appendApplicationHistory).not.toHaveBeenCalled()
