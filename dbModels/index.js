@@ -32,6 +32,7 @@ const options = {
 
 const UserModel = require("./User.Model");
 const PromptModel = require("./Prompt.Model");
+const PromptAuditModel = require("./PromptAudit.Model");
 const ProfileModel = require("./Profile.Model");
 const ApplicationModel = require("./Application.Model");
 const ApplicationEventModel = require("./ApplicationEvent.Model");
@@ -53,6 +54,7 @@ const DBConnection = mongoose.createConnection(uri, options);
 // Bind models for App
 const UserModelForApp = DBConnection.model("User", UserModel.schema);
 const PromptModelForApp = DBConnection.model("Prompt", PromptModel.schema);
+const PromptAuditModelForApp = DBConnection.model("PromptAudit", PromptAuditModel.schema);
 const ProfileModelForApp = DBConnection.model("Profile", ProfileModel.schema);
 const ApplicationModelForApp = DBConnection.model("Application", ApplicationModel.schema);
 const ApplicationEventModelForApp = DBConnection.model("ApplicationEvent", ApplicationEventModel.schema);
@@ -72,6 +74,7 @@ module.exports = {
   DBConnection,
   UserModel: UserModelForApp,
   PromptModel: PromptModelForApp,
+  PromptAuditModel: PromptAuditModelForApp,
   ProfileModel: ProfileModelForApp,
   ApplicationModel: ApplicationModelForApp,
   ApplicationEventModel: ApplicationEventModelForApp,

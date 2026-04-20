@@ -50,6 +50,15 @@ function getPromptModel() {
   }
 }
 
+function buildFallbackResolution(fallbackContext = '') {
+  return {
+    context: sanitizeText(fallbackContext, 100000),
+    source: 'fallback_built_in',
+    promptId: null,
+    promptUpdatedAt: null,
+  }
+}
+
 async function loadPromptFromDb({ ownerId, promptName, type, profileId = null } = {}) {
   const PromptModel = getPromptModel()
   if (!PromptModel) return null
@@ -69,11 +78,18 @@ async function loadPromptFromDb({ ownerId, promptName, type, profileId = null } 
       profileId: normalizedProfileId,
     })
       .sort({ updatedAt: -1 })
-      .select({ context: 1 })
+      .select({ _id: 1, context: 1, updatedAt: 1 })
       .lean()
 
     const profileScopedContext = sanitizeText(profileScopedDoc?.context, 100000)
-    if (profileScopedContext) return profileScopedContext
+    if (profileScopedContext) {
+      return {
+        context: profileScopedContext,
+        source: 'profile_override',
+        promptId: profileScopedDoc?._id ? String(profileScopedDoc._id) : null,
+        promptUpdatedAt: profileScopedDoc?.updatedAt || null,
+      }
+    }
   }
 
   const accountDefaultDoc = await PromptModel.findOne({
@@ -83,27 +99,35 @@ async function loadPromptFromDb({ ownerId, promptName, type, profileId = null } 
     $or: [{ profileId: null }, { profileId: { $exists: false } }],
   })
     .sort({ updatedAt: -1 })
-    .select({ context: 1 })
+    .select({ _id: 1, context: 1, updatedAt: 1 })
     .lean()
 
-  return sanitizeText(accountDefaultDoc?.context, 100000) || null
+  const accountDefaultContext = sanitizeText(accountDefaultDoc?.context, 100000)
+  if (!accountDefaultContext) return null
+
+  return {
+    context: accountDefaultContext,
+    source: 'account_default',
+    promptId: accountDefaultDoc?._id ? String(accountDefaultDoc._id) : null,
+    promptUpdatedAt: accountDefaultDoc?.updatedAt || null,
+  }
 }
 
-async function getManagedPromptContext({
+async function resolveManagedPromptContext({
   ownerId,
   profileId = null,
   promptName,
   type,
   fallbackContext = '',
 } = {}) {
+  const fallbackResolution = buildFallbackResolution(fallbackContext)
   const normalizedOwnerId = normalizeOwnerId(ownerId)
   const normalizedProfileId = normalizeProfileId(profileId)
   const normalizedPromptName = normalizePromptName(promptName)
   const normalizedType = normalizeType(type)
-  const fallback = sanitizeText(fallbackContext, 100000)
 
   if (!normalizedOwnerId || !normalizedPromptName || !normalizedType) {
-    return fallback
+    return fallbackResolution
   }
 
   const cacheKey = buildCacheKey(
@@ -115,32 +139,57 @@ async function getManagedPromptContext({
   const now = Date.now()
   const cached = promptCache.get(cacheKey)
   if (cached && cached.expiresAt > now) {
-    return cached.context || fallback
+    return {
+      context: sanitizeText(cached.context, 100000) || fallbackResolution.context,
+      source: sanitizeText(cached.source, 80) || fallbackResolution.source,
+      promptId: cached.promptId || null,
+      promptUpdatedAt: cached.promptUpdatedAt || null,
+    }
   }
 
   if (!shouldUseDatabase()) {
-    return fallback
+    return fallbackResolution
   }
 
   try {
-    const context = await loadPromptFromDb({
+    const resolved = await loadPromptFromDb({
       ownerId: normalizedOwnerId,
       profileId: normalizedProfileId,
       promptName: normalizedPromptName,
       type: normalizedType,
     })
     promptCache.set(cacheKey, {
-      context,
+      context: resolved?.context || null,
+      source: resolved?.source || null,
+      promptId: resolved?.promptId || null,
+      promptUpdatedAt: resolved?.promptUpdatedAt || null,
       expiresAt: now + getCacheTtlMs(),
     })
-    return context || fallback
+    return resolved || fallbackResolution
   } catch (error) {
     console.warn(
       '[PromptRuntime] failed to resolve prompt from database; falling back',
       error?.message || error
     )
-    return fallback
+    return fallbackResolution
   }
+}
+
+async function getManagedPromptContext({
+  ownerId,
+  profileId = null,
+  promptName,
+  type,
+  fallbackContext = '',
+} = {}) {
+  const resolved = await resolveManagedPromptContext({
+    ownerId,
+    profileId,
+    promptName,
+    type,
+    fallbackContext,
+  })
+  return sanitizeText(resolved?.context, 100000)
 }
 
 function clearManagedPromptCache({ ownerId, promptName, type, profileId = null } = {}) {
@@ -168,6 +217,7 @@ function clearManagedPromptCache({ ownerId, promptName, type, profileId = null }
 }
 
 module.exports = {
+  resolveManagedPromptContext,
   getManagedPromptContext,
   clearManagedPromptCache,
 }

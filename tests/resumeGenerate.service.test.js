@@ -1,8 +1,12 @@
 jest.mock('../services/llm/openaiClient', () => ({
   chatCompletions: jest.fn(),
 }));
+jest.mock('../services/promptRuntime.service', () => ({
+  resolveManagedPromptContext: jest.fn(),
+}));
 
 const { chatCompletions } = require('../services/llm/openaiClient');
+const { resolveManagedPromptContext } = require('../services/promptRuntime.service');
 const {
   generateResumeFromJD,
   _buildResumeGenerationInput,
@@ -16,6 +20,12 @@ const profile = { fullName: 'Jane Doe', title: 'Engineer', mainStack: 'Data', ca
 describe('generateResumeFromJD', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resolveManagedPromptContext.mockImplementation(async ({ fallbackContext }) => ({
+      context: fallbackContext,
+      source: 'fallback_built_in',
+      promptId: null,
+      promptUpdatedAt: null,
+    }));
   });
 
   it('returns parsed resume when chat schema succeeds', async () => {
@@ -91,6 +101,86 @@ describe('generateResumeFromJD', () => {
     expect(Array.isArray(res.skills)).toBe(true);
     expect(res.skills[0]).toBeDefined();
     expect(Array.isArray(res.skills[0].items)).toBe(true);
+  });
+
+  it('wraps managed prompts with locked guardrails before generation', async () => {
+    resolveManagedPromptContext.mockResolvedValue({
+      context: 'Prioritize backend platform leadership examples and concise impact language.',
+      source: 'account_default',
+      promptId: 'mock-prompt-id',
+      promptUpdatedAt: '2026-04-20T00:00:00.000Z',
+    });
+
+    chatCompletions.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  name: 'Guardrail Test',
+                  summary: '',
+                  experiences: [],
+                  skills: [],
+                  education: [],
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await generateResumeFromJD({ jd, profile, baseResume: null });
+
+    const payload = chatCompletions.mock.calls[0]?.[0];
+    const systemMessage = payload?.messages?.find((message) => message.role === 'system')?.content || '';
+    expect(systemMessage).toContain('Locked constraints (cannot be overridden)');
+    expect(systemMessage).toContain(
+      'Prioritize backend platform leadership examples and concise impact language.'
+    );
+    expect(systemMessage).toContain('Strict schema-valid JSON output only.');
+  });
+
+  it('resolves prompt scope strictly from selected profile owner and profile ids', async () => {
+    const profileWithObjectOwner = {
+      ...profile,
+      _id: "profile-abc",
+      userId: { _id: "owner-xyz" },
+    };
+
+    chatCompletions.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  name: 'Scope Test',
+                  summary: '',
+                  experiences: [],
+                  skills: [],
+                  education: [],
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await generateResumeFromJD({ jd, profile: profileWithObjectOwner, baseResume: null });
+
+    expect(resolveManagedPromptContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerId: "owner-xyz",
+        profileId: "profile-abc",
+        promptName: "resume_generation",
+        type: "system",
+      })
+    );
   });
 });
 

@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { JobDescriptionModel, ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
@@ -14,6 +15,23 @@ const {
 } = require("../services/jdImport.service");
 const { buildEmploymentKey, areEmploymentsEquivalent } = require("../utils/employmentKey");
 const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
+
+function getRequestId(req, fallbackPrefix = "resume-generate") {
+  const fromHeader = req.headers?.["x-request-id"];
+  if (typeof fromHeader === "string" && fromHeader.trim()) return fromHeader.trim();
+  return `${fallbackPrefix}-${crypto.randomUUID()}`;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers?.["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    const first = forwarded.split(",")[0];
+    if (first && first.trim()) return first.trim().slice(0, 120);
+  }
+  const realIp = req.headers?.["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim()) return realIp.trim().slice(0, 120);
+  return String(req.ip || req.socket?.remoteAddress || "").slice(0, 120);
+}
 
 function normalizeParsedEducation(education) {
   if (!Array.isArray(education)) return [];
@@ -220,7 +238,23 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
     }
   }
 
-  const { result: genResult, error: genError } = await tryGenerateResumeJsonFromJD({ jd, profile, baseResume });
+  const { result: genResult, error: genError } = await tryGenerateResumeJsonFromJD({
+    jd,
+    profile,
+    baseResume,
+    auditContext: {
+      requestId: getRequestId(req, "resume-ai-generate"),
+      source: "api.resume_ai",
+      actorType: "user",
+      actorUserId: req.user?._id || null,
+      ip: getClientIp(req),
+      userAgent: String(req.headers?.["user-agent"] || "").slice(0, 1000),
+      trigger: "resume_ai.generate",
+      jobDescriptionId: jd?._id ? String(jd._id) : String(jdId),
+      profileId: profile?._id ? String(profile._id) : String(profileId),
+      baseResumeId: baseResume?._id ? String(baseResume._id) : null,
+    },
+  });
   if (genError) {
     return sendJsonResult(res, false, null, genError.message, genError.statusCode || 500);
   }

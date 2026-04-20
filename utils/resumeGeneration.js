@@ -65,15 +65,15 @@ function normalizeResumeJson(raw) {
   return { name, summary, experiences, skills, education, pageFrameConfig: null };
 }
 
-async function generateResumeJsonFromJD({ jd, profile, baseResume }) {
+async function generateResumeJsonFromJD({ jd, profile, baseResume, auditContext = null }) {
   // LLM work (prompt + parse) is handled inside the specialized LLM service.
-  const parsedResume = await generateResumeFromJD({ jd, profile, baseResume });
+  const parsedResume = await generateResumeFromJD({ jd, profile, baseResume, auditContext });
   return normalizeResumeJson(parsedResume || { name: "Generated Resume", summary: "", experiences: [], skills: [], education: [] });
 }
 
-async function tryGenerateResumeJsonFromJD({ jd, profile, baseResume }) {
+async function tryGenerateResumeJsonFromJD({ jd, profile, baseResume, auditContext = null }) {
   try {
-    const resume = await generateResumeJsonFromJD({ jd, profile, baseResume });
+    const resume = await generateResumeJsonFromJD({ jd, profile, baseResume, auditContext });
     return { result: { resume }, error: null };
   } catch (e) {
     return { result: null, error: { message: "Generation failed. Please try again.", statusCode: 502 } };

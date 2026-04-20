@@ -12,9 +12,11 @@ const {
 const { resumeSchema } = require("./schemas/resumeSchemas");
 const {
   buildResumeGenerationSystemPrompt,
+  buildManagedResumeGenerationSystemPrompt,
   buildResumeGenerationUserPrompt,
 } = require("./prompts/resumeGenerate.prompts");
-const { getManagedPromptContext } = require("../promptRuntime.service");
+const { resolveManagedPromptContext } = require("../promptRuntime.service");
+const { appendPromptAudit } = require("../promptAudit.service");
 const {
   buildEmploymentKey,
   buildEmploymentBaseKey,
@@ -25,6 +27,21 @@ const { alignResumeExperiencesToCareerHistory } = require("../../utils/experienc
 const MAX_CAREER_HISTORY_ITEMS = 16;
 const RESUME_GENERATION_PROMPT_NAME = "resume_generation";
 const SYSTEM_PROMPT_TYPE = "system";
+const PROMPT_RUNTIME_ACTION = "prompt_runtime_used";
+
+function toIdString(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    if (value._id != null) return toIdString(value._id);
+    if (value.id != null) return toIdString(value.id);
+  }
+  try {
+    return String(value);
+  } catch {
+    return null;
+  }
+}
 
 function sanitizeStr(s) {
   if (s == null) return "";
@@ -722,18 +739,84 @@ function buildFallbackResume({ jd, profile }) {
   };
 }
 
-async function generateResumeFromJD({ jd, profile, baseResume }) {
+async function appendPromptRuntimeAuditEvent({
+  profile,
+  resolvedPrompt,
+  usedGuardrailedManagedPrompt = false,
+  auditContext = {},
+} = {}) {
+  try {
+    if (process.env.NODE_ENV === "test") return;
+    const ownerUserId = toIdString(profile?.userId);
+    if (!ownerUserId) return;
+    const scopedProfileId = toIdString(profile?._id);
+
+    await appendPromptAudit({
+      ownerUserId,
+      actorUserId: auditContext?.actorUserId || null,
+      actorType: auditContext?.actorType || "system",
+      action: PROMPT_RUNTIME_ACTION,
+      promptId: resolvedPrompt?.promptId || null,
+      promptName: RESUME_GENERATION_PROMPT_NAME,
+      type: SYSTEM_PROMPT_TYPE,
+      profileId: scopedProfileId,
+      beforeContext: null,
+      afterContext: null,
+      payload: {
+        resolvedFrom: resolvedPrompt?.source || "fallback_built_in",
+        usedManagedPrompt: Boolean(
+          resolvedPrompt?.source &&
+            resolvedPrompt.source !== "fallback_built_in" &&
+            resolvedPrompt.promptId
+        ),
+        usedGuardrailedManagedPrompt: Boolean(usedGuardrailedManagedPrompt),
+        resolvedPromptId: resolvedPrompt?.promptId || null,
+        resolvedPromptUpdatedAt: resolvedPrompt?.promptUpdatedAt || null,
+        jobDescriptionId: auditContext?.jobDescriptionId || null,
+        profileId: scopedProfileId || auditContext?.profileId || null,
+        baseResumeId: auditContext?.baseResumeId || null,
+        applicationId: auditContext?.applicationId || null,
+        trigger: auditContext?.trigger || "resume_generate",
+      },
+      requestId: auditContext?.requestId || null,
+      source: auditContext?.source || "llm.resume_generation",
+      ip: auditContext?.ip || "",
+      userAgent: auditContext?.userAgent || "",
+    });
+  } catch (error) {
+    console.warn(
+      "[PromptAudit] failed to append runtime usage event",
+      error?.message || error
+    );
+  }
+}
+
+async function generateResumeFromJD({ jd, profile, baseResume, auditContext = null }) {
   if (!jd || !profile) throw new Error("JD or profile not found");
 
   try {
     const llmInput = buildResumeGenerationInput({ jd, profile, baseResume });
     const fallbackSystemPrompt = buildResumeGenerationSystemPrompt();
-    const systemPrompt = await getManagedPromptContext({
-      ownerId: profile?.userId,
-      profileId: profile?._id || null,
+    const scopedOwnerUserId = toIdString(profile?.userId);
+    const scopedProfileId = toIdString(profile?._id);
+    const resolvedPrompt = await resolveManagedPromptContext({
+      ownerId: scopedOwnerUserId,
+      profileId: scopedProfileId,
       promptName: RESUME_GENERATION_PROMPT_NAME,
       type: SYSTEM_PROMPT_TYPE,
       fallbackContext: fallbackSystemPrompt,
+    });
+    const resolvedSource = sanitizeStr(resolvedPrompt?.source);
+    const useManagedGuardrailWrapper =
+      Boolean(resolvedSource) && resolvedSource !== "fallback_built_in";
+    const systemPrompt = useManagedGuardrailWrapper
+      ? buildManagedResumeGenerationSystemPrompt(resolvedPrompt?.context)
+      : (resolvedPrompt?.context || fallbackSystemPrompt);
+    await appendPromptRuntimeAuditEvent({
+      profile,
+      resolvedPrompt,
+      usedGuardrailedManagedPrompt: useManagedGuardrailWrapper,
+      auditContext: auditContext || {},
     });
     const userPrompt = buildResumeGenerationUserPrompt(llmInput);
 

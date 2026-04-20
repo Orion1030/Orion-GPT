@@ -475,6 +475,17 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
       jd,
       profile,
       baseResume,
+      auditContext: {
+        requestId: `pipeline-${applicationId}-resume_generation_prompt`,
+        source: "pipeline.resume_generation",
+        actorType: "system",
+        actorUserId: null,
+        trigger: "application_pipeline",
+        applicationId: String(applicationId),
+        jobDescriptionId: jdId ? String(jdId) : null,
+        profileId: profile?._id ? String(profile._id) : null,
+        baseResumeId: baseResume?._id ? String(baseResume._id) : null,
+      },
     })
     if (generateError) {
       throw new Error(generateError.message || 'Resume generation failed')

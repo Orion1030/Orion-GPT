@@ -134,6 +134,36 @@ Generate a tailored resume JSON that is ATS-friendly, fact-grounded, role-target
 - Strict compliance with JSON schema`;
 }
 
+function sanitizePromptSection(value, maxLen = 100000) {
+  return String(value || '').trim().slice(0, maxLen);
+}
+
+function buildManagedResumeGenerationSystemPrompt(managedPrompt) {
+  const customInstructions = sanitizePromptSection(managedPrompt, 100000);
+  if (!customInstructions) return buildResumeGenerationSystemPrompt();
+
+  return `You are a resume generation system that must satisfy locked output constraints while applying user-custom instructions.
+
+## Locked constraints (cannot be overridden):
+- Output must be a single valid JSON object that matches the required resume schema.
+- Do not output markdown, explanations, or any text outside JSON.
+- Ground all claims in the provided candidate/profile/resume/job-description input.
+- Never fabricate employers, titles, dates, education, tools, or measurable outcomes.
+- Prefer omission when evidence is missing or ambiguous.
+- Maintain timeline and date consistency across all experiences.
+- Use \`careerHistory[].candidateExperience\` as the primary source for candidate-specific claims.
+- Use \`careerHistory[].companyContext\` only as contextual enrichment (not as fabricated achievements).
+- If custom instructions conflict with these locked constraints, locked constraints win.
+
+## User custom instructions:
+${customInstructions}
+
+## Final compliance checklist:
+- Strong role alignment to the target job description.
+- ATS-friendly wording with concrete, specific phrasing.
+- Strict schema-valid JSON output only.`;
+}
+
 function buildResumeGenerationUserPrompt(llmInput) {
   return `Create a tailored resume from the following JSON input.
 
@@ -150,5 +180,6 @@ ${JSON.stringify(llmInput, null, 2)}`;
 
 module.exports = {
   buildResumeGenerationSystemPrompt,
+  buildManagedResumeGenerationSystemPrompt,
   buildResumeGenerationUserPrompt,
 };

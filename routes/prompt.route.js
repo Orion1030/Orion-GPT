@@ -6,8 +6,11 @@ const {
   updatePrompt,
   deletePrompt,
   getMySystemPrompt,
+  getMyEffectiveSystemPrompt,
   upsertMySystemPrompt,
   deleteMySystemPrompt,
+  rollbackMySystemPrompt,
+  getMySystemPromptAudit,
 } = require('../controllers/prompt.controller')
 require('dotenv').config()
 
@@ -19,10 +22,19 @@ const router = express.Router()
 const userPromptAccess = [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]
 
 router
+  .route('/me/system/effective')
+  .get(isAuthenticatedUser, permit(userPromptAccess), getMyEffectiveSystemPrompt)
+router
+  .route('/me/system/rollback')
+  .post(isAuthenticatedUser, permit(userPromptAccess), rollbackMySystemPrompt)
+router
   .route('/me/system')
   .get(isAuthenticatedUser, permit(userPromptAccess), getMySystemPrompt)
   .put(isAuthenticatedUser, permit(userPromptAccess), upsertMySystemPrompt)
   .delete(isAuthenticatedUser, permit(userPromptAccess), deleteMySystemPrompt)
+router
+  .route('/me/system/audit')
+  .get(isAuthenticatedUser, permit(userPromptAccess), getMySystemPromptAudit)
 
 router.route('/').get(isAuthenticatedUser, permit([RoleLevels.SUPER_ADMIN]), getPrompts)
 router.route('/').post(isAuthenticatedUser, permit([RoleLevels.SUPER_ADMIN]), createPrompt)

@@ -1,10 +1,29 @@
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult } = require('../utils')
-const { PromptModel, ProfileModel } = require('../dbModels')
-const { clearManagedPromptCache } = require('../services/promptRuntime.service')
+const { PromptModel, ProfileModel, PromptAuditModel } = require('../dbModels')
+const {
+  clearManagedPromptCache,
+  resolveManagedPromptContext,
+} = require('../services/promptRuntime.service')
+const {
+  appendPromptAudit,
+  listPromptAudit,
+  buildRequestAuditMeta,
+} = require('../services/promptAudit.service')
+const { isAdminUser } = require('../utils/access')
+const {
+  buildResumeGenerationSystemPrompt,
+} = require('../services/llm/prompts/resumeGenerate.prompts')
 
 const SYSTEM_PROMPT_TYPE = 'system'
 const DEFAULT_USER_MANAGED_PROMPT_NAME = 'resume_generation'
+const PROMPT_AUDIT_ACTIONS = {
+  CREATED: 'prompt_created',
+  UPDATED: 'prompt_updated',
+  DELETED: 'prompt_deleted',
+  RESET: 'prompt_reset',
+  ROLLED_BACK: 'prompt_rolled_back',
+}
 
 function sanitizeText(value, maxLen = 100000) {
   return String(value || '').trim().slice(0, maxLen)
@@ -78,6 +97,99 @@ function toPromptDto(promptDoc) {
   }
 }
 
+function toPromptAuditDto(auditDoc) {
+  if (!auditDoc) return null
+  const raw = typeof auditDoc.toObject === 'function' ? auditDoc.toObject() : auditDoc
+  const actor = raw.actorUserId
+  const profileRef = raw.profileId
+  const promptRef = raw.promptId
+
+  return {
+    _id: raw._id,
+    id: raw._id ? String(raw._id) : '',
+    ownerUserId: raw.ownerUserId ? String(raw.ownerUserId) : '',
+    actorType: sanitizeText(raw.actorType, 20) || 'system',
+    actorUser: actor
+      ? {
+          id: String(actor._id || actor.id || ''),
+          name: sanitizeText(actor.name, 160),
+          email: sanitizeText(actor.email, 320),
+        }
+      : null,
+    action: sanitizeText(raw.action, 80),
+    prompt: promptRef
+      ? {
+          id: String(promptRef._id || promptRef.id || ''),
+          promptName: sanitizeText(promptRef.promptName, 120),
+          type: sanitizeText(promptRef.type, 50).toLowerCase(),
+          profileId: promptRef.profileId ? String(promptRef.profileId) : null,
+          updatedAt: promptRef.updatedAt || null,
+        }
+      : null,
+    promptId: raw.promptId ? String(typeof raw.promptId === 'object' ? raw.promptId._id || raw.promptId.id || '' : raw.promptId) : null,
+    promptName: sanitizeText(raw.promptName, 120),
+    type: sanitizeText(raw.type, 50).toLowerCase(),
+    profile: toPublicProfileRef(profileRef),
+    profileId:
+      profileRef == null
+        ? null
+        : String(typeof profileRef === 'object' ? profileRef._id || profileRef.id || '' : profileRef),
+    beforeContext: raw.beforeContext == null ? null : sanitizeText(raw.beforeContext, 120000),
+    afterContext: raw.afterContext == null ? null : sanitizeText(raw.afterContext, 120000),
+    payload: raw.payload && typeof raw.payload === 'object' ? raw.payload : {},
+    meta: {
+      requestId: sanitizeText(raw.meta?.requestId, 180) || null,
+      source: sanitizeText(raw.meta?.source, 120) || '',
+      ip: sanitizeText(raw.meta?.ip, 120) || '',
+      userAgent: sanitizeText(raw.meta?.userAgent, 300) || '',
+      eventVersion: Number(raw.meta?.eventVersion || 1),
+    },
+    createdAt: raw.createdAt || null,
+  }
+}
+
+function getActorTypeFromUser(user) {
+  return isAdminUser(user) ? 'admin' : 'user'
+}
+
+async function appendPromptChangeAudit({
+  req,
+  ownerUserId,
+  promptDoc,
+  promptName,
+  type,
+  profileId = null,
+  action,
+  beforeContext = null,
+  afterContext = null,
+  payload = {},
+  fallbackPrefix = 'prompt-change',
+  source = 'api.prompt',
+}) {
+  try {
+    const requestMeta = buildRequestAuditMeta(req, fallbackPrefix, source)
+    await appendPromptAudit({
+      ownerUserId,
+      actorUserId: req?.user?._id || null,
+      actorType: getActorTypeFromUser(req?.user),
+      action,
+      promptId: promptDoc?._id || promptDoc?.id || null,
+      promptName,
+      type,
+      profileId: profileId || null,
+      beforeContext,
+      afterContext,
+      payload,
+      requestId: requestMeta.requestId,
+      source: requestMeta.source,
+      ip: requestMeta.ip,
+      userAgent: requestMeta.userAgent,
+    })
+  } catch (error) {
+    console.warn('[PromptAudit] failed to append prompt change event', error?.message || error)
+  }
+}
+
 async function ensureProfileForOwner(profileId, ownerId) {
   if (profileId == null) return { ok: true, profileId: null }
 
@@ -93,6 +205,52 @@ async function ensureProfileForOwner(profileId, ownerId) {
   }
 
   return { ok: true, profileId: profile._id }
+}
+
+async function resolveManagedPromptScope({ reqUser, profileId }) {
+  const requesterUserId = reqUser?._id || null
+  if (!requesterUserId) {
+    return {
+      ok: false,
+      status: 401,
+      message: 'Unauthorized',
+    }
+  }
+
+  if (profileId == null) {
+    return {
+      ok: true,
+      profileId: null,
+      ownerUserId: requesterUserId,
+    }
+  }
+
+  const profile = await ProfileModel.findById(profileId)
+    .select('_id userId')
+    .lean()
+  if (!profile || !profile.userId) {
+    return {
+      ok: false,
+      status: 404,
+      message: 'Profile not found',
+    }
+  }
+
+  const isOwner =
+    String(profile.userId) === String(requesterUserId)
+  if (!isOwner && !isAdminUser(reqUser)) {
+    return {
+      ok: false,
+      status: 404,
+      message: 'Profile not found for this account',
+    }
+  }
+
+  return {
+    ok: true,
+    profileId: profile._id,
+    ownerUserId: profile.userId,
+  }
 }
 
 function buildListFilter(req) {
@@ -151,6 +309,31 @@ function resolveManagedPromptName(rawName) {
   return normalized || DEFAULT_USER_MANAGED_PROMPT_NAME
 }
 
+function buildNullProfileFilter() {
+  return [{ profileId: null }, { profileId: { $exists: false } }]
+}
+
+function buildProfileScopeFilter(profileId) {
+  if (profileId == null) {
+    return { $or: buildNullProfileFilter() }
+  }
+  return { profileId }
+}
+
+function buildManagedPromptFallbackContext({ promptName, type }) {
+  const normalizedPromptName = resolveManagedPromptName(promptName)
+  const normalizedType = sanitizeText(type, 50).toLowerCase()
+
+  if (
+    normalizedType === SYSTEM_PROMPT_TYPE &&
+    normalizedPromptName === DEFAULT_USER_MANAGED_PROMPT_NAME
+  ) {
+    return buildResumeGenerationSystemPrompt()
+  }
+
+  return ''
+}
+
 function buildOwnerPromptFilter({ ownerId, promptName, type, profileId }) {
   const filter = {
     owner: ownerId,
@@ -167,6 +350,24 @@ function buildOwnerPromptFilter({ ownerId, promptName, type, profileId }) {
 
 function isDuplicateKeyError(error) {
   return Boolean(error && Number(error.code) === 11000)
+}
+
+function isRollbackEligibleAuditAction(action) {
+  const normalized = sanitizeText(action, 80)
+  if (!normalized) return false
+  return normalized !== 'prompt_runtime_used' && normalized !== PROMPT_AUDIT_ACTIONS.ROLLED_BACK
+}
+
+function toSafePage(value, fallback = 1) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return parsed
+}
+
+function toSafePageSize(value, fallback = 20, max = 200) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.min(max, parsed)
 }
 
 async function populatePrompt(promptId) {
@@ -220,6 +421,22 @@ exports.createPrompt = asyncErrorHandler(async (req, res) => {
       type: payload.type,
       profileId: profileCheck.profileId,
     })
+    await appendPromptChangeAudit({
+      req,
+      ownerUserId: req.user._id,
+      promptDoc: created,
+      promptName: payload.promptName,
+      type: payload.type,
+      profileId: profileCheck.profileId,
+      action: PROMPT_AUDIT_ACTIONS.CREATED,
+      beforeContext: null,
+      afterContext: payload.context,
+      payload: {
+        changeSource: 'admin_prompt_create',
+      },
+      fallbackPrefix: 'prompt-created',
+      source: 'api.prompt.admin',
+    })
 
     const hydrated = await populatePrompt(created._id)
     return sendJsonResult(res, true, toPromptDto(hydrated), 'Prompt created successfully', 201)
@@ -260,6 +477,7 @@ exports.updatePrompt = asyncErrorHandler(async (req, res) => {
     profileId: existing.profileId || null,
     promptName: existing.promptName,
     type: existing.type,
+    context: existing.context || '',
   }
 
   existing.promptName = payload.promptName
@@ -276,6 +494,24 @@ exports.updatePrompt = asyncErrorHandler(async (req, res) => {
       profileId: existing.profileId || null,
       promptName: existing.promptName,
       type: existing.type,
+    })
+    await appendPromptChangeAudit({
+      req,
+      ownerUserId: existing.owner,
+      promptDoc: existing,
+      promptName: existing.promptName,
+      type: existing.type,
+      profileId: existing.profileId || null,
+      action: PROMPT_AUDIT_ACTIONS.UPDATED,
+      beforeContext: oldPromptKey.context,
+      afterContext: existing.context,
+      payload: {
+        previousPromptName: oldPromptKey.promptName,
+        previousType: oldPromptKey.type,
+        previousProfileId: oldPromptKey.profileId ? String(oldPromptKey.profileId) : null,
+      },
+      fallbackPrefix: 'prompt-updated',
+      source: 'api.prompt.admin',
     })
 
     const hydrated = await populatePrompt(existing._id)
@@ -304,6 +540,22 @@ exports.deletePrompt = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'Prompt not found', 404)
   }
 
+  await appendPromptChangeAudit({
+    req,
+    ownerUserId: prompt.owner,
+    promptDoc: { _id: prompt._id },
+    promptName: prompt.promptName,
+    type: prompt.type,
+    profileId: prompt.profileId || null,
+    action: PROMPT_AUDIT_ACTIONS.DELETED,
+    beforeContext: prompt.context || null,
+    afterContext: null,
+    payload: {
+      changeSource: 'admin_prompt_delete',
+    },
+    fallbackPrefix: 'prompt-deleted',
+    source: 'api.prompt.admin',
+  })
   await PromptModel.deleteOne({ _id: promptId })
   await clearManagedPromptCache({
     ownerId: prompt.owner,
@@ -319,15 +571,18 @@ exports.getMySystemPrompt = asyncErrorHandler(async (req, res) => {
   const promptName = resolveManagedPromptName(req.query?.promptName)
   const profileId = normalizeNullableId(req.query?.profileId)
 
-  const profileCheck = await ensureProfileForOwner(profileId, req.user._id)
-  if (!profileCheck.ok) {
-    return sendJsonResult(res, false, null, profileCheck.message, profileCheck.status)
+  const scope = await resolveManagedPromptScope({
+    reqUser: req.user,
+    profileId,
+  })
+  if (!scope.ok) {
+    return sendJsonResult(res, false, null, scope.message, scope.status)
   }
 
   const prompt = await PromptModel.findOne(
     buildOwnerPromptFilter({
-      ownerId: req.user._id,
-      profileId: profileCheck.profileId,
+      ownerId: scope.ownerUserId,
+      profileId: scope.profileId,
       promptName,
       type: SYSTEM_PROMPT_TYPE,
     })
@@ -338,6 +593,42 @@ exports.getMySystemPrompt = asyncErrorHandler(async (req, res) => {
     .sort({ updatedAt: -1 })
 
   return sendJsonResult(res, true, prompt ? toPromptDto(prompt) : null)
+})
+
+exports.getMyEffectiveSystemPrompt = asyncErrorHandler(async (req, res) => {
+  const promptName = resolveManagedPromptName(req.query?.promptName)
+  const profileId = normalizeNullableId(req.query?.profileId)
+
+  const scope = await resolveManagedPromptScope({
+    reqUser: req.user,
+    profileId,
+  })
+  if (!scope.ok) {
+    return sendJsonResult(res, false, null, scope.message, scope.status)
+  }
+
+  const fallbackContext = buildManagedPromptFallbackContext({
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+  })
+
+  const resolved = await resolveManagedPromptContext({
+    ownerId: scope.ownerUserId,
+    profileId: scope.profileId,
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+    fallbackContext,
+  })
+
+  return sendJsonResult(res, true, {
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+    profileId: scope.profileId ? String(scope.profileId) : null,
+    context: sanitizeText(resolved?.context, 100000),
+    source: sanitizeText(resolved?.source, 80) || 'fallback_built_in',
+    promptId: resolved?.promptId || null,
+    promptUpdatedAt: resolved?.promptUpdatedAt || null,
+  })
 })
 
 exports.upsertMySystemPrompt = asyncErrorHandler(async (req, res) => {
@@ -352,18 +643,21 @@ exports.upsertMySystemPrompt = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'context should be at least 10 characters', 400)
   }
 
-  const profileCheck = await ensureProfileForOwner(profileId, req.user._id)
-  if (!profileCheck.ok) {
-    return sendJsonResult(res, false, null, profileCheck.message, profileCheck.status)
+  const scope = await resolveManagedPromptScope({
+    reqUser: req.user,
+    profileId,
+  })
+  if (!scope.ok) {
+    return sendJsonResult(res, false, null, scope.message, scope.status)
   }
 
   const filter = buildOwnerPromptFilter({
-    ownerId: req.user._id,
-    profileId: profileCheck.profileId,
+    ownerId: scope.ownerUserId,
+    profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
   })
-  const existing = await PromptModel.findOne(filter).select('_id').lean()
+  const existing = await PromptModel.findOne(filter).select('_id context profileId promptName type').lean()
 
   let upsertedPrompt
   try {
@@ -373,10 +667,10 @@ exports.upsertMySystemPrompt = asyncErrorHandler(async (req, res) => {
         $set: {
           context,
           updatedBy: req.user._id,
-          profileId: profileCheck.profileId,
+          profileId: scope.profileId,
         },
         $setOnInsert: {
-          owner: req.user._id,
+          owner: scope.ownerUserId,
           promptName,
           type: SYSTEM_PROMPT_TYPE,
         },
@@ -404,10 +698,27 @@ exports.upsertMySystemPrompt = asyncErrorHandler(async (req, res) => {
   }
 
   await clearManagedPromptCache({
-    ownerId: req.user._id,
-    profileId: profileCheck.profileId,
+    ownerId: scope.ownerUserId,
+    profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
+  })
+  await appendPromptChangeAudit({
+    req,
+    ownerUserId: scope.ownerUserId,
+    promptDoc: upsertedPrompt,
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+    profileId: scope.profileId,
+    action: existing ? PROMPT_AUDIT_ACTIONS.UPDATED : PROMPT_AUDIT_ACTIONS.CREATED,
+    beforeContext: existing?.context || null,
+    afterContext: upsertedPrompt?.context || context,
+    payload: {
+      changeSource: existing ? 'self_prompt_update' : 'self_prompt_create',
+      managedScope: scope.profileId ? 'profile_override' : 'account_default',
+    },
+    fallbackPrefix: 'prompt-me-upsert',
+    source: 'api.prompt.self',
   })
 
   return sendJsonResult(
@@ -422,25 +733,217 @@ exports.deleteMySystemPrompt = asyncErrorHandler(async (req, res) => {
   const promptName = resolveManagedPromptName(req.query?.promptName || req.body?.promptName)
   const profileId = normalizeNullableId(req.query?.profileId || req.body?.profileId)
 
-  const profileCheck = await ensureProfileForOwner(profileId, req.user._id)
-  if (!profileCheck.ok) {
-    return sendJsonResult(res, false, null, profileCheck.message, profileCheck.status)
+  const scope = await resolveManagedPromptScope({
+    reqUser: req.user,
+    profileId,
+  })
+  if (!scope.ok) {
+    return sendJsonResult(res, false, null, scope.message, scope.status)
   }
 
   const filter = buildOwnerPromptFilter({
-    ownerId: req.user._id,
-    profileId: profileCheck.profileId,
+    ownerId: scope.ownerUserId,
+    profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
   })
 
+  const existing = await PromptModel.findOne(filter)
+    .select('_id context promptName type profileId owner')
+    .lean()
+
+  if (existing) {
+    await appendPromptChangeAudit({
+      req,
+      ownerUserId: scope.ownerUserId,
+      promptDoc: { _id: existing._id },
+      promptName: existing.promptName || promptName,
+      type: existing.type || SYSTEM_PROMPT_TYPE,
+      profileId: existing.profileId || null,
+      action: PROMPT_AUDIT_ACTIONS.RESET,
+      beforeContext: existing.context || null,
+      afterContext: null,
+      payload: {
+        changeSource: 'self_prompt_reset',
+        managedScope: existing.profileId ? 'profile_override' : 'account_default',
+      },
+      fallbackPrefix: 'prompt-me-reset',
+      source: 'api.prompt.self',
+    })
+  }
+
   await PromptModel.deleteOne(filter)
   await clearManagedPromptCache({
-    ownerId: req.user._id,
-    profileId: profileCheck.profileId,
+    ownerId: scope.ownerUserId,
+    profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
   })
 
   return sendJsonResult(res, true, null, 'Prompt deleted successfully')
+})
+
+exports.rollbackMySystemPrompt = asyncErrorHandler(async (req, res) => {
+  const auditId = sanitizeText(req.body?.auditId, 80)
+  const promptName = resolveManagedPromptName(req.body?.promptName)
+  const profileId = normalizeNullableId(req.body?.profileId)
+
+  if (!auditId) {
+    return sendJsonResult(res, false, null, 'auditId is required', 400)
+  }
+
+  const scope = await resolveManagedPromptScope({
+    reqUser: req.user,
+    profileId,
+  })
+  if (!scope.ok) {
+    return sendJsonResult(res, false, null, scope.message, scope.status)
+  }
+
+  const auditFilter = {
+    _id: auditId,
+    ownerUserId: scope.ownerUserId,
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+    ...buildProfileScopeFilter(scope.profileId),
+  }
+
+  const sourceAudit = await PromptAuditModel.findOne(auditFilter).lean()
+  if (!sourceAudit) {
+    return sendJsonResult(res, false, null, 'Prompt audit event not found', 404)
+  }
+  if (!isRollbackEligibleAuditAction(sourceAudit.action)) {
+    return sendJsonResult(res, false, null, 'This audit event cannot be rolled back', 400)
+  }
+
+  const rollbackTargetContext = sourceAudit.afterContext == null
+    ? null
+    : sanitizeText(sourceAudit.afterContext, 100000)
+  if (rollbackTargetContext != null && rollbackTargetContext.length < 10) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'Cannot rollback because selected historical context is invalid',
+      400
+    )
+  }
+
+  const filter = buildOwnerPromptFilter({
+    ownerId: scope.ownerUserId,
+    profileId: scope.profileId,
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+  })
+  const existing = await PromptModel.findOne(filter).select('_id context promptName type profileId owner').lean()
+
+  let rolledBackPrompt = null
+  if (rollbackTargetContext == null) {
+    await PromptModel.deleteOne(filter)
+  } else {
+    rolledBackPrompt = await PromptModel.findOneAndUpdate(
+      filter,
+      {
+        $set: {
+          context: rollbackTargetContext,
+          updatedBy: req.user._id,
+          profileId: scope.profileId,
+        },
+        $setOnInsert: {
+          owner: scope.ownerUserId,
+          promptName,
+          type: SYSTEM_PROMPT_TYPE,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+        upsert: true,
+      }
+    )
+      .populate('owner', '_id name email')
+      .populate('profileId', '_id fullName title')
+      .populate('updatedBy', '_id name email')
+  }
+
+  await clearManagedPromptCache({
+    ownerId: scope.ownerUserId,
+    profileId: scope.profileId,
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+  })
+
+  await appendPromptChangeAudit({
+    req,
+    ownerUserId: scope.ownerUserId,
+    promptDoc: rolledBackPrompt || existing || null,
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+    profileId: scope.profileId,
+    action: PROMPT_AUDIT_ACTIONS.ROLLED_BACK,
+    beforeContext: existing?.context || null,
+    afterContext: rollbackTargetContext,
+    payload: {
+      changeSource: 'self_prompt_rollback',
+      managedScope: scope.profileId ? 'profile_override' : 'account_default',
+      rollbackFromAuditId: sourceAudit?._id ? String(sourceAudit._id) : auditId,
+      rollbackFromAction: sanitizeText(sourceAudit?.action, 80),
+      rollbackFromCreatedAt: sourceAudit?.createdAt || null,
+    },
+    fallbackPrefix: 'prompt-me-rollback',
+    source: 'api.prompt.self',
+  })
+
+  return sendJsonResult(
+    res,
+    true,
+    rolledBackPrompt ? toPromptDto(rolledBackPrompt) : null,
+    'Prompt rolled back successfully'
+  )
+})
+
+exports.getMySystemPromptAudit = asyncErrorHandler(async (req, res) => {
+  const promptName = resolveManagedPromptName(req.query?.promptName)
+  const hasProfileFilter = Object.prototype.hasOwnProperty.call(req.query || {}, 'profileId')
+  const profileId = normalizeNullableId(req.query?.profileId)
+  const page = toSafePage(req.query?.page, 1)
+  const pageSize = toSafePageSize(req.query?.pageSize, 20, 200)
+  const actionQuery = sanitizeText(req.query?.action, 400)
+  const actions = actionQuery
+    ? actionQuery
+        .split(',')
+        .map((value) => sanitizeText(value, 80))
+        .filter(Boolean)
+    : []
+
+  let scopedProfileId = undefined
+  let scopedOwnerUserId = req.user._id
+  if (hasProfileFilter) {
+    const scope = await resolveManagedPromptScope({
+      reqUser: req.user,
+      profileId,
+    })
+    if (!scope.ok) {
+      return sendJsonResult(res, false, null, scope.message, scope.status)
+    }
+    scopedProfileId = scope.profileId
+    scopedOwnerUserId = scope.ownerUserId
+  }
+
+  const result = await listPromptAudit({
+    ownerUserId: scopedOwnerUserId,
+    promptName,
+    type: SYSTEM_PROMPT_TYPE,
+    profileId: scopedProfileId,
+    actions,
+    page,
+    pageSize,
+  })
+
+  return sendJsonResult(res, true, {
+    items: (result?.items || []).map(toPromptAuditDto),
+    page: result?.page || page,
+    pageSize: result?.pageSize || pageSize,
+    total: result?.total || 0,
+  })
 })
