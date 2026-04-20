@@ -9,12 +9,25 @@ function normalizePromptName(value) {
   return sanitizeText(value, 120)
 }
 
+function normalizeOwnerId(value) {
+  return sanitizeText(value, 80)
+}
+
+function normalizeProfileId(value) {
+  const normalized = sanitizeText(value, 80)
+  return normalized || null
+}
+
 function normalizeType(value) {
   return sanitizeText(value, 50).toLowerCase()
 }
 
-function buildCacheKey(promptName, type) {
-  return `${normalizePromptName(promptName)}::${normalizeType(type)}`
+function buildCacheKey(ownerId, promptName, type, profileId = null) {
+  const ownerKey = normalizeOwnerId(ownerId)
+  const promptKey = normalizePromptName(promptName)
+  const typeKey = normalizeType(type)
+  const profileKey = normalizeProfileId(profileId) || 'account-default'
+  return `${ownerKey}::${promptKey}::${typeKey}::${profileKey}`
 }
 
 function getCacheTtlMs() {
@@ -37,31 +50,68 @@ function getPromptModel() {
   }
 }
 
-async function loadPromptFromDb(promptName, type) {
+async function loadPromptFromDb({ ownerId, promptName, type, profileId = null } = {}) {
   const PromptModel = getPromptModel()
   if (!PromptModel) return null
 
-  const doc = await PromptModel.findOne({
-    promptName: normalizePromptName(promptName),
-    type: normalizeType(type),
+  const normalizedOwnerId = normalizeOwnerId(ownerId)
+  const normalizedPromptName = normalizePromptName(promptName)
+  const normalizedType = normalizeType(type)
+  const normalizedProfileId = normalizeProfileId(profileId)
+
+  if (!normalizedOwnerId || !normalizedPromptName || !normalizedType) return null
+
+  if (normalizedProfileId) {
+    const profileScopedDoc = await PromptModel.findOne({
+      owner: normalizedOwnerId,
+      promptName: normalizedPromptName,
+      type: normalizedType,
+      profileId: normalizedProfileId,
+    })
+      .sort({ updatedAt: -1 })
+      .select({ context: 1 })
+      .lean()
+
+    const profileScopedContext = sanitizeText(profileScopedDoc?.context, 100000)
+    if (profileScopedContext) return profileScopedContext
+  }
+
+  const accountDefaultDoc = await PromptModel.findOne({
+    owner: normalizedOwnerId,
+    promptName: normalizedPromptName,
+    type: normalizedType,
+    $or: [{ profileId: null }, { profileId: { $exists: false } }],
   })
     .sort({ updatedAt: -1 })
     .select({ context: 1 })
     .lean()
 
-  return sanitizeText(doc?.context, 100000) || null
+  return sanitizeText(accountDefaultDoc?.context, 100000) || null
 }
 
-async function getManagedPromptContext({ promptName, type, fallbackContext = '' } = {}) {
+async function getManagedPromptContext({
+  ownerId,
+  profileId = null,
+  promptName,
+  type,
+  fallbackContext = '',
+} = {}) {
+  const normalizedOwnerId = normalizeOwnerId(ownerId)
+  const normalizedProfileId = normalizeProfileId(profileId)
   const normalizedPromptName = normalizePromptName(promptName)
   const normalizedType = normalizeType(type)
   const fallback = sanitizeText(fallbackContext, 100000)
 
-  if (!normalizedPromptName || !normalizedType) {
+  if (!normalizedOwnerId || !normalizedPromptName || !normalizedType) {
     return fallback
   }
 
-  const cacheKey = buildCacheKey(normalizedPromptName, normalizedType)
+  const cacheKey = buildCacheKey(
+    normalizedOwnerId,
+    normalizedPromptName,
+    normalizedType,
+    normalizedProfileId
+  )
   const now = Date.now()
   const cached = promptCache.get(cacheKey)
   if (cached && cached.expiresAt > now) {
@@ -73,7 +123,12 @@ async function getManagedPromptContext({ promptName, type, fallbackContext = '' 
   }
 
   try {
-    const context = await loadPromptFromDb(normalizedPromptName, normalizedType)
+    const context = await loadPromptFromDb({
+      ownerId: normalizedOwnerId,
+      profileId: normalizedProfileId,
+      promptName: normalizedPromptName,
+      type: normalizedType,
+    })
     promptCache.set(cacheKey, {
       context,
       expiresAt: now + getCacheTtlMs(),
@@ -88,11 +143,25 @@ async function getManagedPromptContext({ promptName, type, fallbackContext = '' 
   }
 }
 
-function clearManagedPromptCache({ promptName, type } = {}) {
+function clearManagedPromptCache({ ownerId, promptName, type, profileId = null } = {}) {
+  const normalizedOwnerId = normalizeOwnerId(ownerId)
   const normalizedPromptName = normalizePromptName(promptName)
   const normalizedType = normalizeType(type)
-  if (normalizedPromptName && normalizedType) {
-    promptCache.delete(buildCacheKey(normalizedPromptName, normalizedType))
+  const normalizedProfileId = normalizeProfileId(profileId)
+  if (normalizedOwnerId && normalizedPromptName && normalizedType) {
+    if (normalizedProfileId) {
+      promptCache.delete(
+        buildCacheKey(normalizedOwnerId, normalizedPromptName, normalizedType, normalizedProfileId)
+      )
+      return
+    }
+
+    const keyPrefix = `${normalizedOwnerId}::${normalizedPromptName}::${normalizedType}::`
+    for (const key of promptCache.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        promptCache.delete(key)
+      }
+    }
     return
   }
   promptCache.clear()

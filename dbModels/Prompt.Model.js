@@ -27,6 +27,12 @@ const promptSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    profileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Profile",
+      default: null,
+      index: true,
+    },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -36,7 +42,8 @@ const promptSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-promptSchema.index({ promptName: 1, type: 1, owner: 1 }, { unique: true });
+promptSchema.index({ promptName: 1, type: 1, owner: 1, profileId: 1 }, { unique: true });
 promptSchema.index({ type: 1, promptName: 1, updatedAt: -1 });
+promptSchema.index({ owner: 1, type: 1, promptName: 1, profileId: 1, updatedAt: -1 });
 
 module.exports = mongoose.model("Prompt", promptSchema);

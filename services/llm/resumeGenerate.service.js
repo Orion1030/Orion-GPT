@@ -14,6 +14,7 @@ const {
   buildResumeGenerationSystemPrompt,
   buildResumeGenerationUserPrompt,
 } = require("./prompts/resumeGenerate.prompts");
+const { getManagedPromptContext } = require("../promptRuntime.service");
 const {
   buildEmploymentKey,
   buildEmploymentBaseKey,
@@ -22,6 +23,8 @@ const {
 const { alignResumeExperiencesToCareerHistory } = require("../../utils/experienceAdapter");
 
 const MAX_CAREER_HISTORY_ITEMS = 16;
+const RESUME_GENERATION_PROMPT_NAME = "resume_generation";
+const SYSTEM_PROMPT_TYPE = "system";
 
 function sanitizeStr(s) {
   if (s == null) return "";
@@ -724,7 +727,14 @@ async function generateResumeFromJD({ jd, profile, baseResume }) {
 
   try {
     const llmInput = buildResumeGenerationInput({ jd, profile, baseResume });
-    const systemPrompt = buildResumeGenerationSystemPrompt();
+    const fallbackSystemPrompt = buildResumeGenerationSystemPrompt();
+    const systemPrompt = await getManagedPromptContext({
+      ownerId: profile?.userId,
+      profileId: profile?._id || null,
+      promptName: RESUME_GENERATION_PROMPT_NAME,
+      type: SYSTEM_PROMPT_TYPE,
+      fallbackContext: fallbackSystemPrompt,
+    });
     const userPrompt = buildResumeGenerationUserPrompt(llmInput);
 
     let rawJson = null;
