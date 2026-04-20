@@ -53,7 +53,14 @@ describe('parseTextResume controller', () => {
       name: 'Test Resume',
       profileId: 'p1',
       experiences: [
-        { title: 'Engineer', companyName: 'Acme', descriptions: ['Did stuff'], startDate: '2020-01-01', endDate: '2021-01-01' }
+        {
+          title: 'Engineer',
+          companyName: 'Acme',
+          summary: 'Legacy summary',
+          descriptions: ['Did stuff'],
+          startDate: '2020-01-01',
+          endDate: '2021-01-01'
+        }
       ],
       skills: [
         { title: 'Skills', items: ['JS', 'Node'] }
@@ -65,6 +72,8 @@ describe('parseTextResume controller', () => {
     expect(Array.isArray(out.experiences)).toBe(true);
     expect(Array.isArray(out.skills)).toBe(true);
     expect(out.experiences[0].title).toBe('Engineer');
+    expect(out.experiences[0].descriptions).toEqual(expect.arrayContaining(['Legacy summary', 'Did stuff']));
+    expect(out.experiences[0].summary).toBeUndefined();
     expect(out.skills[0].items).toContain('JS');
   });
 

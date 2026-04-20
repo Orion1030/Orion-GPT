@@ -41,7 +41,6 @@ const resumeSchema = new mongoose.Schema(
           title: { type: String, default: '' },
           companyName: { type: String, default: '' },
           companyLocation: { type: String, default: '' },
-          summary: { type: String, default: '' },
           descriptions: { type: [String], default: [] },
           startDate: { type: String, default: '' },
           endDate: { type: String, default: '' },

@@ -92,8 +92,11 @@ async function findTopResumesCore(userId, jdId, profileId) {
     })
     const resumeText = []
     ;(r.experiences || []).forEach(e => {
-      resumeText.push(e.summary || e.title || '')
-      ;(e.descriptions || []).forEach(d => resumeText.push(d))
+      const legacySummary = String(e?.summary || '').trim()
+      const descriptions = Array.isArray(e?.descriptions) ? e.descriptions : []
+      const mergedDescriptions = [...new Set([legacySummary, ...descriptions].filter(Boolean))]
+      resumeText.push(e.title || '')
+      mergedDescriptions.forEach((d) => resumeText.push(d))
     })
     resumeText.push(r.summary || '')
     const fullText = resumeText.join(' ').toLowerCase()

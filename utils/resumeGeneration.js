@@ -8,22 +8,39 @@ function sanitizeStr(s) {
     .slice(0, 10000);
 }
 
+function dedupeStrings(items) {
+  const out = [];
+  const seen = new Set();
+  for (const item of items || []) {
+    const clean = sanitizeStr(item);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
+}
+
 // Build resume JSON matching Resume model: name, summary, experiences[], skills[]
 function normalizeResumeJson(raw) {
   const name = sanitizeStr(raw?.name) || "Generated Resume";
   const summary = sanitizeStr(raw?.summary) || "";
   const experiences = Array.isArray(raw?.experiences)
-    ? raw.experiences.slice(0, 20).map((e) => ({
-        title: sanitizeStr(e?.title ?? e?.roleTitle) || "",
-        companyName: sanitizeStr(e?.companyName) || "",
-        companyLocation: sanitizeStr(e?.companyLocation) || "",
-        summary: sanitizeStr(e?.summary) || "",
-        descriptions: Array.isArray(e?.descriptions)
+    ? raw.experiences.slice(0, 20).map((e) => {
+        const legacySummary = sanitizeStr(e?.summary);
+        const descriptions = Array.isArray(e?.descriptions)
           ? e.descriptions.map(sanitizeStr).filter(Boolean)
-          : [],
-        startDate: sanitizeStr(e?.startDate) || "",
-        endDate: sanitizeStr(e?.endDate) || "",
-      }))
+          : [];
+        return {
+          title: sanitizeStr(e?.title ?? e?.roleTitle) || "",
+          companyName: sanitizeStr(e?.companyName) || "",
+          companyLocation: sanitizeStr(e?.companyLocation) || "",
+          descriptions: dedupeStrings([legacySummary, ...descriptions]),
+          startDate: sanitizeStr(e?.startDate) || "",
+          endDate: sanitizeStr(e?.endDate) || "",
+        };
+      })
     : [];
 
   const skills = Array.isArray(raw?.skills)

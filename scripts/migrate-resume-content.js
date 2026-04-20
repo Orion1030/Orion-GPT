@@ -63,8 +63,7 @@ async function main() {
             title: exp.roleTitle || exp.title || '',
             companyName: exp.companyName || '',
             companyLocation: '',
-            summary: exp.companySummary || '',
-            descriptions: keyPointsToDescriptions(exp.keyPoints),
+            descriptions: [exp.companySummary || '', ...keyPointsToDescriptions(exp.keyPoints)].filter(Boolean),
             startDate: exp.startDate || '',
             endDate: exp.endDate || '',
           }));

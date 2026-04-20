@@ -103,6 +103,8 @@ describe("resumeAI.parseTextResume controller", () => {
     expect(payload.data.parsed.experiences).toHaveLength(1);
     expect(payload.data.parsed.experiences[0].startDate).toBe("2023-01-01");
     expect(payload.data.parsed.experiences[0].endDate).toBe("2024-01-01");
-    expect(payload.data.parsed.experiences[0].descriptions).toEqual(["Imported bullet"]);
+    expect(payload.data.parsed.experiences[0].descriptions).toEqual(
+      expect.arrayContaining(["Imported bullet"])
+    );
   });
 });

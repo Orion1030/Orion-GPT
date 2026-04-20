@@ -10,7 +10,10 @@ function buildResumeTextForEmbedding(r) {
   if (!r) return '';
   const parts = [r.summary || ''];
   (r.experiences || []).forEach((e) => {
-    parts.push(e.title || '', e.summary || '', (e.descriptions || []).join(' '));
+    const legacySummary = String(e?.summary || '').trim();
+    const descriptions = Array.isArray(e?.descriptions) ? e.descriptions : [];
+    const mergedDescriptions = [...new Set([legacySummary, ...descriptions].filter(Boolean))];
+    parts.push(e.title || '', mergedDescriptions.join(' '));
   });
   (r.skills || []).forEach((s) => {
     if (s?.items) parts.push(s.items.join(' '));

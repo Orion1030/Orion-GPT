@@ -131,8 +131,10 @@ describe('resume generation prompt careerHistory merge', () => {
     );
     expect(merged[0].candidateExperience).toEqual(
       expect.objectContaining({
-        summary: expect.stringContaining('Owned distributed data services'),
-        descriptions: expect.arrayContaining(['Reduced ingestion latency by 42%.']),
+        descriptions: expect.arrayContaining([
+          'Owned distributed data services.',
+          'Reduced ingestion latency by 42%.',
+        ]),
       })
     );
   });
@@ -245,9 +247,14 @@ describe('resume generation prompt careerHistory merge', () => {
     expect(merged[0].companyContext.keyPoints).toEqual(
       expect.arrayContaining(['Built shared ETL templates', 'Improved data quality controls'])
     );
-    expect(merged[0].candidateExperience.summary).toBe('Built ELT jobs and productionized orchestration.');
     expect(merged[0].candidateExperience.descriptions).toEqual(
-      expect.arrayContaining(['Built ELT jobs in Airflow', 'Owned incident response', 'Improved observability'])
+      expect.arrayContaining([
+        'Built ELT jobs.',
+        'Built ELT jobs and productionized orchestration.',
+        'Built ELT jobs in Airflow',
+        'Owned incident response',
+        'Improved observability',
+      ])
     );
     expect(new Set(merged[0].candidateExperience.descriptions).size).toBe(
       merged[0].candidateExperience.descriptions.length

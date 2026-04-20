@@ -16,7 +16,6 @@ const resumeSchema = {
           title: { type: "string" },
           companyName: { type: "string" },
           companyLocation: { type: "string" },
-          summary: { type: "string" },
           descriptions: { type: "array", items: { type: "string" } },
           startDate: { type: "string" },
           endDate: { type: "string" },

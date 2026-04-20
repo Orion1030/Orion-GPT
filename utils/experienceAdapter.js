@@ -5,7 +5,7 @@
  *   roleTitle, companyName, startDate, endDate, companySummary, keyPoints (rich-text string)
  *
  * Resume experience fields:
- *   title, companyName, companyLocation, summary, descriptions[], startDate, endDate
+ *   title, companyName, companyLocation, descriptions[], startDate, endDate
  */
 const {
   buildEmploymentKey,
@@ -96,20 +96,36 @@ function descriptionsToKeyPoints(value) {
   return `<ul>${listItems.join("")}</ul>`;
 }
 
+function mergeUniqueStrings(items) {
+  const out = [];
+  const seen = new Set();
+  for (const item of items || []) {
+    const clean = sanitizeString(item);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
+}
+
 /**
  * Normalize any resume/profile-like experience payload into Resume.experiences shape.
  * @param {object} value
  * @returns {object}
  */
 function normalizeResumeExperience(value) {
+  const legacySummary = sanitizeString(value?.summary ?? value?.companySummary);
+  const normalizedDescriptions = Array.isArray(value?.descriptions)
+    ? value.descriptions.map((item) => sanitizeString(item)).filter(Boolean)
+    : keyPointsToDescriptions(value?.keyPoints);
+
   return {
     title: sanitizeString(value?.title ?? value?.roleTitle),
     companyName: sanitizeString(value?.companyName),
     companyLocation: sanitizeString(value?.companyLocation),
-    summary: sanitizeString(value?.summary ?? value?.companySummary),
-    descriptions: Array.isArray(value?.descriptions)
-      ? value.descriptions.map((item) => sanitizeString(item)).filter(Boolean)
-      : keyPointsToDescriptions(value?.keyPoints),
+    descriptions: mergeUniqueStrings([legacySummary, ...normalizedDescriptions]),
     startDate: normalizeDateString(value?.startDate),
     endDate: normalizeDateString(value?.endDate),
   };
@@ -192,7 +208,6 @@ function alignResumeExperiencesToCareerHistory(profileCareerHistory, resumeExper
       title: profileExperience.title || normalizedMatch?.title || "",
       companyName: profileExperience.companyName || normalizedMatch?.companyName || "",
       companyLocation: normalizedMatch?.companyLocation || profileExperience.companyLocation || "",
-      summary: normalizedMatch?.summary || profileExperience.summary || "",
       descriptions: (normalizedMatch?.descriptions || []).length
         ? normalizedMatch.descriptions
         : profileExperience.descriptions,
@@ -214,7 +229,7 @@ function profileExperienceToResumeExperience(profileExp) {
     title: profileExp.roleTitle || profileExp.title || "",
     companyName: profileExp.companyName || "",
     companyLocation: profileExp.companyLocation || "",
-    summary: profileExp.companySummary || profileExp.summary || "",
+    companySummary: profileExp.companySummary || profileExp.summary || "",
     descriptions: Array.isArray(profileExp.descriptions)
       ? profileExp.descriptions
       : keyPointsToDescriptions(profileExp.keyPoints),
@@ -242,7 +257,7 @@ function resumeExperienceToProfileExperience(resumeExp) {
     companyName: resumeExp.companyName || "",
     startDate: resumeExp.startDate || "",
     endDate: resumeExp.endDate || "",
-    companySummary: resumeExp.summary || resumeExp.companySummary || "",
+    companySummary: resumeExp.companySummary || resumeExp.summary || "",
     keyPoints: descriptionsToKeyPoints(descriptions),
   };
 }

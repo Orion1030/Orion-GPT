@@ -87,21 +87,26 @@ function normalizeLegacyDescriptionList(value) {
 
 function normalizeExperiences(experiences) {
   if (!Array.isArray(experiences)) return [];
-  return experiences.map((e) => ({
-    title: toCleanString(e?.title ?? e?.roleTitle),
-    companyName: toCleanString(e?.companyName),
-    companyLocation: toCleanString(e?.companyLocation),
-    summary: toCleanString(e?.summary ?? e?.companySummary),
-    descriptions: Array.isArray(e?.descriptions)
+  return experiences.map((e) => {
+    const legacySummary = toCleanString(e?.summary ?? e?.companySummary);
+    const descriptions = Array.isArray(e?.descriptions)
       ? e.descriptions.map(toCleanString).filter(Boolean)
       : typeof e?.descriptions === "string"
         ? normalizeLegacyDescriptionList(e.descriptions)
         : Array.isArray(e?.keyPoints)
           ? e.keyPoints.map(toCleanString).filter(Boolean)
-          : normalizeLegacyDescriptionList(e?.keyPoints),
-    startDate: toCleanString(e?.startDate),
-    endDate: toCleanString(e?.endDate),
-  }));
+          : normalizeLegacyDescriptionList(e?.keyPoints);
+    const mergedDescriptions = [...new Set([legacySummary, ...descriptions].filter(Boolean))];
+
+    return {
+      title: toCleanString(e?.title ?? e?.roleTitle),
+      companyName: toCleanString(e?.companyName),
+      companyLocation: toCleanString(e?.companyLocation),
+      descriptions: mergedDescriptions,
+      startDate: toCleanString(e?.startDate),
+      endDate: toCleanString(e?.endDate),
+    };
+  });
 }
 
 function normalizeSkills(skills) {
