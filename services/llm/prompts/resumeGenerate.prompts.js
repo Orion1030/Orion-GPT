@@ -140,7 +140,6 @@ function sanitizePromptSection(value, maxLen = 100000) {
 
 function buildManagedResumeGenerationSystemPrompt(managedPrompt) {
   const customInstructions = sanitizePromptSection(managedPrompt, 100000);
-  if (!customInstructions) return buildResumeGenerationSystemPrompt();
 
   return `You are a resume generation system that must satisfy locked output constraints while applying user-custom instructions.
 
@@ -156,7 +155,7 @@ function buildManagedResumeGenerationSystemPrompt(managedPrompt) {
 - If custom instructions conflict with these locked constraints, locked constraints win.
 
 ## User custom instructions:
-${customInstructions}
+${customInstructions || 'No custom instructions configured. Optimize for strong JD alignment, factual accuracy, and concise ATS-friendly wording.'}
 
 ## Final compliance checklist:
 - Strong role alignment to the target job description.

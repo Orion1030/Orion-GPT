@@ -22,7 +22,7 @@ describe('generateResumeFromJD', () => {
     jest.clearAllMocks();
     resolveManagedPromptContext.mockImplementation(async ({ fallbackContext }) => ({
       context: fallbackContext,
-      source: 'fallback_built_in',
+      source: 'no_prompt_configured',
       promptId: null,
       promptUpdatedAt: null,
     }));
@@ -181,6 +181,45 @@ describe('generateResumeFromJD', () => {
         type: "system",
       })
     );
+  });
+
+  it('does not recurse infinitely when userId has a self-referential _id shape', async () => {
+    const recursiveId = {};
+    recursiveId._id = recursiveId;
+    const profileWithRecursiveOwnerId = {
+      ...profile,
+      _id: "profile-recursive",
+      userId: recursiveId,
+    };
+
+    chatCompletions.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  name: 'Recursive Id Test',
+                  summary: '',
+                  experiences: [],
+                  skills: [],
+                  education: [],
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const res = await generateResumeFromJD({
+      jd,
+      profile: profileWithRecursiveOwnerId,
+      baseResume: null,
+    });
+
+    expect(res.name).toBe('Recursive Id Test');
   });
 });
 

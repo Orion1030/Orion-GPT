@@ -11,9 +11,6 @@ const {
   buildRequestAuditMeta,
 } = require('../services/promptAudit.service')
 const { isAdminUser } = require('../utils/access')
-const {
-  buildResumeGenerationSystemPrompt,
-} = require('../services/llm/prompts/resumeGenerate.prompts')
 
 const SYSTEM_PROMPT_TYPE = 'system'
 const DEFAULT_USER_MANAGED_PROMPT_NAME = 'resume_generation'
@@ -320,20 +317,6 @@ function buildProfileScopeFilter(profileId) {
   return { profileId }
 }
 
-function buildManagedPromptFallbackContext({ promptName, type }) {
-  const normalizedPromptName = resolveManagedPromptName(promptName)
-  const normalizedType = sanitizeText(type, 50).toLowerCase()
-
-  if (
-    normalizedType === SYSTEM_PROMPT_TYPE &&
-    normalizedPromptName === DEFAULT_USER_MANAGED_PROMPT_NAME
-  ) {
-    return buildResumeGenerationSystemPrompt()
-  }
-
-  return ''
-}
-
 function buildOwnerPromptFilter({ ownerId, promptName, type, profileId }) {
   const filter = {
     owner: ownerId,
@@ -420,6 +403,7 @@ exports.createPrompt = asyncErrorHandler(async (req, res) => {
       promptName: payload.promptName,
       type: payload.type,
       profileId: profileCheck.profileId,
+      clearAcrossOwners: profileCheck.profileId == null,
     })
     await appendPromptChangeAudit({
       req,
@@ -494,6 +478,7 @@ exports.updatePrompt = asyncErrorHandler(async (req, res) => {
       profileId: existing.profileId || null,
       promptName: existing.promptName,
       type: existing.type,
+      clearAcrossOwners: (existing.profileId || null) == null || (oldPromptKey.profileId || null) == null,
     })
     await appendPromptChangeAudit({
       req,
@@ -562,6 +547,7 @@ exports.deletePrompt = asyncErrorHandler(async (req, res) => {
     profileId: prompt.profileId || null,
     promptName: prompt.promptName,
     type: prompt.type,
+    clearAcrossOwners: (prompt.profileId || null) == null,
   })
 
   return sendJsonResult(res, true, null, 'Prompt deleted successfully')
@@ -607,17 +593,12 @@ exports.getMyEffectiveSystemPrompt = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, scope.message, scope.status)
   }
 
-  const fallbackContext = buildManagedPromptFallbackContext({
-    promptName,
-    type: SYSTEM_PROMPT_TYPE,
-  })
-
   const resolved = await resolveManagedPromptContext({
     ownerId: scope.ownerUserId,
     profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
-    fallbackContext,
+    fallbackContext: '',
   })
 
   return sendJsonResult(res, true, {
@@ -625,7 +606,7 @@ exports.getMyEffectiveSystemPrompt = asyncErrorHandler(async (req, res) => {
     type: SYSTEM_PROMPT_TYPE,
     profileId: scope.profileId ? String(scope.profileId) : null,
     context: sanitizeText(resolved?.context, 100000),
-    source: sanitizeText(resolved?.source, 80) || 'fallback_built_in',
+    source: sanitizeText(resolved?.source, 80) || 'no_prompt_configured',
     promptId: resolved?.promptId || null,
     promptUpdatedAt: resolved?.promptUpdatedAt || null,
   })
@@ -702,6 +683,7 @@ exports.upsertMySystemPrompt = asyncErrorHandler(async (req, res) => {
     profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
+    clearAcrossOwners: scope.profileId == null,
   })
   await appendPromptChangeAudit({
     req,
@@ -778,6 +760,7 @@ exports.deleteMySystemPrompt = asyncErrorHandler(async (req, res) => {
     profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
+    clearAcrossOwners: scope.profileId == null,
   })
 
   return sendJsonResult(res, true, null, 'Prompt deleted successfully')
@@ -871,6 +854,7 @@ exports.rollbackMySystemPrompt = asyncErrorHandler(async (req, res) => {
     profileId: scope.profileId,
     promptName,
     type: SYSTEM_PROMPT_TYPE,
+    clearAcrossOwners: scope.profileId == null,
   })
 
   await appendPromptChangeAudit({

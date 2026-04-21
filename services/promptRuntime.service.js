@@ -1,5 +1,10 @@
 const DEFAULT_PROMPT_CACHE_TTL_MS = 60 * 1000
 const promptCache = new Map()
+const DEFAULT_SUPER_ADMIN_OWNER_CACHE_TTL_MS = 5 * 60 * 1000
+const superAdminOwnerCache = {
+  ownerId: null,
+  expiresAt: 0,
+}
 
 function sanitizeText(value, maxLen = 240) {
   return String(value || '').trim().slice(0, maxLen)
@@ -50,10 +55,74 @@ function getPromptModel() {
   }
 }
 
+function getUserModel() {
+  if (!shouldUseDatabase()) return null
+  try {
+    return require('../dbModels').UserModel
+  } catch (error) {
+    console.warn('[PromptRuntime] unable to load UserModel', error?.message || error)
+    return null
+  }
+}
+
+function getSuperAdminOwnerCacheTtlMs() {
+  const parsed = Number(process.env.SUPER_ADMIN_PROMPT_OWNER_CACHE_TTL_MS)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_SUPER_ADMIN_OWNER_CACHE_TTL_MS
+  }
+  return parsed
+}
+
+function getConfiguredSuperAdminOwnerId() {
+  const configuredOwnerId = sanitizeText(
+    process.env.SUPER_ADMIN_PROMPT_OWNER_ID || process.env.BASE_PROMPT_OWNER_ID,
+    80
+  )
+  return configuredOwnerId || null
+}
+
+async function resolveSuperAdminOwnerId() {
+  const configuredOwnerId = getConfiguredSuperAdminOwnerId()
+  if (configuredOwnerId) return configuredOwnerId
+
+  const now = Date.now()
+  if (superAdminOwnerCache.expiresAt > now) {
+    return superAdminOwnerCache.ownerId
+  }
+
+  const UserModel = getUserModel()
+  if (!UserModel) {
+    superAdminOwnerCache.ownerId = null
+    superAdminOwnerCache.expiresAt = now + getSuperAdminOwnerCacheTtlMs()
+    return null
+  }
+
+  try {
+    const { RoleLevels } = require('../utils/constants')
+    const superAdmin = await UserModel.findOne({
+      role: Number(RoleLevels.SUPER_ADMIN),
+      isActive: true,
+    })
+      .sort({ createdAt: 1, _id: 1 })
+      .select({ _id: 1 })
+      .lean()
+    const ownerId = superAdmin?._id ? String(superAdmin._id) : null
+    superAdminOwnerCache.ownerId = ownerId
+    superAdminOwnerCache.expiresAt = now + getSuperAdminOwnerCacheTtlMs()
+    return ownerId
+  } catch (error) {
+    console.warn('[PromptRuntime] failed to resolve super admin owner id', error?.message || error)
+    superAdminOwnerCache.ownerId = null
+    superAdminOwnerCache.expiresAt = now + getSuperAdminOwnerCacheTtlMs()
+    return null
+  }
+}
+
 function buildFallbackResolution(fallbackContext = '') {
+  const normalizedContext = sanitizeText(fallbackContext, 100000)
   return {
-    context: sanitizeText(fallbackContext, 100000),
-    source: 'fallback_built_in',
+    context: normalizedContext,
+    source: normalizedContext ? 'fallback_runtime' : 'no_prompt_configured',
     promptId: null,
     promptUpdatedAt: null,
   }
@@ -113,6 +182,46 @@ async function loadPromptFromDb({ ownerId, promptName, type, profileId = null } 
   }
 }
 
+async function loadSuperAdminBasePromptFromDb({
+  ownerId,
+  promptName,
+  type,
+} = {}) {
+  const PromptModel = getPromptModel()
+  if (!PromptModel) return null
+
+  const normalizedOwnerId = normalizeOwnerId(ownerId)
+  const normalizedPromptName = normalizePromptName(promptName)
+  const normalizedType = normalizeType(type)
+  if (!normalizedOwnerId || !normalizedPromptName || !normalizedType) return null
+
+  const superAdminOwnerId = await resolveSuperAdminOwnerId()
+  const normalizedSuperAdminOwnerId = normalizeOwnerId(superAdminOwnerId)
+  if (!normalizedSuperAdminOwnerId || normalizedSuperAdminOwnerId === normalizedOwnerId) {
+    return null
+  }
+
+  const superAdminPromptDoc = await PromptModel.findOne({
+    owner: normalizedSuperAdminOwnerId,
+    promptName: normalizedPromptName,
+    type: normalizedType,
+    $or: [{ profileId: null }, { profileId: { $exists: false } }],
+  })
+    .sort({ updatedAt: -1 })
+    .select({ _id: 1, context: 1, updatedAt: 1 })
+    .lean()
+
+  const superAdminPromptContext = sanitizeText(superAdminPromptDoc?.context, 100000)
+  if (!superAdminPromptContext) return null
+
+  return {
+    context: superAdminPromptContext,
+    source: 'super_admin_base',
+    promptId: superAdminPromptDoc?._id ? String(superAdminPromptDoc._id) : null,
+    promptUpdatedAt: superAdminPromptDoc?.updatedAt || null,
+  }
+}
+
 async function resolveManagedPromptContext({
   ownerId,
   profileId = null,
@@ -152,12 +261,19 @@ async function resolveManagedPromptContext({
   }
 
   try {
-    const resolved = await loadPromptFromDb({
+    const ownerResolution = await loadPromptFromDb({
       ownerId: normalizedOwnerId,
       profileId: normalizedProfileId,
       promptName: normalizedPromptName,
       type: normalizedType,
     })
+    const resolved =
+      ownerResolution ||
+      (await loadSuperAdminBasePromptFromDb({
+        ownerId: normalizedOwnerId,
+        promptName: normalizedPromptName,
+        type: normalizedType,
+      }))
     promptCache.set(cacheKey, {
       context: resolved?.context || null,
       source: resolved?.source || null,
@@ -192,7 +308,13 @@ async function getManagedPromptContext({
   return sanitizeText(resolved?.context, 100000)
 }
 
-function clearManagedPromptCache({ ownerId, promptName, type, profileId = null } = {}) {
+function clearManagedPromptCache({
+  ownerId,
+  promptName,
+  type,
+  profileId = null,
+  clearAcrossOwners = false,
+} = {}) {
   const normalizedOwnerId = normalizeOwnerId(ownerId)
   const normalizedPromptName = normalizePromptName(promptName)
   const normalizedType = normalizeType(type)
@@ -211,8 +333,29 @@ function clearManagedPromptCache({ ownerId, promptName, type, profileId = null }
         promptCache.delete(key)
       }
     }
+    if (clearAcrossOwners) {
+      const keySegment = `::${normalizedPromptName}::${normalizedType}::`
+      for (const key of promptCache.keys()) {
+        if (key.includes(keySegment)) {
+          promptCache.delete(key)
+        }
+      }
+    }
     return
   }
+
+  if (normalizedPromptName && normalizedType && clearAcrossOwners) {
+    const keySegment = `::${normalizedPromptName}::${normalizedType}::`
+    for (const key of promptCache.keys()) {
+      if (key.includes(keySegment)) {
+        promptCache.delete(key)
+      }
+    }
+    return
+  }
+
+  superAdminOwnerCache.ownerId = null
+  superAdminOwnerCache.expiresAt = 0
   promptCache.clear()
 }
 

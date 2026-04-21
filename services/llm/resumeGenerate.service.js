@@ -11,7 +11,6 @@ const {
 } = require("../../config/llm");
 const { resumeSchema } = require("./schemas/resumeSchemas");
 const {
-  buildResumeGenerationSystemPrompt,
   buildManagedResumeGenerationSystemPrompt,
   buildResumeGenerationUserPrompt,
 } = require("./prompts/resumeGenerate.prompts");
@@ -29,18 +28,49 @@ const RESUME_GENERATION_PROMPT_NAME = "resume_generation";
 const SYSTEM_PROMPT_TYPE = "system";
 const PROMPT_RUNTIME_ACTION = "prompt_runtime_used";
 
-function toIdString(value) {
+function toIdString(value, seen = new Set()) {
   if (value == null || value === "") return null;
   if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "bigint") return String(value);
+
   if (typeof value === "object") {
-    if (value._id != null) return toIdString(value._id);
-    if (value.id != null) return toIdString(value.id);
+    if (seen.has(value)) return null;
+    seen.add(value);
+
+    if (typeof value.toHexString === "function") {
+      try {
+        const hex = value.toHexString();
+        if (hex) return String(hex);
+      } catch {
+        // Ignore and continue to other extraction strategies.
+      }
+    }
+
+    const nestedId = value._id ?? value.id;
+    if (nestedId != null) {
+      const nested = toIdString(nestedId, seen);
+      if (nested) return nested;
+    }
+
+    try {
+      const asString = value.toString();
+      if (asString && asString !== "[object Object]") return String(asString);
+    } catch {
+      // Ignore and fall through.
+    }
+    return null;
   }
+
   try {
     return String(value);
   } catch {
     return null;
   }
+}
+
+function sanitizePromptSource(source) {
+  const normalized = sanitizeStr(source).slice(0, 80);
+  return normalized || "no_prompt_configured";
 }
 
 function sanitizeStr(s) {
@@ -763,10 +793,11 @@ async function appendPromptRuntimeAuditEvent({
       beforeContext: null,
       afterContext: null,
       payload: {
-        resolvedFrom: resolvedPrompt?.source || "fallback_built_in",
+        resolvedFrom: sanitizePromptSource(resolvedPrompt?.source),
         usedManagedPrompt: Boolean(
           resolvedPrompt?.source &&
-            resolvedPrompt.source !== "fallback_built_in" &&
+            resolvedPrompt.source !== "fallback_runtime" &&
+            resolvedPrompt.source !== "no_prompt_configured" &&
             resolvedPrompt.promptId
         ),
         usedGuardrailedManagedPrompt: Boolean(usedGuardrailedManagedPrompt),
@@ -796,7 +827,6 @@ async function generateResumeFromJD({ jd, profile, baseResume, auditContext = nu
 
   try {
     const llmInput = buildResumeGenerationInput({ jd, profile, baseResume });
-    const fallbackSystemPrompt = buildResumeGenerationSystemPrompt();
     const scopedOwnerUserId = toIdString(profile?.userId);
     const scopedProfileId = toIdString(profile?._id);
     const resolvedPrompt = await resolveManagedPromptContext({
@@ -804,14 +834,12 @@ async function generateResumeFromJD({ jd, profile, baseResume, auditContext = nu
       profileId: scopedProfileId,
       promptName: RESUME_GENERATION_PROMPT_NAME,
       type: SYSTEM_PROMPT_TYPE,
-      fallbackContext: fallbackSystemPrompt,
+      fallbackContext: "",
     });
-    const resolvedSource = sanitizeStr(resolvedPrompt?.source);
-    const useManagedGuardrailWrapper =
-      Boolean(resolvedSource) && resolvedSource !== "fallback_built_in";
-    const systemPrompt = useManagedGuardrailWrapper
-      ? buildManagedResumeGenerationSystemPrompt(resolvedPrompt?.context)
-      : (resolvedPrompt?.context || fallbackSystemPrompt);
+    const useManagedGuardrailWrapper = true;
+    const systemPrompt = buildManagedResumeGenerationSystemPrompt(
+      resolvedPrompt?.context || ""
+    );
     await appendPromptRuntimeAuditEvent({
       profile,
       resolvedPrompt,
