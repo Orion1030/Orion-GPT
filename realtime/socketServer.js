@@ -8,9 +8,11 @@ const { toNotificationDto } = require('../controllers/notification.controller')
 const SOCKET_PATH = '/realtime/socket.io'
 const HEARTBEAT_INTERVAL_MS = 15000
 const ADMIN_PRESENCE_ROOM = 'admins:presence'
+const PRESENCE_SYNC_INTERVAL_MS = 10000
 
 let ioInstance = null
 const socketIdsByUserId = new Map()
+let presenceSyncTimer = null
 
 function buildUserRoom(userId) {
   return `user:${String(userId)}`
@@ -74,6 +76,8 @@ function buildPresencePayload() {
 
 function emitOnlineUsersToAdmins() {
   if (!ioInstance) return false
+  const adminRoomSize = ioInstance.sockets.adapter.rooms.get(ADMIN_PRESENCE_ROOM)?.size || 0
+  if (adminRoomSize === 0) return false
   ioInstance.to(ADMIN_PRESENCE_ROOM).emit('presence:online_users', buildPresencePayload())
   return true
 }
@@ -194,25 +198,33 @@ function initSocketServer(httpServer) {
       origin: true,
       credentials: true,
     },
+    pingInterval: 10000,
+    pingTimeout: 5000,
   })
 
   ioInstance.use((socket, next) => {
     verifySocketIdentity(socket, next).catch(() => next(new Error('unauthorized')))
   })
 
+  if (!presenceSyncTimer) {
+    // Heartbeat resync so admin presence heals even if a lifecycle event is delayed/missed.
+    presenceSyncTimer = setInterval(() => {
+      emitOnlineUsersToAdmins()
+    }, PRESENCE_SYNC_INTERVAL_MS)
+  }
+
   ioInstance.on('connection', (socket) => {
     const userRoom = buildUserRoom(socket.data.userId)
     socket.join(userRoom)
-    const becameOnline = addUserSocket(socket.data.userId, socket.id)
+    addUserSocket(socket.data.userId, socket.id)
 
     if (isAdminUser({ role: socket.data.role })) {
       socket.join(ADMIN_PRESENCE_ROOM)
       emitOnlineUsersToSocket(socket)
     }
 
-    if (becameOnline) {
-      emitOnlineUsersToAdmins()
-    }
+    // Always refresh admin presence snapshot on each connect.
+    emitOnlineUsersToAdmins()
 
     const heartbeatTimer = setInterval(() => {
       socket.emit('applications:heartbeat', {
@@ -266,12 +278,16 @@ function initSocketServer(httpServer) {
       }
     })
 
+    socket.on('presence:request_online_users', () => {
+      if (!isAdminUser({ role: socket.data.role })) return
+      emitOnlineUsersToSocket(socket)
+    })
+
     socket.on('disconnect', () => {
       clearInterval(heartbeatTimer)
-      const becameOffline = removeUserSocket(socket.data.userId, socket.id)
-      if (becameOffline) {
-        emitOnlineUsersToAdmins()
-      }
+      removeUserSocket(socket.data.userId, socket.id)
+      // Always refresh admin presence snapshot on each disconnect.
+      emitOnlineUsersToAdmins()
     })
   })
 
