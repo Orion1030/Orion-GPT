@@ -3,6 +3,7 @@ const { sendJsonResult } = require('../utils')
 const { UserModel } = require('../dbModels')
 const { RoleLevels } = require('../utils/constants')
 const { buildUsageMetricsMap, createEmptyUsageMetrics } = require('../services/usageMetrics.service')
+const { getOnlineUserIds, isUserOnline } = require('../realtime/socketServer')
 
 function toRoleLabel(role) {
   const normalized = Number(role)
@@ -13,14 +14,19 @@ function toRoleLabel(role) {
   return 'Guest'
 }
 
-function toPublicUser(user) {
+function toPublicUser(user, options = {}) {
+  const userId = String(user._id)
+  const onlineUserIds = options.onlineUserIds instanceof Set ? options.onlineUserIds : null
+  const isOnline = onlineUserIds ? onlineUserIds.has(userId) : isUserOnline(userId)
+
   return {
-    id: String(user._id),
+    id: userId,
     name: user.name || '',
     team: user.team || '',
     role: Number(user.role),
     roleLabel: toRoleLabel(user.role),
     isActive: Boolean(user.isActive),
+    isOnline,
     lastLogin: user.lastLogin || null,
     createdAt: user.createdAt || null,
   }
@@ -110,13 +116,14 @@ exports.getUsageMetrics = asyncErrorHandler(async (req, res) => {
     .select('_id name team role isActive lastLogin createdAt')
     .sort({ name: 1, createdAt: 1 })
     .lean()
+  const onlineUserIds = new Set(getOnlineUserIds())
 
   const metricsByUserId = await buildUsageMetricsMap({ userIds: users.map((user) => user._id) })
 
   const rows = users.map((user) => {
     const userId = String(user._id)
     return {
-      user: toPublicUser(user),
+      user: toPublicUser(user, { onlineUserIds }),
       metrics: metricsByUserId[userId] || createEmptyUsageMetrics(),
     }
   })
@@ -142,10 +149,11 @@ exports.getUsageMetricsForUser = asyncErrorHandler(async (req, res) => {
 
   const metricsByUserId = await buildUsageMetricsMap({ userIds: [user._id] })
   const normalizedId = String(user._id)
+  const onlineUserIds = new Set(getOnlineUserIds())
 
   return sendJsonResult(res, true, {
     generatedAt: new Date().toISOString(),
-    user: toPublicUser(user),
+    user: toPublicUser(user, { onlineUserIds }),
     metrics: metricsByUserId[normalizedId] || createEmptyUsageMetrics(),
   })
 })
@@ -156,8 +164,9 @@ exports.listUsers = asyncErrorHandler(async (req, res) => {
     .select('_id name team role isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, createdAt: 1 })
     .lean()
+  const onlineUserIds = new Set(getOnlineUserIds())
 
-  return sendJsonResult(res, true, users.map(toPublicUser))
+  return sendJsonResult(res, true, users.map((user) => toPublicUser(user, { onlineUserIds })))
 })
 
 exports.updateUser = asyncErrorHandler(async (req, res) => {

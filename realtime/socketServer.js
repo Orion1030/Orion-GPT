@@ -7,8 +7,10 @@ const { toNotificationDto } = require('../controllers/notification.controller')
 
 const SOCKET_PATH = '/realtime/socket.io'
 const HEARTBEAT_INTERVAL_MS = 15000
+const ADMIN_PRESENCE_ROOM = 'admins:presence'
 
 let ioInstance = null
+const socketIdsByUserId = new Map()
 
 function buildUserRoom(userId) {
   return `user:${String(userId)}`
@@ -16,6 +18,70 @@ function buildUserRoom(userId) {
 
 function buildApplicationRoom(applicationId) {
   return `application:${String(applicationId)}`
+}
+
+function addUserSocket(userId, socketId) {
+  const normalizedUserId = String(userId || '').trim()
+  const normalizedSocketId = String(socketId || '').trim()
+  if (!normalizedUserId || !normalizedSocketId) return false
+
+  const knownSockets = socketIdsByUserId.get(normalizedUserId) || new Set()
+  const wasOnline = knownSockets.size > 0
+  knownSockets.add(normalizedSocketId)
+  socketIdsByUserId.set(normalizedUserId, knownSockets)
+  return !wasOnline && knownSockets.size > 0
+}
+
+function removeUserSocket(userId, socketId) {
+  const normalizedUserId = String(userId || '').trim()
+  const normalizedSocketId = String(socketId || '').trim()
+  if (!normalizedUserId || !normalizedSocketId) return false
+
+  const knownSockets = socketIdsByUserId.get(normalizedUserId)
+  if (!knownSockets || knownSockets.size === 0) return false
+
+  const wasOnline = knownSockets.size > 0
+  knownSockets.delete(normalizedSocketId)
+  if (knownSockets.size === 0) {
+    socketIdsByUserId.delete(normalizedUserId)
+  } else {
+    socketIdsByUserId.set(normalizedUserId, knownSockets)
+  }
+  const isOnline = knownSockets.size > 0
+  return wasOnline && !isOnline
+}
+
+function getOnlineUserIds() {
+  return Array.from(socketIdsByUserId.entries())
+    .filter(([, socketIds]) => socketIds && socketIds.size > 0)
+    .map(([userId]) => userId)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+function isUserOnline(userId) {
+  const normalizedUserId = String(userId || '').trim()
+  if (!normalizedUserId) return false
+  const knownSockets = socketIdsByUserId.get(normalizedUserId)
+  return Boolean(knownSockets && knownSockets.size > 0)
+}
+
+function buildPresencePayload() {
+  return {
+    userIds: getOnlineUserIds(),
+    timestamp: new Date().toISOString(),
+  }
+}
+
+function emitOnlineUsersToAdmins() {
+  if (!ioInstance) return false
+  ioInstance.to(ADMIN_PRESENCE_ROOM).emit('presence:online_users', buildPresencePayload())
+  return true
+}
+
+function emitOnlineUsersToSocket(socket) {
+  if (!socket) return false
+  socket.emit('presence:online_users', buildPresencePayload())
+  return true
 }
 
 function extractTokenFromHandshake(handshake) {
@@ -137,6 +203,17 @@ function initSocketServer(httpServer) {
   ioInstance.on('connection', (socket) => {
     const userRoom = buildUserRoom(socket.data.userId)
     socket.join(userRoom)
+    const becameOnline = addUserSocket(socket.data.userId, socket.id)
+
+    if (isAdminUser({ role: socket.data.role })) {
+      socket.join(ADMIN_PRESENCE_ROOM)
+      emitOnlineUsersToSocket(socket)
+    }
+
+    if (becameOnline) {
+      emitOnlineUsersToAdmins()
+    }
+
     const heartbeatTimer = setInterval(() => {
       socket.emit('applications:heartbeat', {
         timestamp: new Date().toISOString(),
@@ -191,6 +268,10 @@ function initSocketServer(httpServer) {
 
     socket.on('disconnect', () => {
       clearInterval(heartbeatTimer)
+      const becameOffline = removeUserSocket(socket.data.userId, socket.id)
+      if (becameOffline) {
+        emitOnlineUsersToAdmins()
+      }
     })
   })
 
@@ -205,4 +286,6 @@ module.exports = {
   emitToRoom,
   emitToApplicationRoom,
   emitToUserRoom,
+  getOnlineUserIds,
+  isUserOnline,
 }
