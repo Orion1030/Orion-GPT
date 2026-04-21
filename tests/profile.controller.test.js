@@ -99,5 +99,44 @@ describe("profile.controller getProfiles scope", () => {
     expect(sort).toHaveBeenCalledWith({ updatedAt: -1 });
     expect(res.status).toHaveBeenCalledWith(200);
   });
-});
 
+  it("filters to active profiles when activeOnly=true for non-admin users", async () => {
+    const { find, sort } = buildProfileModelFindMock();
+    jest.doMock("../dbModels", () => ({
+      ProfileModel: { find, findOne: jest.fn() },
+    }));
+
+    const controller = require("../controllers/profile.controller");
+    const req = {
+      user: { _id: "user-1", role: 3 },
+      query: { activeOnly: "true" },
+    };
+    const res = buildRes();
+
+    await invoke(controller.getProfiles, req, res);
+
+    expect(find).toHaveBeenCalledWith({ userId: "user-1", status: 1 });
+    expect(sort).toHaveBeenCalledWith({ updatedAt: -1 });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("filters to active profiles when admin includeOtherUsers=true and activeOnly=true", async () => {
+    const { find, sort } = buildProfileModelFindMock();
+    jest.doMock("../dbModels", () => ({
+      ProfileModel: { find, findOne: jest.fn() },
+    }));
+
+    const controller = require("../controllers/profile.controller");
+    const req = {
+      user: { _id: "admin-1", role: 1 },
+      query: { includeOtherUsers: "true", activeOnly: "true" },
+    };
+    const res = buildRes();
+
+    await invoke(controller.getProfiles, req, res);
+
+    expect(find).toHaveBeenCalledWith({ status: 1 });
+    expect(sort).toHaveBeenCalledWith({ updatedAt: -1 });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+});

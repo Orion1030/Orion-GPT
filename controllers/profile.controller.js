@@ -2,6 +2,7 @@ const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { ProfileModel, TemplateModel, StackModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { isAdminUser, buildUserScopeFilter } = require("../utils/access");
+const { StatusCodes } = require("../utils/constants");
 
 function toTargetUserId(req) {
   const fromQuery = req.query?.userId;
@@ -147,6 +148,10 @@ exports.getProfiles = asyncErrorHandler(async (req, res, next) => {
     } else {
       scopeFilter = includeOtherUsers ? {} : { userId: user._id };
     }
+  }
+  const activeOnly = toBooleanQuery(req.query?.activeOnly, false);
+  if (activeOnly) {
+    scopeFilter = { ...scopeFilter, status: StatusCodes.ACTIVE };
   }
   const profiles = await ProfileModel.find(scopeFilter).sort({ updatedAt: -1 });
   return sendJsonResult(res, true, profiles);
