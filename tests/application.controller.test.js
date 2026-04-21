@@ -224,6 +224,7 @@ describe('application.controller', () => {
   it('writes status and field history on patch', async () => {
     const appendApplicationHistory = jest.fn().mockResolvedValue(null)
     const buildApplicationEventEnvelope = jest.fn().mockReturnValue({ type: 'application.updated' })
+    const publishApplicationEvent = jest.fn()
 
     const ApplicationModel = {
       findOne: jest.fn().mockReturnValue({
@@ -266,6 +267,7 @@ describe('application.controller', () => {
     }))
     jest.doMock('../services/applicationRealtime.service', () => ({
       buildApplicationEventEnvelope,
+      publishApplicationEvent,
       subscribeApplicationEvents: jest.fn(),
     }))
 
@@ -298,7 +300,19 @@ describe('application.controller', () => {
         payload: expect.objectContaining({ field: 'applicationStatus' }),
       })
     )
-    expect(buildApplicationEventEnvelope).not.toHaveBeenCalled()
+    expect(buildApplicationEventEnvelope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'application.updated',
+        applicationId: 'app-1',
+      })
+    )
+    expect(publishApplicationEvent).toHaveBeenCalledWith(
+      'app-1',
+      expect.objectContaining({
+        type: 'application.updated',
+      }),
+      expect.objectContaining({ userId: 'user-1' })
+    )
     expect(res.status).toHaveBeenCalledWith(200)
   })
 

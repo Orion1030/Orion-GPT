@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken')
 const { Server } = require('socket.io')
 const { ApplicationModel, UserModel, NotificationModel } = require('../dbModels')
 const { getJwtSecret } = require('../utils')
-const { RoleLevels } = require('../utils/constants')
+const { isAdminUser } = require('../utils/access')
 const { toNotificationDto } = require('../controllers/notification.controller')
 
 const SOCKET_PATH = '/realtime/socket.io'
@@ -73,7 +73,7 @@ async function joinApplicationRoom(socket, payload) {
 
   try {
     const scope = { _id: rawId }
-    if (Number(socket.data.role) !== RoleLevels.ADMIN) {
+    if (!isAdminUser({ role: socket.data.role })) {
       scope.userId = socket.data.userId
     }
     const exists = await ApplicationModel.exists(scope)

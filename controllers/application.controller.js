@@ -17,6 +17,7 @@ const {
 const {
   buildApplicationEventEnvelope,
   subscribeApplicationEvents,
+  publishApplicationEvent,
 } = require('../services/applicationRealtime.service')
 const {
   APPLICATION_STATUS,
@@ -536,6 +537,17 @@ exports.patchApplication = asyncErrorHandler(async (req, res) => {
     })
     index += 1
   }
+
+  publishApplicationEvent(
+    updated._id,
+    buildApplicationEventEnvelope({
+      type: 'application.updated',
+      applicationId: updated._id,
+      version: updated.version || (existing.version || 0) + 1,
+      data: buildSsePayload(updated),
+    }),
+    { userId: updated.userId }
+  )
 
   return sendJsonResult(res, true, null, null)
 })
