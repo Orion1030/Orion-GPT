@@ -13,6 +13,10 @@ Express backend for Jobsy.
    - `npm install`
 2. Copy env template and configure values:
    - copy `.env-sample` to `.env`
+   - optional local override: create `.env.local` for machine-specific values
+   - set server bind values if needed:
+     - `HOST=0.0.0.0`
+     - `PORT=5050`
 3. Start the server:
    - `npm start`
 
