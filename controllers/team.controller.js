@@ -69,6 +69,7 @@ function toAssignableUserDto(user) {
     id: toIdString(user?._id),
     memberId: String(user?.memberId || '').trim(),
     name: String(user?.name || '').trim(),
+    email: String(user?.email || '').trim(),
     team: normalizeTeamName(user?.team),
     role: Number(user?.role),
     roleLabel: toRoleLabel(user?.role),
@@ -81,6 +82,7 @@ function toTeamMemberDto(user) {
     id: toIdString(user?._id),
     memberId: String(user?.memberId || '').trim(),
     name: String(user?.name || '').trim(),
+    email: String(user?.email || '').trim(),
     team: normalizeTeamName(user?.team),
     role: Number(user?.role),
     roleLabel: toRoleLabel(user?.role),
@@ -454,7 +456,7 @@ exports.listAssignableUsers = asyncErrorHandler(async (req, res) => {
   }
 
   const users = await UserModel.find(baseFilter)
-    .select('_id memberId name role team isActive')
+    .select('_id memberId name email role team isActive')
     .sort({ name: 1, createdAt: 1 })
     .lean()
 
@@ -560,7 +562,7 @@ exports.listTeamMembers = asyncErrorHandler(async (req, res) => {
     role: { $in: [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User] },
     team: targetTeamName,
   })
-    .select('_id memberId name team role isActive lastLogin')
+    .select('_id memberId name email team role isActive lastLogin')
     .sort({ name: 1, createdAt: 1 })
     .lean()
 
