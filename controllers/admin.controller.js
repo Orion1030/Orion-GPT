@@ -3,12 +3,15 @@ const { sendJsonResult } = require('../utils')
 const { UserModel } = require('../dbModels')
 const { RoleLevels } = require('../utils/constants')
 const { buildUsageMetricsMap, createEmptyUsageMetrics } = require('../services/usageMetrics.service')
+const { verifyRequesterPassword } = require('../services/auth.service')
 const { getOnlineUserIds, isUserOnline } = require('../realtime/socketServer')
 const {
   buildDefaultUserIdentifierFromObjectId,
   isValidUserIdentifier,
   normalizeUserIdentifier,
 } = require('../utils/userIdentifier')
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PASSWORD_POLICY_REGEX = /(?=.*[A-Z|!@#$&*])(?!.*[ ]).*$/
 
 function toRoleLabel(role) {
   const normalized = Number(role)
@@ -24,8 +27,9 @@ function toPublicUser(user, options = {}) {
   const onlineUserIds = options.onlineUserIds instanceof Set ? options.onlineUserIds : null
   const isOnline = onlineUserIds ? onlineUserIds.has(userId) : isUserOnline(userId)
   const memberId = String(user.memberId || '').trim() || buildDefaultUserIdentifierFromObjectId(user._id)
+  const includeManageFields = Boolean(options.includeManageFields)
 
-  return {
+  const dto = {
     id: userId,
     memberId,
     name: user.name || '',
@@ -36,7 +40,18 @@ function toPublicUser(user, options = {}) {
     isOnline,
     lastLogin: user.lastLogin || null,
     createdAt: user.createdAt || null,
+    updatedAt: user.updatedAt || null,
   }
+
+  if (includeManageFields) {
+    dto.email = user.email || ''
+    dto.contactNumber = user.contactNumber || ''
+    dto.avatarUrl = user.avatarUrl || ''
+    dto.avatarStorageKey = user.avatarStorageKey || ''
+    dto.avatarUpdatedAt = user.avatarUpdatedAt || null
+  }
+
+  return dto
 }
 
 function buildTotals(rows) {
@@ -90,21 +105,70 @@ function buildAdminVisibleUserFilter(requesterRole) {
   return {}
 }
 
-exports.changeMemberPassword = asyncErrorHandler(async (req, res, next) => {
-  const { newPassword, confirmPassword, oldPassword, memberId } = req.body
-  const user = await UserModel.findOne({ _id: memberId })
+async function resetUserPasswordCore({
+  req,
+  requesterRole,
+  targetUserId,
+  newPassword,
+  confirmPassword,
+  adminPassword,
+}) {
+  const adminPasswordVerified = await verifyRequesterPassword(req, adminPassword)
+  if (!adminPasswordVerified) {
+    return { ok: false, status: 401, message: 'Admin password verification failed' }
+  }
+
+  const visibilityFilter = buildAdminVisibleUserFilter(requesterRole)
+  const user = await UserModel.findOne({ _id: targetUserId, ...visibilityFilter })
   if (!user) {
+    return { ok: false, status: 404, message: 'User not found' }
+  }
+
+  const normalizedPassword = String(newPassword || '')
+  const normalizedConfirmPassword = String(confirmPassword || '')
+  if (!normalizedPassword) {
+    return { ok: false, status: 400, message: 'Enter new password' }
+  }
+  if (normalizedPassword !== normalizedConfirmPassword) {
+    return {
+      ok: false,
+      status: 400,
+      message: "New password and confirm password doesn't match",
+    }
+  }
+  if (normalizedPassword.length < 8) {
+    return { ok: false, status: 400, message: 'Password must be at least 8 characters' }
+  }
+  if (!PASSWORD_POLICY_REGEX.test(normalizedPassword)) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Password must include at least one capital letter or special character and contain no spaces',
+    }
+  }
+
+  user.password = normalizedPassword
+  await user.save()
+  return { ok: true, status: 200, message: 'Password reset successfully' }
+}
+
+exports.changeMemberPassword = asyncErrorHandler(async (req, res, next) => {
+  const { newPassword, confirmPassword, memberId, adminPassword } = req.body || {}
+  if (!memberId) {
     return sendJsonResult(res, false, null, 'User not found', 400)
   }
-  if (!newPassword) return sendJsonResult(res, false, null, 'Enter new password', 400)
-  if (newPassword !== confirmPassword) return sendJsonResult(res, false, null, "New password and confirm password doesn't match", 400)
-  const isPasswordMatched = await user.comparePassword(oldPassword)
-  if (isPasswordMatched) user.password = newPassword
-  else {
-    return sendJsonResult(res, false, null, 'Incorrect old password', 400)
+  const result = await resetUserPasswordCore({
+    req,
+    requesterRole: req.user?.role,
+    targetUserId: memberId,
+    newPassword,
+    confirmPassword,
+    adminPassword,
+  })
+  if (!result.ok) {
+    return sendJsonResult(res, false, null, result.message, result.status)
   }
-  await user.save()
-  return sendJsonResult(res, true, null, 'Password changed successfully')
+  return sendJsonResult(res, true, null, result.message)
 })
 exports.allowMember = asyncErrorHandler(async (req, res, next) => {
   const { userId } = req.body
@@ -176,6 +240,23 @@ exports.listUsers = asyncErrorHandler(async (req, res) => {
   return sendJsonResult(res, true, users.map((user) => toPublicUser(user, { onlineUserIds })))
 })
 
+exports.getUser = asyncErrorHandler(async (req, res) => {
+  const { userId } = req.params
+  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
+  const user = await UserModel.findOne({ _id: userId, ...visibilityFilter })
+    .select(
+      '_id memberId name team role isActive lastLogin createdAt updatedAt email contactNumber avatarUrl avatarStorageKey avatarUpdatedAt'
+    )
+    .lean()
+
+  if (!user) {
+    return sendJsonResult(res, false, null, 'User not found', 404)
+  }
+
+  const onlineUserIds = new Set(getOnlineUserIds())
+  return sendJsonResult(res, true, toPublicUser(user, { onlineUserIds, includeManageFields: true }))
+})
+
 exports.updateUser = asyncErrorHandler(async (req, res) => {
   const { userId } = req.params
   const body = req.body || {}
@@ -184,7 +265,9 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
   const targetUserId = String(userId || '')
 
   const requesterRole = Number(req.user?.role)
-  const targetUser = await UserModel.findOne({ _id: userId }).select('_id role memberId').lean()
+  const targetUser = await UserModel.findOne({ _id: userId })
+    .select('_id role memberId name email')
+    .lean()
 
   if (!targetUser) {
     return sendJsonResult(res, false, null, 'User not found', 404)
@@ -196,6 +279,10 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
       requesterRole === RoleLevels.SUPER_ADMIN &&
       body.memberId !== undefined &&
       body.name === undefined &&
+      body.email === undefined &&
+      body.contactNumber === undefined &&
+      body.avatarUrl === undefined &&
+      body.avatarStorageKey === undefined &&
       body.team === undefined &&
       body.isActive === undefined &&
       body.role === undefined
@@ -241,6 +328,48 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     updates.team = String(body.team || '').trim()
   }
 
+  const includesSensitiveManageFields =
+    body.name !== undefined ||
+    body.email !== undefined ||
+    body.contactNumber !== undefined ||
+    body.avatarUrl !== undefined ||
+    body.avatarStorageKey !== undefined ||
+    body.team !== undefined ||
+    body.role !== undefined ||
+    body.isActive !== undefined
+
+  if (includesSensitiveManageFields) {
+    const adminPasswordVerified = await verifyRequesterPassword(req, body.adminPassword)
+    if (!adminPasswordVerified) {
+      return sendJsonResult(res, false, null, 'Admin password verification failed', 401)
+    }
+  }
+
+  if (body.email !== undefined) {
+    const email = String(body.email || '').trim().toLowerCase()
+    if (email && !EMAIL_REGEX.test(email)) {
+      return sendJsonResult(res, false, null, 'Invalid email format', 400)
+    }
+    updates.email = email
+  }
+
+  if (body.contactNumber !== undefined) {
+    const contactNumber = String(body.contactNumber || '').trim()
+    if (contactNumber.length > 32) {
+      return sendJsonResult(res, false, null, 'Contact number is too long', 400)
+    }
+    updates.contactNumber = contactNumber
+  }
+
+  if (body.avatarUrl !== undefined) {
+    updates.avatarUrl = String(body.avatarUrl || '').trim()
+    updates.avatarUpdatedAt = new Date()
+  }
+
+  if (body.avatarStorageKey !== undefined) {
+    updates.avatarStorageKey = String(body.avatarStorageKey || '').trim()
+  }
+
   if (body.isActive !== undefined) {
     updates.isActive = Boolean(body.isActive)
   }
@@ -284,6 +413,23 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     updates.memberId = normalizedMemberId
   }
 
+  if (
+    updates.name &&
+    updates.name !== String(targetUser.name || '') &&
+    (await UserModel.exists({ name: updates.name, _id: { $ne: targetUser._id } }))
+  ) {
+    return sendJsonResult(res, false, null, 'Account name is already in use', 400)
+  }
+
+  if (
+    updates.email !== undefined &&
+    updates.email !== String(targetUser.email || '') &&
+    updates.email &&
+    (await UserModel.exists({ email: updates.email, _id: { $ne: targetUser._id } }))
+  ) {
+    return sendJsonResult(res, false, null, 'Email is already in use', 400)
+  }
+
   if (Object.keys(updates).length === 0) {
     return sendJsonResult(res, false, null, 'No update fields provided', 400)
   }
@@ -293,12 +439,38 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     { $set: updates },
     { returnDocument: 'after' }
   )
-    .select('_id memberId name team role isActive lastLogin createdAt updatedAt')
+    .select(
+      '_id memberId name team role isActive lastLogin createdAt updatedAt email contactNumber avatarUrl avatarStorageKey avatarUpdatedAt'
+    )
     .lean()
 
   if (!updatedUser) {
     return sendJsonResult(res, false, null, 'User not found', 404)
   }
 
-  return sendJsonResult(res, true, toPublicUser(updatedUser), 'User updated')
+  const onlineUserIds = new Set(getOnlineUserIds())
+  return sendJsonResult(
+    res,
+    true,
+    toPublicUser(updatedUser, { onlineUserIds, includeManageFields: true }),
+    'User updated'
+  )
+})
+
+exports.resetUserPassword = asyncErrorHandler(async (req, res) => {
+  const { userId } = req.params
+  const { newPassword, confirmPassword, adminPassword } = req.body || {}
+
+  const result = await resetUserPasswordCore({
+    req,
+    requesterRole: req.user?.role,
+    targetUserId: userId,
+    newPassword,
+    confirmPassword,
+    adminPassword,
+  })
+  if (!result.ok) {
+    return sendJsonResult(res, false, null, result.message, result.status)
+  }
+  return sendJsonResult(res, true, null, result.message)
 })

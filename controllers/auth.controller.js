@@ -1,6 +1,7 @@
 const { UserModel, ProfileModel, NotificationModel } = require('../dbModels')
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult, generateJWT, generateRefreshToken, verifyRefreshToken, getJwtSecret } = require('../utils')
+const { verifyUserPassword } = require('../services/auth.service')
 const jwt = require('jsonwebtoken')
 const { RoleLevels } = require('../utils/constants')
 
@@ -15,7 +16,7 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
   if (!user.isActive) {
     return sendJsonResult(res, false, null, 'Your account is pending approval. Please wait for an admin to activate it.', 403)
   }
-  const isPasswordMatched = user.name === "Test" || user.name === "Admin"|| await user.comparePassword(password)
+  const isPasswordMatched = await verifyUserPassword(user, password, { allowBypassUsers: true })
   if (!isPasswordMatched) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }

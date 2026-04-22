@@ -1,6 +1,7 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { UserModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
+const { verifyUserPassword } = require("../services/auth.service");
 const { buildUsageMetricsMap, createEmptyUsageMetrics } = require("../services/usageMetrics.service");
 const { APP_URL } = process.env;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -223,7 +224,7 @@ exports.changePassword = asyncErrorHandler(async (req, res, next) => {
       "New password and confirm password doesn't match",
       400,
     );
-  const isPasswordMatched = await user.comparePassword(oldPassword);
+  const isPasswordMatched = await verifyUserPassword(user, oldPassword);
   if (isPasswordMatched) user.password = newPassword;
   else {
     return sendJsonResult(res, false, null, "Incorrect old password", 400);
