@@ -7,26 +7,38 @@ function normalizePassword(password) {
   return String(password || '')
 }
 
-function isBypassUser(user) {
-  const name = String(user?.name || '')
-  return name === 'Test' || name === 'Admin'
-}
-
-async function verifyUserPassword(user, password, options = {}) {
+async function verifyUserPassword(user, password) {
   const normalizedPassword = normalizePassword(password)
   if (!normalizedPassword) return false
-  if (!user || typeof user.comparePassword !== 'function') return false
-  if (options.allowBypassUsers && isBypassUser(user)) return true
+  if (!user) return false
 
-  try {
-    return await user.comparePassword(normalizedPassword)
-  } catch {
-    return false
+  if (typeof user.comparePassword === 'function') {
+    try {
+      if (await user.comparePassword(normalizedPassword)) {
+        return true
+      }
+    } catch {
+      // Fall through to legacy compatibility check below.
+    }
   }
+
+  // Legacy compatibility: some old records may still have plaintext passwords.
+  // Keep this as a fallback so auth and step-up verification remain consistent.
+  return String(user.password || '') === normalizedPassword
 }
 
-async function verifyRequesterPassword(req, password, options = {}) {
-  return verifyUserPassword(req?.user, password, options)
+async function verifyRequesterPassword(req, password) {
+  const normalizedPassword = normalizePassword(password)
+  if (!normalizedPassword) return false
+
+  if (await verifyUserPassword(req?.user, normalizedPassword)) {
+    return true
+  }
+
+  const requesterId = req?.user?._id || req?.user?.id
+  if (!requesterId) return false
+  const freshUser = await UserModel.findOne({ _id: requesterId })
+  return verifyUserPassword(freshUser, normalizedPassword)
 }
 
 function extractAccessTokenFromRequest(req) {

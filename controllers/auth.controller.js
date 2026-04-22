@@ -16,7 +16,7 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
   if (!user.isActive) {
     return sendJsonResult(res, false, null, 'Your account is pending approval. Please wait for an admin to activate it.', 403)
   }
-  const isPasswordMatched = await verifyUserPassword(user, password, { allowBypassUsers: true })
+  const isPasswordMatched = await verifyUserPassword(user, password)
   if (!isPasswordMatched) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }

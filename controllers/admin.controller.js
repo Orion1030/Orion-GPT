@@ -113,6 +113,9 @@ async function resetUserPasswordCore({
   confirmPassword,
   adminPassword,
 }) {
+  if (!String(adminPassword || '').trim()) {
+    return { ok: false, status: 400, message: 'Admin password is required' }
+  }
   const adminPasswordVerified = await verifyRequesterPassword(req, adminPassword)
   if (!adminPasswordVerified) {
     return { ok: false, status: 401, message: 'Admin password verification failed' }
@@ -339,6 +342,9 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     body.isActive !== undefined
 
   if (includesSensitiveManageFields) {
+    if (!String(body.adminPassword || '').trim()) {
+      return sendJsonResult(res, false, null, 'Admin password is required', 400)
+    }
     const adminPasswordVerified = await verifyRequesterPassword(req, body.adminPassword)
     if (!adminPasswordVerified) {
       return sendJsonResult(res, false, null, 'Admin password verification failed', 401)
