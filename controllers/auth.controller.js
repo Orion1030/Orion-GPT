@@ -81,7 +81,7 @@ exports.refresh = asyncErrorHandler(async (req, res) => {
 })
 
 exports.signup = asyncErrorHandler(async (req, res) => {
-  const { name, email, password, confirmPassword, role, team } = req.body
+  const { name, email, password, confirmPassword } = req.body
   const normalizedEmail = String(email || '').trim().toLowerCase()
   if (!normalizedEmail) {
     return sendJsonResult(res, false, null, 'Email is required', 400)
@@ -98,7 +98,12 @@ exports.signup = asyncErrorHandler(async (req, res) => {
   }
   if (password !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
 
-  const user = new UserModel({ name, email: normalizedEmail, password, role, team })
+  const user = new UserModel({
+    name,
+    email: normalizedEmail,
+    password,
+    role: RoleLevels.GUEST,
+  })
   await user.save()
 
   try {

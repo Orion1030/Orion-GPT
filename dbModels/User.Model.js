@@ -15,6 +15,11 @@ const userSchema = new mongoose.Schema(
       default: '', // optional
       trim: true
     },
+    managedByUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
     email: {
       type: String,
       default: '',
@@ -73,6 +78,9 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 )
+
+userSchema.index({ managedByUserId: 1, role: 1 })
+userSchema.index({ team: 1, role: 1 })
 
 userSchema.pre('save', async function () {
   if (this.isModified('password')) {

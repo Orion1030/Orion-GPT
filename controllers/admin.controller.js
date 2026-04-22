@@ -1,6 +1,6 @@
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult } = require('../utils')
-const { UserModel } = require('../dbModels')
+const { TeamModel, UserModel } = require('../dbModels')
 const { RoleLevels } = require('../utils/constants')
 const { buildUsageMetricsMap, createEmptyUsageMetrics } = require('../services/usageMetrics.service')
 const { verifyRequesterPassword } = require('../services/auth.service')
@@ -10,6 +10,15 @@ const {
   isValidUserIdentifier,
   normalizeUserIdentifier,
 } = require('../utils/userIdentifier')
+const {
+  buildManagedUserVisibilityFilter,
+  canManageTargetUser,
+  getAssignableRolesForActor,
+  normalizeTeamName,
+  toIdString,
+  toRoleNumber,
+} = require('../utils/managementScope')
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PASSWORD_POLICY_REGEX = /(?=.*[A-Z|!@#$&*])(?!.*[ ]).*$/
 
@@ -22,18 +31,52 @@ function toRoleLabel(role) {
   return 'Guest'
 }
 
+function isValidManagedRole(role) {
+  return (
+    role === RoleLevels.ADMIN ||
+    role === RoleLevels.Manager ||
+    role === RoleLevels.User ||
+    role === RoleLevels.GUEST
+  )
+}
+
+function actorCanManageRole(actor, role) {
+  const assignableRoles = getAssignableRolesForActor(actor)
+  return assignableRoles.includes(Number(role))
+}
+
 function toPublicUser(user, options = {}) {
   const userId = String(user._id)
   const onlineUserIds = options.onlineUserIds instanceof Set ? options.onlineUserIds : null
+  const ownerLookup = options.ownerLookup instanceof Map ? options.ownerLookup : null
+  const teamManagerByName = options.teamManagerByName instanceof Map ? options.teamManagerByName : null
+  const superAdminOwnerId = toIdString(options.superAdminOwnerId)
   const isOnline = onlineUserIds ? onlineUserIds.has(userId) : isUserOnline(userId)
   const memberId = String(user.memberId || '').trim() || buildDefaultUserIdentifierFromObjectId(user._id)
   const includeManageFields = Boolean(options.includeManageFields)
+  const normalizedRole = Number(user.role)
+  const normalizedTeam = normalizeTeamName(user.team)
+
+  let ownerUserId = ''
+  if (normalizedRole === RoleLevels.GUEST) {
+    ownerUserId = toIdString(user.managedByUserId)
+  } else if (normalizedRole === RoleLevels.User) {
+    ownerUserId = normalizedTeam && teamManagerByName ? toIdString(teamManagerByName.get(normalizedTeam)) : ''
+  } else if (normalizedRole === RoleLevels.ADMIN) {
+    const teamManagerId =
+      normalizedTeam && teamManagerByName ? toIdString(teamManagerByName.get(normalizedTeam)) : ''
+    ownerUserId = teamManagerId || superAdminOwnerId
+  } else if (normalizedRole === RoleLevels.Manager) {
+    ownerUserId = superAdminOwnerId
+  }
+
+  const owner = ownerUserId && ownerLookup ? ownerLookup.get(ownerUserId) : null
 
   const dto = {
     id: userId,
     memberId,
     name: user.name || '',
-    team: user.team || '',
+    team: normalizeTeamName(user.team),
     role: Number(user.role),
     roleLabel: toRoleLabel(user.role),
     isActive: Boolean(user.isActive),
@@ -41,6 +84,9 @@ function toPublicUser(user, options = {}) {
     lastLogin: user.lastLogin || null,
     createdAt: user.createdAt || null,
     updatedAt: user.updatedAt || null,
+    ownerUserId: ownerUserId || null,
+    ownerName: owner?.name || '',
+    ownerMemberId: owner?.memberId || '',
   }
 
   if (includeManageFields) {
@@ -49,9 +95,122 @@ function toPublicUser(user, options = {}) {
     dto.avatarUrl = user.avatarUrl || ''
     dto.avatarStorageKey = user.avatarStorageKey || ''
     dto.avatarUpdatedAt = user.avatarUpdatedAt || null
+    dto.managedByUserId = user.managedByUserId ? String(user.managedByUserId) : null
   }
 
   return dto
+}
+
+async function buildOwnerLookup(users) {
+  const ownerIds = Array.from(
+    new Set(
+      (Array.isArray(users) ? users : [])
+        .map((user) => toIdString(user))
+        .filter(Boolean)
+    )
+  )
+  if (!ownerIds.length) return new Map()
+
+  const owners = await UserModel.find({ _id: { $in: ownerIds } })
+    .select('_id memberId name')
+    .sort({ createdAt: 1, _id: 1 })
+    .lean()
+  return new Map(
+    owners.map((owner) => [
+      String(owner._id),
+      {
+        memberId: String(owner.memberId || '').trim(),
+        name: String(owner.name || '').trim(),
+      },
+    ])
+  )
+}
+
+async function buildHierarchyOwnerContext(users) {
+  const rows = Array.isArray(users) ? users : []
+  const teamNames = Array.from(
+    new Set(
+      rows
+        .filter((row) => {
+          const role = Number(row?.role)
+          return role === RoleLevels.User || role === RoleLevels.ADMIN
+        })
+        .map((row) => normalizeTeamName(row?.team))
+        .filter(Boolean)
+    )
+  )
+
+  const teamManagerByName = new Map()
+  if (teamNames.length > 0 && TeamModel) {
+    const teamRows = await TeamModel.find({ name: { $in: teamNames } })
+      .select('name managerUserId')
+      .sort({ name: 1 })
+      .lean()
+
+    for (const teamRow of teamRows) {
+      const teamName = normalizeTeamName(teamRow?.name)
+      const managerId = toIdString(teamRow?.managerUserId)
+      if (teamName && managerId) {
+        teamManagerByName.set(teamName, managerId)
+      }
+    }
+  }
+
+  const hasAdminOrManager = rows.some((row) => {
+    const role = Number(row?.role)
+    return role === RoleLevels.ADMIN || role === RoleLevels.Manager
+  })
+
+  let superAdminOwnerId = ''
+  if (hasAdminOrManager) {
+    const superAdmin = await UserModel.findOne({
+      role: RoleLevels.SUPER_ADMIN,
+      isActive: true,
+    })
+      .select('_id')
+      .sort({ createdAt: 1, _id: 1 })
+      .lean()
+    superAdminOwnerId = toIdString(superAdmin?._id)
+  }
+
+  const ownerIds = new Set()
+  for (const row of rows) {
+    const role = Number(row?.role)
+
+    if (role === RoleLevels.GUEST) {
+      const ownerId = toIdString(row?.managedByUserId)
+      if (ownerId) ownerIds.add(ownerId)
+      continue
+    }
+
+    if (role === RoleLevels.User) {
+      const teamName = normalizeTeamName(row?.team)
+      const ownerId = teamName ? toIdString(teamManagerByName.get(teamName)) : ''
+      if (ownerId) ownerIds.add(ownerId)
+      continue
+    }
+
+    if (role === RoleLevels.ADMIN) {
+      const teamName = normalizeTeamName(row?.team)
+      const ownerId = teamName ? toIdString(teamManagerByName.get(teamName)) : ''
+      if (ownerId) {
+        ownerIds.add(ownerId)
+      } else if (superAdminOwnerId) {
+        ownerIds.add(superAdminOwnerId)
+      }
+      continue
+    }
+
+    if (role === RoleLevels.Manager) {
+      if (superAdminOwnerId) ownerIds.add(superAdminOwnerId)
+    }
+  }
+
+  return {
+    ownerLookup: await buildOwnerLookup(Array.from(ownerIds)),
+    teamManagerByName,
+    superAdminOwnerId: superAdminOwnerId || null,
+  }
 }
 
 function buildTotals(rows) {
@@ -80,51 +239,51 @@ function buildTotals(rows) {
   return totals
 }
 
-function toRoleNumber(value) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function isValidManagedRole(role) {
-  return (
-    role === RoleLevels.ADMIN ||
-    role === RoleLevels.Manager ||
-    role === RoleLevels.User ||
-    role === RoleLevels.GUEST
-  )
-}
-
-function isAdminTierRole(role) {
-  return Number(role) === RoleLevels.ADMIN || Number(role) === RoleLevels.SUPER_ADMIN
-}
-
-function buildAdminVisibleUserFilter(requesterRole) {
-  if (Number(requesterRole) === RoleLevels.ADMIN) {
-    return { role: { $ne: RoleLevels.SUPER_ADMIN } }
+async function verifyStepUpPassword(req, password) {
+  if (!String(password || '').trim()) {
+    return { ok: false, status: 400, message: 'Your password is required' }
   }
-  return {}
+
+  const verified = await verifyRequesterPassword(req, password)
+  if (!verified) {
+    return { ok: false, status: 401, message: 'Password verification failed' }
+  }
+
+  return { ok: true, status: 200, message: '' }
+}
+
+function buildVisibilityFilter(user) {
+  return buildManagedUserVisibilityFilter(user)
+}
+
+async function findVisibleTargetUser(actor, userId, select) {
+  const visibilityFilter = buildVisibilityFilter(actor)
+  return UserModel.findOne({ _id: userId, ...visibilityFilter }).select(select).lean()
 }
 
 async function resetUserPasswordCore({
   req,
-  requesterRole,
   targetUserId,
   newPassword,
   confirmPassword,
   adminPassword,
 }) {
-  if (!String(adminPassword || '').trim()) {
-    return { ok: false, status: 400, message: 'Admin password is required' }
-  }
-  const adminPasswordVerified = await verifyRequesterPassword(req, adminPassword)
-  if (!adminPasswordVerified) {
-    return { ok: false, status: 401, message: 'Admin password verification failed' }
+  const visibilityFilteredTarget = await findVisibleTargetUser(
+    req.user,
+    targetUserId,
+    '_id role team managedByUserId'
+  )
+  if (!visibilityFilteredTarget) {
+    return { ok: false, status: 404, message: 'User not found' }
   }
 
-  const visibilityFilter = buildAdminVisibleUserFilter(requesterRole)
-  const user = await UserModel.findOne({ _id: targetUserId, ...visibilityFilter })
-  if (!user) {
-    return { ok: false, status: 404, message: 'User not found' }
+  if (!canManageTargetUser(req.user, visibilityFilteredTarget)) {
+    return { ok: false, status: 403, message: 'Insufficient permission' }
+  }
+
+  const stepUp = await verifyStepUpPassword(req, adminPassword)
+  if (!stepUp.ok) {
+    return stepUp
   }
 
   const normalizedPassword = String(newPassword || '')
@@ -150,48 +309,64 @@ async function resetUserPasswordCore({
     }
   }
 
+  const user = await UserModel.findOne({ _id: targetUserId })
+  if (!user) {
+    return { ok: false, status: 404, message: 'User not found' }
+  }
+
   user.password = normalizedPassword
   await user.save()
   return { ok: true, status: 200, message: 'Password reset successfully' }
 }
 
-exports.changeMemberPassword = asyncErrorHandler(async (req, res, next) => {
+exports.changeMemberPassword = asyncErrorHandler(async (req, res) => {
   const { newPassword, confirmPassword, memberId, adminPassword } = req.body || {}
   if (!memberId) {
     return sendJsonResult(res, false, null, 'User not found', 400)
   }
+
   const result = await resetUserPasswordCore({
     req,
-    requesterRole: req.user?.role,
     targetUserId: memberId,
     newPassword,
     confirmPassword,
     adminPassword,
   })
+
   if (!result.ok) {
     return sendJsonResult(res, false, null, result.message, result.status)
   }
+
   return sendJsonResult(res, true, null, result.message)
 })
-exports.allowMember = asyncErrorHandler(async (req, res, next) => {
+
+exports.allowMember = asyncErrorHandler(async (req, res) => {
   const { userId } = req.body
-  const user = await UserModel.findOne({ _id: userId })
-  if (!user) {
+  const visibilityFilteredTarget = await findVisibleTargetUser(
+    req.user,
+    userId,
+    '_id role team managedByUserId'
+  )
+
+  if (!visibilityFilteredTarget) {
     return sendJsonResult(res, false, null, 'User not found', 400)
   }
-  user.isActive = true
-  await user.save()
+  if (!canManageTargetUser(req.user, visibilityFilteredTarget)) {
+    return sendJsonResult(res, false, null, 'Insufficient permission', 403)
+  }
+
+  await UserModel.updateOne({ _id: userId }, { $set: { isActive: true } })
   return sendJsonResult(res, true, null, 'User Activated successfully')
 })
 
 exports.getUsageMetrics = asyncErrorHandler(async (req, res) => {
-  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
+  const visibilityFilter = buildVisibilityFilter(req.user)
   const users = await UserModel.find(visibilityFilter)
-    .select('_id memberId name team role isActive lastLogin createdAt')
+    .select('_id memberId name team role isActive lastLogin createdAt managedByUserId')
     .sort({ name: 1, createdAt: 1 })
     .lean()
-  const onlineUserIds = new Set(getOnlineUserIds())
 
+  const onlineUserIds = new Set(getOnlineUserIds())
   const metricsByUserId = await buildUsageMetricsMap({ userIds: users.map((user) => user._id) })
 
   const rows = users.map((user) => {
@@ -212,10 +387,11 @@ exports.getUsageMetrics = asyncErrorHandler(async (req, res) => {
 exports.getUsageMetricsForUser = asyncErrorHandler(async (req, res) => {
   const { userId } = req.params
 
-  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
-  const user = await UserModel.findOne({ _id: userId, ...visibilityFilter })
-    .select('_id memberId name team role isActive lastLogin createdAt')
-    .lean()
+  const user = await findVisibleTargetUser(
+    req.user,
+    userId,
+    '_id memberId name team role isActive lastLogin createdAt managedByUserId'
+  )
 
   if (!user) {
     return sendJsonResult(res, false, null, 'User not found', 404)
@@ -233,24 +409,35 @@ exports.getUsageMetricsForUser = asyncErrorHandler(async (req, res) => {
 })
 
 exports.listUsers = asyncErrorHandler(async (req, res) => {
-  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
+  const visibilityFilter = buildVisibilityFilter(req.user)
   const users = await UserModel.find(visibilityFilter)
-    .select('_id memberId name team role isActive lastLogin createdAt updatedAt')
+    .select('_id memberId name team role isActive lastLogin createdAt updatedAt managedByUserId')
     .sort({ createdAt: -1, _id: -1 })
     .lean()
-  const onlineUserIds = new Set(getOnlineUserIds())
 
-  return sendJsonResult(res, true, users.map((user) => toPublicUser(user, { onlineUserIds })))
+  const onlineUserIds = new Set(getOnlineUserIds())
+  const ownerContext = await buildHierarchyOwnerContext(users)
+  return sendJsonResult(
+    res,
+    true,
+    users.map((user) =>
+      toPublicUser(user, {
+        onlineUserIds,
+        ownerLookup: ownerContext.ownerLookup,
+        teamManagerByName: ownerContext.teamManagerByName,
+        superAdminOwnerId: ownerContext.superAdminOwnerId,
+      })
+    )
+  )
 })
 
 exports.getUser = asyncErrorHandler(async (req, res) => {
   const { userId } = req.params
-  const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
-  const user = await UserModel.findOne({ _id: userId, ...visibilityFilter })
-    .select(
-      '_id memberId name team role isActive lastLogin createdAt updatedAt email contactNumber avatarUrl avatarStorageKey avatarUpdatedAt'
-    )
-    .lean()
+  const user = await findVisibleTargetUser(
+    req.user,
+    userId,
+    '_id memberId name team role isActive lastLogin createdAt updatedAt email contactNumber avatarUrl avatarStorageKey avatarUpdatedAt managedByUserId'
+  )
 
   if (!user) {
     return sendJsonResult(res, false, null, 'User not found', 404)
@@ -264,12 +451,13 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
   const { userId } = req.params
   const body = req.body || {}
   const updates = {}
-  const requesterId = String(req.user?._id || '')
-  const targetUserId = String(userId || '')
 
-  const requesterRole = Number(req.user?.role)
+  const requesterId = toIdString(req.user?._id || req.user?.id)
+  const targetUserId = toIdString(userId)
+  const requesterRole = toRoleNumber(req.user?.role)
+
   const targetUser = await UserModel.findOne({ _id: userId })
-    .select('_id role memberId name email')
+    .select('_id role memberId name email team managedByUserId')
     .lean()
 
   if (!targetUser) {
@@ -277,47 +465,25 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
   }
 
   const isSelfUpdate = requesterId && requesterId === targetUserId
-  if (isSelfUpdate) {
-    const isSuperAdminSelfMemberIdOnlyUpdate =
-      requesterRole === RoleLevels.SUPER_ADMIN &&
-      body.memberId !== undefined &&
-      body.name === undefined &&
-      body.email === undefined &&
-      body.contactNumber === undefined &&
-      body.avatarUrl === undefined &&
-      body.avatarStorageKey === undefined &&
-      body.team === undefined &&
-      body.isActive === undefined &&
-      body.role === undefined
+  const isSuperAdminSelfMemberIdOnlyUpdate =
+    requesterRole === RoleLevels.SUPER_ADMIN &&
+    body.memberId !== undefined &&
+    body.name === undefined &&
+    body.email === undefined &&
+    body.contactNumber === undefined &&
+    body.avatarUrl === undefined &&
+    body.avatarStorageKey === undefined &&
+    body.team === undefined &&
+    body.isActive === undefined &&
+    body.role === undefined &&
+    body.managedByUserId === undefined
 
-    if (!isSuperAdminSelfMemberIdOnlyUpdate) {
-      return sendJsonResult(res, false, null, 'You cannot manage your own account from Admin', 403)
-    }
+  if (isSelfUpdate && !isSuperAdminSelfMemberIdOnlyUpdate) {
+    return sendJsonResult(res, false, null, 'You cannot manage your own account from Admin', 403)
   }
 
-  // Admins cannot manage admin-tier accounts or promote users to admin-tier roles.
-  if (requesterRole === RoleLevels.ADMIN) {
-    if (isAdminTierRole(targetUser.role)) {
-      return sendJsonResult(
-        res,
-        false,
-        null,
-        'Admin cannot manage Admin or Super Admin accounts',
-        403
-      )
-    }
-    if (body.role !== undefined) {
-      const requestedRole = toRoleNumber(body.role)
-      if (isAdminTierRole(requestedRole)) {
-        return sendJsonResult(
-          res,
-          false,
-          null,
-          'Admin cannot assign Admin or Super Admin role',
-          403
-        )
-      }
-    }
+  if (!isSelfUpdate && !canManageTargetUser(req.user, targetUser)) {
+    return sendJsonResult(res, false, null, 'Insufficient permission', 403)
   }
 
   if (body.name !== undefined) {
@@ -327,28 +493,12 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     }
   }
 
+  let requestedTeam = undefined
   if (body.team !== undefined) {
-    updates.team = String(body.team || '').trim()
-  }
-
-  const includesSensitiveManageFields =
-    body.name !== undefined ||
-    body.email !== undefined ||
-    body.contactNumber !== undefined ||
-    body.avatarUrl !== undefined ||
-    body.avatarStorageKey !== undefined ||
-    body.team !== undefined ||
-    body.role !== undefined ||
-    body.isActive !== undefined
-
-  if (includesSensitiveManageFields) {
-    if (!String(body.adminPassword || '').trim()) {
-      return sendJsonResult(res, false, null, 'Admin password is required', 400)
+    if (!(requesterRole === RoleLevels.ADMIN || requesterRole === RoleLevels.SUPER_ADMIN)) {
+      return sendJsonResult(res, false, null, 'Only admin can change team assignment', 403)
     }
-    const adminPasswordVerified = await verifyRequesterPassword(req, body.adminPassword)
-    if (!adminPasswordVerified) {
-      return sendJsonResult(res, false, null, 'Admin password verification failed', 401)
-    }
+    requestedTeam = normalizeTeamName(body.team)
   }
 
   if (body.email !== undefined) {
@@ -380,21 +530,111 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     updates.isActive = Boolean(body.isActive)
   }
 
+  let parsedRole = null
   if (body.role !== undefined) {
-    const parsedRole = toRoleNumber(body.role)
+    parsedRole = toRoleNumber(body.role)
     if (parsedRole === RoleLevels.SUPER_ADMIN) {
-      return sendJsonResult(
-        res,
-        false,
-        null,
-        'Super Admin role cannot be assigned from Admin page',
-        403
-      )
+      return sendJsonResult(res, false, null, 'Super Admin role cannot be assigned from Admin page', 403)
     }
     if (parsedRole == null || !isValidManagedRole(parsedRole)) {
       return sendJsonResult(res, false, null, 'Invalid role', 400)
     }
+    if (!actorCanManageRole(req.user, parsedRole)) {
+      return sendJsonResult(res, false, null, 'You cannot assign this role', 403)
+    }
+
+    const currentRole = Number(targetUser.role)
+    const demotingAssignedManager =
+      currentRole === RoleLevels.Manager && parsedRole !== RoleLevels.Manager
+    if (demotingAssignedManager) {
+      const managesAnyTeam = await TeamModel.exists({ managerUserId: targetUser._id })
+      if (managesAnyTeam) {
+        return sendJsonResult(
+          res,
+          false,
+          null,
+          'Cannot change role while user is assigned as team manager. Reassign the team manager first.',
+          400
+        )
+      }
+    }
+
     updates.role = parsedRole
+  }
+
+  const nextRole = parsedRole != null ? parsedRole : Number(targetUser.role)
+  const userRoleActor = requesterRole === RoleLevels.User
+  const managerRoleActor = requesterRole === RoleLevels.Manager
+  const guestRoleTarget = nextRole === RoleLevels.GUEST
+
+  if (body.managedByUserId !== undefined && !guestRoleTarget) {
+    return sendJsonResult(res, false, null, 'Guest owner can only be set for guest accounts', 400)
+  }
+
+  if (guestRoleTarget) {
+    let requestedOwnerId = toIdString(body.managedByUserId)
+
+    if (userRoleActor) {
+      if (requestedOwnerId && requestedOwnerId !== requesterId) {
+        return sendJsonResult(res, false, null, 'User can assign guest ownership only to self', 403)
+      }
+      requestedOwnerId = requesterId
+    } else if (!requestedOwnerId) {
+      const existingOwnerId = toIdString(targetUser.managedByUserId)
+      requestedOwnerId = existingOwnerId || ''
+    }
+
+    if (!requestedOwnerId) {
+      return sendJsonResult(res, false, null, 'Guest owner is required', 400)
+    }
+
+    const owner = await UserModel.findOne({ _id: requestedOwnerId })
+      .select('_id role team isActive')
+      .lean()
+
+    const ownerRole = Number(owner?.role)
+    if (!owner || !owner.isActive || ownerRole === RoleLevels.GUEST) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        'managedByUserId must reference an active non-guest account',
+        400
+      )
+    }
+
+    if (managerRoleActor) {
+      const actorTeam = normalizeTeamName(req.user?.team)
+      const ownerTeam = normalizeTeamName(owner.team)
+      if (!actorTeam || actorTeam !== ownerTeam) {
+        return sendJsonResult(res, false, null, 'Manager can assign guest ownership only within their team', 403)
+      }
+    }
+
+    updates.managedByUserId = owner._id
+    updates.team = normalizeTeamName(owner.team)
+
+    if (requestedTeam !== undefined && requestedTeam !== updates.team) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        'Guest team is inherited from the owner team and cannot be set manually',
+        400
+      )
+    }
+  } else {
+    if (requestedTeam !== undefined) {
+      updates.team = requestedTeam
+    }
+
+    if (userRoleActor) {
+      return sendJsonResult(res, false, null, 'User can manage only guest members', 403)
+    }
+
+    if (parsedRole != null && parsedRole !== RoleLevels.GUEST) {
+      updates.managedByUserId = null
+    }
   }
 
   if (body.memberId !== undefined) {
@@ -417,6 +657,13 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
       return sendJsonResult(res, false, null, 'User ID already exists', 400)
     }
     updates.memberId = normalizedMemberId
+  }
+
+  if (body.adminPassword !== undefined) {
+    const stepUp = await verifyStepUpPassword(req, body.adminPassword)
+    if (!stepUp.ok) {
+      return sendJsonResult(res, false, null, stepUp.message, stepUp.status)
+    }
   }
 
   if (
@@ -446,7 +693,7 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     { returnDocument: 'after' }
   )
     .select(
-      '_id memberId name team role isActive lastLogin createdAt updatedAt email contactNumber avatarUrl avatarStorageKey avatarUpdatedAt'
+      '_id memberId name team role isActive lastLogin createdAt updatedAt email contactNumber avatarUrl avatarStorageKey avatarUpdatedAt managedByUserId'
     )
     .lean()
 
@@ -469,12 +716,12 @@ exports.resetUserPassword = asyncErrorHandler(async (req, res) => {
 
   const result = await resetUserPasswordCore({
     req,
-    requesterRole: req.user?.role,
     targetUserId: userId,
     newPassword,
     confirmPassword,
     adminPassword,
   })
+
   if (!result.ok) {
     return sendJsonResult(res, false, null, result.message, result.status)
   }
