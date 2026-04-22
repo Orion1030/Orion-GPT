@@ -4,6 +4,11 @@ const { UserModel } = require('../dbModels')
 const { RoleLevels } = require('../utils/constants')
 const { buildUsageMetricsMap, createEmptyUsageMetrics } = require('../services/usageMetrics.service')
 const { getOnlineUserIds, isUserOnline } = require('../realtime/socketServer')
+const {
+  buildDefaultUserIdentifierFromObjectId,
+  isValidUserIdentifier,
+  normalizeUserIdentifier,
+} = require('../utils/userIdentifier')
 
 function toRoleLabel(role) {
   const normalized = Number(role)
@@ -18,9 +23,11 @@ function toPublicUser(user, options = {}) {
   const userId = String(user._id)
   const onlineUserIds = options.onlineUserIds instanceof Set ? options.onlineUserIds : null
   const isOnline = onlineUserIds ? onlineUserIds.has(userId) : isUserOnline(userId)
+  const memberId = String(user.memberId || '').trim() || buildDefaultUserIdentifierFromObjectId(user._id)
 
   return {
     id: userId,
+    memberId,
     name: user.name || '',
     team: user.team || '',
     role: Number(user.role),
@@ -113,7 +120,7 @@ exports.allowMember = asyncErrorHandler(async (req, res, next) => {
 exports.getUsageMetrics = asyncErrorHandler(async (req, res) => {
   const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
   const users = await UserModel.find(visibilityFilter)
-    .select('_id name team role isActive lastLogin createdAt')
+    .select('_id memberId name team role isActive lastLogin createdAt')
     .sort({ name: 1, createdAt: 1 })
     .lean()
   const onlineUserIds = new Set(getOnlineUserIds())
@@ -140,7 +147,7 @@ exports.getUsageMetricsForUser = asyncErrorHandler(async (req, res) => {
 
   const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
   const user = await UserModel.findOne({ _id: userId, ...visibilityFilter })
-    .select('_id name team role isActive lastLogin createdAt')
+    .select('_id memberId name team role isActive lastLogin createdAt')
     .lean()
 
   if (!user) {
@@ -161,7 +168,7 @@ exports.getUsageMetricsForUser = asyncErrorHandler(async (req, res) => {
 exports.listUsers = asyncErrorHandler(async (req, res) => {
   const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
   const users = await UserModel.find(visibilityFilter)
-    .select('_id name team role isActive lastLogin createdAt updatedAt')
+    .select('_id memberId name team role isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, createdAt: 1 })
     .lean()
   const onlineUserIds = new Set(getOnlineUserIds())
@@ -177,14 +184,25 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
   const targetUserId = String(userId || '')
 
   const requesterRole = Number(req.user?.role)
-  const targetUser = await UserModel.findOne({ _id: userId }).select('_id role').lean()
+  const targetUser = await UserModel.findOne({ _id: userId }).select('_id role memberId').lean()
 
   if (!targetUser) {
     return sendJsonResult(res, false, null, 'User not found', 404)
   }
 
-  if (requesterId && requesterId === targetUserId) {
-    return sendJsonResult(res, false, null, 'You cannot manage your own account from Admin', 403)
+  const isSelfUpdate = requesterId && requesterId === targetUserId
+  if (isSelfUpdate) {
+    const isSuperAdminSelfMemberIdOnlyUpdate =
+      requesterRole === RoleLevels.SUPER_ADMIN &&
+      body.memberId !== undefined &&
+      body.name === undefined &&
+      body.team === undefined &&
+      body.isActive === undefined &&
+      body.role === undefined
+
+    if (!isSuperAdminSelfMemberIdOnlyUpdate) {
+      return sendJsonResult(res, false, null, 'You cannot manage your own account from Admin', 403)
+    }
   }
 
   // Admins cannot manage admin-tier accounts or promote users to admin-tier roles.
@@ -244,6 +262,28 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     updates.role = parsedRole
   }
 
+  if (body.memberId !== undefined) {
+    const normalizedMemberId = normalizeUserIdentifier(body.memberId)
+    if (!isValidUserIdentifier(normalizedMemberId)) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        'Invalid user ID. Use 3-32 characters: A-Z, 0-9, underscore or hyphen.',
+        400
+      )
+    }
+
+    const duplicate = await UserModel.exists({
+      _id: { $ne: targetUser._id },
+      memberId: normalizedMemberId,
+    })
+    if (duplicate) {
+      return sendJsonResult(res, false, null, 'User ID already exists', 400)
+    }
+    updates.memberId = normalizedMemberId
+  }
+
   if (Object.keys(updates).length === 0) {
     return sendJsonResult(res, false, null, 'No update fields provided', 400)
   }
@@ -253,7 +293,7 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     { $set: updates },
     { returnDocument: 'after' }
   )
-    .select('_id name team role isActive lastLogin createdAt updatedAt')
+    .select('_id memberId name team role isActive lastLogin createdAt updatedAt')
     .lean()
 
   if (!updatedUser) {

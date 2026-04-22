@@ -132,6 +132,9 @@ exports.updateAccountProfile = asyncErrorHandler(async (req, res) => {
       403,
     );
   }
+  if (hasOwn("memberId")) {
+    return sendJsonResult(res, false, null, "User ID cannot be updated here", 403);
+  }
 
   if (body.name !== undefined) {
     const name = String(body.name || "").trim();

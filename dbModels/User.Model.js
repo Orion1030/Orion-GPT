@@ -1,6 +1,7 @@
 const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
 const { RoleLevels } = require('../utils/constants')
+const { buildDefaultUserIdentifierFromObjectId } = require('../utils/userIdentifier')
 
 const userSchema = new mongoose.Schema(
   {
@@ -24,6 +25,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
       trim: true
+    },
+    memberId: {
+      type: String,
+      default: function defaultMemberId() {
+        return buildDefaultUserIdentifierFromObjectId(this._id)
+      },
+      trim: true,
+      uppercase: true
     },
     avatarUrl: {
       type: String,
