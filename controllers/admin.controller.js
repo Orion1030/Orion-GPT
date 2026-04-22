@@ -169,7 +169,7 @@ exports.listUsers = asyncErrorHandler(async (req, res) => {
   const visibilityFilter = buildAdminVisibleUserFilter(req.user?.role)
   const users = await UserModel.find(visibilityFilter)
     .select('_id memberId name team role isActive lastLogin createdAt updatedAt')
-    .sort({ name: 1, createdAt: 1 })
+    .sort({ createdAt: -1, _id: -1 })
     .lean()
   const onlineUserIds = new Set(getOnlineUserIds())
 
