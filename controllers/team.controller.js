@@ -758,7 +758,7 @@ exports.createTeamGuest = asyncErrorHandler(async (req, res) => {
     email,
     password,
     role: RoleLevels.GUEST,
-    isActive: true,
+    isActive: false,
     managedByUserId: owner._id,
     team: targetTeamName,
   })

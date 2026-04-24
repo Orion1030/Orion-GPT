@@ -36,7 +36,7 @@ describe('admin.controller guests tab actions', () => {
       email: 'guest1@example.com',
       role: 0,
       team: 'Platform',
-      isActive: true,
+      isActive: false,
       managedByUserId: 'mgr-1',
       save: jest.fn().mockResolvedValue(null),
     }
@@ -102,7 +102,7 @@ describe('admin.controller guests tab actions', () => {
         name: 'Guest One',
         email: 'guest1@example.com',
         role: 0,
-        isActive: true,
+        isActive: false,
         managedByUserId: 'mgr-1',
         team: 'Platform',
       })
@@ -119,7 +119,7 @@ describe('admin.controller guests tab actions', () => {
       email: 'guest2@example.com',
       role: 0,
       team: 'Executive',
-      isActive: true,
+      isActive: false,
       managedByUserId: 'super-1',
       save: jest.fn().mockResolvedValue(null),
     }
@@ -185,7 +185,7 @@ describe('admin.controller guests tab actions', () => {
         name: 'Guest Two',
         email: 'guest2@example.com',
         role: 0,
-        isActive: true,
+        isActive: false,
         managedByUserId: 'super-1',
         team: 'Executive',
       })

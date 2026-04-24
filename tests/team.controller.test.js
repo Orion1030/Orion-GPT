@@ -526,7 +526,7 @@ describe('team.controller', () => {
       email: 'guest1@example.com',
       team: 'Platform',
       role: 0,
-      isActive: true,
+      isActive: false,
       lastLogin: null,
       save: jest.fn().mockResolvedValue(null),
     }
@@ -577,7 +577,7 @@ describe('team.controller', () => {
         name: 'Guest One',
         email: 'guest1@example.com',
         role: 0,
-        isActive: true,
+        isActive: false,
         team: 'Platform',
         managedByUserId: 'user-1',
       })
