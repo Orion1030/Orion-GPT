@@ -6,6 +6,8 @@ const { isAuthenticatedUser, permit } = require('../middlewares/auth.middleware'
 const { RoleLevels } = require('../utils/constants')
 const {
   changeMemberPassword,
+  createGuest,
+  deleteGuest,
   getUser,
   getUsageMetrics,
   getUsageMetricsForUser,
@@ -16,6 +18,7 @@ const {
 const { patchPageAccessRule } = require('../controllers/pageAccess.controller')
 const {
   addTeamMembers,
+  createTeamGuest,
   createTeam,
   deleteTeam,
   listAssignableUsers,
@@ -75,6 +78,20 @@ router
     changeMemberPassword
   )
 router
+  .route('/guests')
+  .post(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
+    createGuest
+  )
+router
+  .route('/guests/:guestId')
+  .delete(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
+    deleteGuest
+  )
+router
   .route('/teams')
   .get(
     isAuthenticatedUser,
@@ -104,6 +121,13 @@ router
     isAuthenticatedUser,
     permit([RoleLevels.ADMIN, RoleLevels.Manager]),
     addTeamMembers
+  )
+router
+  .route('/teams/:teamId/guests')
+  .post(
+    isAuthenticatedUser,
+    permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
+    createTeamGuest
   )
 router
   .route('/teams/:teamId/members/:userId')

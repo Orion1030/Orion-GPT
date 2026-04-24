@@ -10,6 +10,9 @@ const {
   toRoleNumber,
 } = require('../utils/managementScope')
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PASSWORD_POLICY_REGEX = /(?=.*[A-Z|!@#$&*])(?!.*[ ]).*$/g
+
 function isSuperAdminActor(user) {
   const role = toRoleNumber(user?.role)
   return role === RoleLevels.SUPER_ADMIN
@@ -25,9 +28,24 @@ function isManagerActor(user) {
   return role === RoleLevels.Manager
 }
 
+function isUserActor(user) {
+  const role = toRoleNumber(user?.role)
+  return role === RoleLevels.User
+}
+
 function canEditTeam(actor, team) {
   if (isAdminActor(actor)) return true
   if (!isManagerActor(actor)) return false
+
+  const actorTeam = normalizeTeamName(actor?.team)
+  const targetTeam = normalizeTeamName(team?.name)
+  if (!actorTeam || !targetTeam) return false
+  return actorTeam === targetTeam
+}
+
+function canCreateGuestInTeam(actor, team) {
+  if (isAdminActor(actor)) return true
+  if (!isManagerActor(actor) && !isUserActor(actor)) return false
 
   const actorTeam = normalizeTeamName(actor?.team)
   const targetTeam = normalizeTeamName(team?.name)
@@ -622,4 +640,129 @@ exports.removeTeamMember = asyncErrorHandler(async (req, res) => {
   }
 
   return sendJsonResult(res, true, { userId: toIdString(member._id) }, 'Team member removed')
+})
+
+exports.createTeamGuest = asyncErrorHandler(async (req, res) => {
+  const actor = req.user
+  const adminActor = isAdminActor(actor)
+  const managerActor = isManagerActor(actor)
+  const userActor = isUserActor(actor)
+  if (!adminActor && !managerActor && !userActor) {
+    return sendJsonResult(res, false, null, 'Insufficient permission', 403)
+  }
+
+  const { teamId } = req.params
+  const body = req.body || {}
+  const team = await TeamModel.findOne({ _id: teamId })
+  if (!team) {
+    return sendJsonResult(res, false, null, 'Team not found', 404)
+  }
+  if (!canCreateGuestInTeam(actor, team)) {
+    return sendJsonResult(res, false, null, 'Insufficient permission', 403)
+  }
+
+  const name = String(body.name || '').trim()
+  const email = String(body.email || '')
+    .trim()
+    .toLowerCase()
+  const password = String(body.password || '')
+  const confirmPassword = String(body.confirmPassword || '')
+
+  if (!name) {
+    return sendJsonResult(res, false, null, 'Name is required', 400)
+  }
+  if (!email) {
+    return sendJsonResult(res, false, null, 'Email is required', 400)
+  }
+  if (!EMAIL_REGEX.test(email)) {
+    return sendJsonResult(res, false, null, 'Invalid email format', 400)
+  }
+  if (!password) {
+    return sendJsonResult(res, false, null, 'Password is required', 400)
+  }
+  if (password.length < 8) {
+    return sendJsonResult(res, false, null, 'Password must be at least 8 characters', 400)
+  }
+  if (!PASSWORD_POLICY_REGEX.test(password)) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'Password must include at least one capital letter or special character and contain no spaces',
+      400
+    )
+  }
+  if (password !== confirmPassword) {
+    return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
+  }
+
+  const existingByName = await UserModel.findOne({ name })
+    .select('_id')
+    .lean()
+  if (existingByName) {
+    return sendJsonResult(res, false, null, 'Existing user', 400)
+  }
+
+  const existingByEmail = await UserModel.findOne({ email })
+    .select('_id')
+    .lean()
+  if (existingByEmail) {
+    return sendJsonResult(res, false, null, 'Email is already in use', 400)
+  }
+
+  const requestedOwnerId = userActor
+    ? toIdString(actor?._id || actor?.id)
+    : toIdString(team.managerUserId)
+  if (!requestedOwnerId) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'Selected team has no manager. Assign a manager before creating guests.',
+      400
+    )
+  }
+
+  const owner = await UserModel.findOne({ _id: requestedOwnerId })
+    .select('_id role team isActive')
+    .lean()
+  const expectedOwnerRole = userActor ? RoleLevels.User : RoleLevels.Manager
+  if (!owner || !owner.isActive || Number(owner.role) !== expectedOwnerRole) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      userActor
+        ? 'Requesting user must be an active User account'
+        : 'Team manager must be an active Manager account',
+      400
+    )
+  }
+
+  const targetTeamName = normalizeTeamName(team.name)
+  const ownerTeamName = normalizeTeamName(owner.team)
+  if (!targetTeamName || ownerTeamName !== targetTeamName) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      userActor
+        ? 'Requesting user must belong to the target team'
+        : 'Team manager must belong to the target team',
+      400
+    )
+  }
+
+  const guest = new UserModel({
+    name,
+    email,
+    password,
+    role: RoleLevels.GUEST,
+    isActive: true,
+    managedByUserId: owner._id,
+    team: targetTeamName,
+  })
+  await guest.save()
+
+  return sendJsonResult(res, true, toTeamMemberDto(guest), 'Guest user created', 201)
 })

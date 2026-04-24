@@ -161,4 +161,56 @@ describe('admin.controller guest ownership rules', () => {
 
     expect(res.status).toHaveBeenCalledWith(400)
   })
+
+  it('rejects guest ownership assignment when owner role is not Super Admin, Admin, Manager, or User', async () => {
+    const targetUser = {
+      _id: 'guest-1',
+      role: 0,
+      team: 'Old Team',
+      managedByUserId: null,
+      memberId: 'GST-1',
+      name: 'Guest One',
+      email: 'guest@example.com',
+    }
+    const guestOwner = {
+      _id: 'guest-2',
+      role: 0,
+      team: 'Platform',
+      isActive: true,
+    }
+
+    const findOne = jest
+      .fn()
+      .mockReturnValueOnce(buildSelectLean(targetUser))
+      .mockReturnValueOnce(buildSelectLean(guestOwner))
+
+    jest.doMock('../dbModels', () => ({
+      UserModel: {
+        findOne,
+        exists: jest.fn().mockResolvedValue(false),
+        findOneAndUpdate: jest.fn(),
+      },
+    }))
+    jest.doMock('../services/auth.service', () => ({
+      verifyRequesterPassword: jest.fn().mockResolvedValue(true),
+    }))
+    jest.doMock('../realtime/socketServer', () => ({
+      getOnlineUserIds: jest.fn().mockReturnValue([]),
+      isUserOnline: jest.fn().mockReturnValue(false),
+    }))
+
+    const controller = require('../controllers/admin.controller')
+    const req = {
+      user: { _id: 'admin-1', role: 1, team: 'Platform' },
+      params: { userId: 'guest-1' },
+      body: {
+        managedByUserId: 'guest-2',
+      },
+    }
+    const res = buildRes()
+
+    await invoke(controller.updateUser, req, res)
+
+    expect(res.status).toHaveBeenCalledWith(400)
+  })
 })

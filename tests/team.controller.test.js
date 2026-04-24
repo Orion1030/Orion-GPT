@@ -510,4 +510,156 @@ describe('team.controller', () => {
     expect(UserModel.updateMany).not.toHaveBeenCalled()
     expect(res.status).toHaveBeenCalledWith(403)
   })
+
+  it('allows user to create guest in own team from teams flow', async () => {
+    const TeamModel = {
+      findOne: jest.fn().mockResolvedValue({
+        _id: 'team-1',
+        name: 'Platform',
+        managerUserId: null,
+      }),
+    }
+    const savedGuest = {
+      _id: 'guest-1',
+      memberId: 'GST-1',
+      name: 'Guest One',
+      email: 'guest1@example.com',
+      team: 'Platform',
+      role: 0,
+      isActive: true,
+      lastLogin: null,
+      save: jest.fn().mockResolvedValue(null),
+    }
+    const UserModel = jest.fn().mockImplementation((payload) => ({
+      ...savedGuest,
+      ...payload,
+      save: savedGuest.save,
+    }))
+    UserModel.findOne = jest
+      .fn()
+      .mockReturnValueOnce(buildLeanChain(null))
+      .mockReturnValueOnce(buildLeanChain(null))
+      .mockReturnValueOnce(
+        buildLeanChain({
+          _id: 'user-1',
+          role: 3,
+          team: 'Platform',
+          isActive: true,
+        })
+      )
+    UserModel.updateMany = jest.fn().mockResolvedValue({})
+    UserModel.updateOne = jest.fn().mockResolvedValue({})
+    UserModel.aggregate = jest.fn().mockResolvedValue([])
+    UserModel.find = jest.fn().mockReturnValue(buildLeanChain([]))
+
+    jest.doMock('../dbModels', () => ({
+      TeamModel,
+      UserModel,
+    }))
+
+    const controller = require('../controllers/team.controller')
+    const req = {
+      user: { _id: 'user-1', role: 3, team: 'Platform' },
+      params: { teamId: 'team-1' },
+      body: {
+        name: 'Guest One',
+        email: 'guest1@example.com',
+        password: 'Passw0rd!',
+        confirmPassword: 'Passw0rd!',
+      },
+    }
+    const res = buildRes()
+
+    await invoke(controller.createTeamGuest, req, res)
+
+    expect(UserModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Guest One',
+        email: 'guest1@example.com',
+        role: 0,
+        isActive: true,
+        team: 'Platform',
+        managedByUserId: 'user-1',
+      })
+    )
+    expect(savedGuest.save).toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(201)
+  })
+
+  it('rejects guest creation when selected team has no manager', async () => {
+    const TeamModel = {
+      findOne: jest.fn().mockResolvedValue({
+        _id: 'team-1',
+        name: 'Platform',
+        managerUserId: null,
+      }),
+    }
+    const UserModel = jest.fn()
+    UserModel.findOne = jest.fn().mockReturnValue(buildLeanChain(null))
+    UserModel.updateMany = jest.fn().mockResolvedValue({})
+    UserModel.updateOne = jest.fn().mockResolvedValue({})
+    UserModel.aggregate = jest.fn().mockResolvedValue([])
+    UserModel.find = jest.fn().mockReturnValue(buildLeanChain([]))
+
+    jest.doMock('../dbModels', () => ({
+      TeamModel,
+      UserModel,
+    }))
+
+    const controller = require('../controllers/team.controller')
+    const req = {
+      user: { _id: 'admin-1', role: 1, team: '' },
+      params: { teamId: 'team-1' },
+      body: {
+        name: 'Guest One',
+        email: 'guest1@example.com',
+        password: 'Passw0rd!',
+        confirmPassword: 'Passw0rd!',
+      },
+    }
+    const res = buildRes()
+
+    await invoke(controller.createTeamGuest, req, res)
+
+    expect(UserModel).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(400)
+  })
+
+  it('rejects user creating guest outside own team', async () => {
+    const TeamModel = {
+      findOne: jest.fn().mockResolvedValue({
+        _id: 'team-2',
+        name: 'Data',
+      }),
+    }
+    const UserModel = jest.fn()
+    UserModel.findOne = jest.fn().mockReturnValue(buildLeanChain(null))
+    UserModel.updateMany = jest.fn().mockResolvedValue({})
+    UserModel.updateOne = jest.fn().mockResolvedValue({})
+    UserModel.aggregate = jest.fn().mockResolvedValue([])
+    UserModel.find = jest.fn().mockReturnValue(buildLeanChain([]))
+
+    jest.doMock('../dbModels', () => ({
+      TeamModel,
+      UserModel,
+    }))
+
+    const controller = require('../controllers/team.controller')
+    const req = {
+      user: { _id: 'user-1', role: 3, team: 'Platform' },
+      params: { teamId: 'team-2' },
+      body: {
+        name: 'Guest Two',
+        email: 'guest2@example.com',
+        password: 'Passw0rd!',
+        confirmPassword: 'Passw0rd!',
+      },
+    }
+    const res = buildRes()
+
+    await invoke(controller.createTeamGuest, req, res)
+
+    expect(UserModel).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(403)
+  })
 })
