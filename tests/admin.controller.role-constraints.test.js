@@ -150,4 +150,52 @@ describe('admin.controller role constraints', () => {
     expect(verifyRequesterPassword).not.toHaveBeenCalled()
     expect(res.status).toHaveBeenCalledWith(200)
   })
+
+  it('blocks changing role for existing guest accounts', async () => {
+    const targetUser = {
+      _id: 'guest-1',
+      role: 0,
+      team: 'Platform',
+      managedByUserId: 'user-1',
+      memberId: 'GST-1',
+      name: 'Guest One',
+      email: 'guest@example.com',
+    }
+
+    const findOne = jest.fn().mockReturnValueOnce(buildSelectLean(targetUser))
+    const findOneAndUpdate = jest.fn()
+
+    jest.doMock('../dbModels', () => ({
+      UserModel: {
+        findOne,
+        exists: jest.fn().mockResolvedValue(false),
+        findOneAndUpdate,
+      },
+      TeamModel: {
+        exists: jest.fn().mockResolvedValue(false),
+      },
+    }))
+    jest.doMock('../services/auth.service', () => ({
+      verifyRequesterPassword: jest.fn().mockResolvedValue(true),
+    }))
+    jest.doMock('../realtime/socketServer', () => ({
+      getOnlineUserIds: jest.fn().mockReturnValue([]),
+      isUserOnline: jest.fn().mockReturnValue(false),
+    }))
+
+    const controller = require('../controllers/admin.controller')
+    const req = {
+      user: { _id: 'admin-1', role: 1, team: 'Platform' },
+      params: { userId: 'guest-1' },
+      body: {
+        role: 3,
+      },
+    }
+    const res = buildRes()
+
+    await invoke(controller.updateUser, req, res)
+
+    expect(findOneAndUpdate).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(400)
+  })
 })

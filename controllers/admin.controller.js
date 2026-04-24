@@ -553,6 +553,15 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     }
 
     const currentRole = Number(targetUser.role)
+    if (currentRole === RoleLevels.GUEST && parsedRole !== RoleLevels.GUEST) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        'Guest role changes are currently disabled. Manage guest lifecycle from Your Guests tab.',
+        400
+      )
+    }
     const demotingAssignedManager =
       currentRole === RoleLevels.Manager && parsedRole !== RoleLevels.Manager
     if (demotingAssignedManager) {
