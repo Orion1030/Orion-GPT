@@ -11,9 +11,9 @@ const { getBlacklists, addToBlacklist, removeFromBlacklist, clearBlacklists } = 
 const router = express.Router()
 const accessGuard = requirePageAccess(PAGE_ACCESS_KEYS.BLACKLIST)
 
-router.get('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager]), accessGuard, getBlacklists)
-router.post('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager]), accessGuard, addToBlacklist)
-router.delete('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager]), accessGuard, removeFromBlacklist)
+router.get('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager, RoleLevels.GUEST]), accessGuard, getBlacklists)
+router.post('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager, RoleLevels.GUEST]), accessGuard, addToBlacklist)
+router.delete('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager, RoleLevels.GUEST]), accessGuard, removeFromBlacklist)
 router.delete('/clear', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager]), accessGuard, clearBlacklists)
 
 module.exports = router
