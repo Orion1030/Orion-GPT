@@ -4,6 +4,10 @@ const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } 
 const { sendJsonResult } = require('../utils')
 const { isAdminUser } = require('../utils/access')
 const { tryGetChatReply } = require('../services/llm/chatResponder.service')
+const {
+  AI_RUNTIME_FEATURES,
+  resolveFeatureAiRuntimeConfig,
+} = require('../services/adminConfiguration.service')
 
 const DEFAULT_TITLE = 'New Chat'
 
@@ -306,7 +310,15 @@ exports.sendMessage = asyncErrorHandler(async (req, res) => {
     { role: 'system', content: systemContext },
     ...chatMessages.slice(-20)
   ]
-  const { result: chatResult, error: chatError } = await tryGetChatReply({ messages: apiMessages, temperature: 0.6 })
+  const runtimeConfig = await resolveFeatureAiRuntimeConfig({
+    targetUserId: sessionUserId,
+    feature: AI_RUNTIME_FEATURES.AI_CHAT,
+  })
+  const { result: chatResult, error: chatError } = await tryGetChatReply({
+    messages: apiMessages,
+    temperature: 0.6,
+    runtimeConfig,
+  })
   if (chatError) {
     assistantContent = 'Sorry, I had trouble responding. Please try again.'
   } else if (chatResult.reply) {
