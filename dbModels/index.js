@@ -18,7 +18,6 @@ mongoose.plugin((schema) => {
 // Determine MongoDB URI from environment with sensible fallbacks
 const uri =
   process.env.MONGO_URI ||
-  process.env.MONGODB_URI ||
   process.env.DB_URI ||
   "mongodb://localhost:27017/jobsy";
 
@@ -77,6 +76,7 @@ const PageAccessModelForApp = DBConnection.model("PageAccess", PageAccessModel.s
 const NotificationModelForApp = DBConnection.model("Notification", NotificationModel.schema);
 
 module.exports = {
+  MONGO_URI: uri,
   DBConnection,
   UserModel: UserModelForApp,
   PromptModel: PromptModelForApp,
