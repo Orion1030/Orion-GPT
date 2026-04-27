@@ -10,6 +10,6 @@ const { getReport } = require('../controllers/reporting.controller')
 const router = express.Router()
 const accessGuard = requirePageAccess(PAGE_ACCESS_KEYS.REPORTS)
 
-router.get('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]), accessGuard, getReport)
+router.get('/', isAuthenticatedUser, permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST]), accessGuard, getReport)
 
 module.exports = router

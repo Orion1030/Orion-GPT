@@ -2,6 +2,7 @@ const asyncErrorHandler = require("./asyncErrorHandler");
 const { sendJsonResult } = require("../utils");
 const { isValidPageAccessKey } = require("../utils/pageAccess");
 const { getAllowedRolesForPage } = require("../services/pageAccess.service");
+const { RoleLevels } = require("../utils/constants");
 
 exports.requirePageAccess = (pageKey) =>
   asyncErrorHandler(async (req, res, next) => {
@@ -16,8 +17,10 @@ exports.requirePageAccess = (pageKey) =>
 
     const allowedRoles = await getAllowedRolesForPage(normalizedPageKey);
     const role = Number(req.user.role);
+    const guestAllowedViaUserFallback =
+      role === RoleLevels.GUEST && allowedRoles.includes(RoleLevels.User);
 
-    if (!allowedRoles.includes(role)) {
+    if (!allowedRoles.includes(role) && !guestAllowedViaUserFallback) {
       return sendJsonResult(
         res,
         false,

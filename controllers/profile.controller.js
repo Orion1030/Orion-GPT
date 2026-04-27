@@ -47,12 +47,64 @@ function normalizeCareerKeyPoints(value) {
   return "";
 }
 
+function normalizeFlexibleDateValue(value) {
+  if (value == null) return "";
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    return value.toISOString().slice(0, 10);
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return "";
+
+  // Keep valid flexible date formats exactly as entered.
+  if (/^\d{4}$/.test(raw)) return raw;
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) return raw;
+  if (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(raw)) return raw;
+
+  // Legacy records may still contain Date-serialized strings.
+  const looksLikeLegacyDateTime =
+    /T\d{2}:\d{2}/.test(raw) ||
+    /GMT|UTC/.test(raw) ||
+    /^[A-Za-z]{3}\s[A-Za-z]{3}\s\d{1,2}\s\d{4}/.test(raw);
+  if (looksLikeLegacyDateTime) {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  }
+
+  return raw;
+}
+
 function normalizeCareerHistory(careerHistory) {
   if (!Array.isArray(careerHistory)) return careerHistory;
   return careerHistory.map((entry) => ({
     ...entry,
+    startDate: normalizeFlexibleDateValue(entry?.startDate),
+    endDate: normalizeFlexibleDateValue(entry?.endDate),
     keyPoints: normalizeCareerKeyPoints(entry?.keyPoints),
   }));
+}
+
+function normalizeEducations(educations) {
+  if (!Array.isArray(educations)) return educations;
+  return educations.map((entry) => ({
+    ...entry,
+    startDate: normalizeFlexibleDateValue(entry?.startDate),
+    endDate: normalizeFlexibleDateValue(entry?.endDate),
+  }));
+}
+
+function normalizeProfileForResponse(profile) {
+  if (!profile) return profile;
+  const source = typeof profile.toObject === "function" ? profile.toObject() : profile;
+  return {
+    ...source,
+    careerHistory: normalizeCareerHistory(source.careerHistory),
+    educations: normalizeEducations(source.educations),
+  };
 }
 
 function toNullableId(value) {
@@ -154,7 +206,7 @@ exports.getProfiles = asyncErrorHandler(async (req, res, next) => {
     scopeFilter = { ...scopeFilter, status: StatusCodes.ACTIVE };
   }
   const profiles = await ProfileModel.find(scopeFilter).sort({ updatedAt: -1 });
-  return sendJsonResult(res, true, profiles);
+  return sendJsonResult(res, true, profiles.map((profile) => normalizeProfileForResponse(profile)));
 });
 
 exports.getProfile = asyncErrorHandler(async (req, res, next) => {
@@ -165,7 +217,7 @@ exports.getProfile = asyncErrorHandler(async (req, res, next) => {
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
-  return sendJsonResult(res, true, profile);
+  return sendJsonResult(res, true, normalizeProfileForResponse(profile));
 });
 
 exports.createProfile = asyncErrorHandler(async (req, res, next) => {
@@ -182,6 +234,7 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     status
   } = req.body;
   const normalizedCareerHistory = normalizeCareerHistory(careerHistory);
+  const normalizedEducations = normalizeEducations(educations);
   const targetUserId = isAdminUser(user) ? toTargetUserId(req) : null;
   const ownerUserId = targetUserId || user._id;
   const templateAssignment = await resolveDefaultTemplateAssignment({
@@ -218,7 +271,7 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
     link,
     contactInfo,
     careerHistory: normalizedCareerHistory,
-    educations,
+    educations: normalizedEducations,
     status
   };
   if (templateAssignment.shouldSet) {
@@ -230,7 +283,7 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
 
   const profile = new ProfileModel(profilePayload);
   await profile.save();
-  return sendJsonResult(res, true, profile);
+  return sendJsonResult(res, true, normalizeProfileForResponse(profile));
 });
 
 exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
@@ -248,6 +301,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
     status
   } = req.body;
   const normalizedCareerHistory = normalizeCareerHistory(careerHistory);
+  const normalizedEducations = normalizeEducations(educations);
   const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
 
   const profile = await ProfileModel.findOne({ ...scopeFilter, _id: profileId });
@@ -287,7 +341,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   profile.link = link;
   profile.contactInfo = contactInfo;
   profile.careerHistory = normalizedCareerHistory;
-  profile.educations = educations;
+  profile.educations = normalizedEducations;
   if (templateAssignment.shouldSet) {
     profile.defaultTemplateId = templateAssignment.value;
   }
@@ -297,7 +351,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   if (status !== undefined) profile.status = status;
 
   await profile.save();
-  return sendJsonResult(res, true, profile);
+  return sendJsonResult(res, true, normalizeProfileForResponse(profile));
 });
 
 exports.deleteProfile = asyncErrorHandler(async (req, res, next) => {

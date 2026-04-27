@@ -1,6 +1,18 @@
 // Force dotenv to stay silent even if loaded multiple times by dependencies
 process.env.DOTENV_CONFIG_QUIET = 'true';
-require("dotenv").config({ quiet: true });
+const fs = require("fs");
+const path = require("path");
+const dotenv = require("dotenv");
+
+const localEnvPath = path.join(__dirname, ".env.local");
+const defaultEnvPath = path.join(__dirname, ".env");
+
+if (fs.existsSync(defaultEnvPath)) {
+  dotenv.config({ path: defaultEnvPath, quiet: true });
+}
+if (fs.existsSync(localEnvPath)) {
+  dotenv.config({ path: localEnvPath, quiet: true, override: true });
+}
 
 // Diagnostic: log whether JWT_SECRET reaches the container (check Railway logs after deploy)
 const jwtSecret = process.env.JWT_SECRET;
@@ -24,13 +36,14 @@ DBConnection.on("connected", async () => {
 });
 
 const app = require("./app");
+const HOST = process.env.HOST || "0.0.0.0";
 const PORT = process.env.PORT || 5050;
 const env = process.env.NODE_ENV || "development";
 const httpServer = http.createServer(app)
 initSocketServer(httpServer)
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, HOST, () => {
   console.log(
-    `Server is running${env === Environments.LOCAL ? ` on port ${PORT}` : ''}`,
+    `Server is running${env === Environments.LOCAL ? ` on ${HOST}:${PORT}` : ''}`,
   );
 });
 

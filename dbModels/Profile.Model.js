@@ -13,8 +13,8 @@ const contactInfoSchema = new mongoose.Schema({
 const careerHistorySchema = new mongoose.Schema({
   companyName: { type: String, required: true },
   roleTitle: { type: String, required: true },
-  startDate: { type: Date, required: true },
-  endDate: { type: Date, required: true },
+  startDate: { type: String, required: true, trim: true },
+  endDate: { type: String, required: true, trim: true },
   companySummary: { type: String, maxlength: 3000 },
   keyPoints: { type: String, default: "" }
 }, { _id: false })
@@ -23,8 +23,8 @@ const educationSchema = new mongoose.Schema({
   universityName: { type: String, required: true },
   degreeLevel: { type: String, required: true },
   major: { type: String, required: true },
-  startDate: { type: Date, required: true },
-  endDate: { type: Date, required: true },
+  startDate: { type: String, required: true, trim: true },
+  endDate: { type: String, required: true, trim: true },
   note: { type: String }
 }, { _id: false })
 

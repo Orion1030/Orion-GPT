@@ -19,7 +19,7 @@ const { RoleLevels } = require('../utils/constants')
 
 const router = express.Router()
 
-const userPromptAccess = [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]
+const userPromptAccess = [RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST]
 
 router
   .route('/me/system/effective')

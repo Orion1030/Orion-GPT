@@ -1,6 +1,7 @@
 const crypto = require('crypto')
 const {
   emitToUserRoom,
+  emitToApplicationRoom,
 } = require('../realtime/socketServer')
 
 const connectionsByApplicationId = new Map()
@@ -44,6 +45,11 @@ function publishApplicationEvent(applicationId, envelope, options = {}) {
     for (const res of bucket.values()) {
       writeSseEnvelope(res, envelope)
     }
+  }
+
+  emitToApplicationRoom(applicationId, 'applications:event', envelope)
+  if (envelope?.type && typeof envelope.type === 'string') {
+    emitToApplicationRoom(applicationId, envelope.type, envelope)
   }
 
   const userId = options.userId || envelope?.userId || envelope?.data?.userId

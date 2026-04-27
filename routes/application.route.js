@@ -27,7 +27,7 @@ const {
 const router = express.Router()
 const auth = [
   isAuthenticatedUser,
-  permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager]),
+  permit([RoleLevels.ADMIN, RoleLevels.User, RoleLevels.Manager, RoleLevels.GUEST]),
   requirePageAccess(PAGE_ACCESS_KEYS.APPLICATIONS),
 ]
 

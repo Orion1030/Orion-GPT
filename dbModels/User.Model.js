@@ -1,6 +1,7 @@
 const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
 const { RoleLevels } = require('../utils/constants')
+const { buildDefaultUserIdentifierFromObjectId } = require('../utils/userIdentifier')
 
 const userSchema = new mongoose.Schema(
   {
@@ -14,6 +15,11 @@ const userSchema = new mongoose.Schema(
       default: '', // optional
       trim: true
     },
+    managedByUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
     email: {
       type: String,
       default: '',
@@ -24,6 +30,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
       trim: true
+    },
+    memberId: {
+      type: String,
+      default: function defaultMemberId() {
+        return buildDefaultUserIdentifierFromObjectId(this._id)
+      },
+      trim: true,
+      uppercase: true
     },
     avatarUrl: {
       type: String,
@@ -64,6 +78,9 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 )
+
+userSchema.index({ managedByUserId: 1, role: 1 })
+userSchema.index({ team: 1, role: 1 })
 
 userSchema.pre('save', async function () {
   if (this.isModified('password')) {
