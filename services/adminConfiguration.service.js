@@ -1,8 +1,14 @@
 const { RoleLevels } = require('../utils/constants')
 const { normalizeTeamName, toIdString, toRoleNumber } = require('../utils/managementScope')
 const { decryptSecret, encryptSecret } = require('../utils/secretCrypto')
+const {
+  findProviderEntry,
+  getDefaultModelId,
+  getDefaultProviderKey,
+  isSupportedProviderModel,
+  listAiProviderCatalog,
+} = require('./aiProviderCatalog.service')
 
-const AI_PROVIDERS = ['openai', 'claude', 'gemini']
 const AI_RUNTIME_FEATURES = {
   RESUME_GENERATION: 'resume_generation',
   AI_CHAT: 'ai_chat',
@@ -39,15 +45,26 @@ function getTeamModel() {
   return getModels()?.TeamModel || null
 }
 
-function normalizeAiProvider(value) {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase()
-  return AI_PROVIDERS.includes(normalized) ? normalized : 'openai'
+async function getActiveProviderCatalog() {
+  return listAiProviderCatalog({ includeInactive: false })
+}
+
+function normalizeAiProvider(value, catalog = []) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (findProviderEntry(catalog, normalized)) return normalized
+  return getDefaultProviderKey(catalog)
 }
 
 function sanitizeModel(value) {
   return String(value || '').trim().slice(0, 120)
+}
+
+function resolveProviderModel(model, provider, catalog = []) {
+  const normalizedModel = sanitizeModel(model)
+  if (normalizedModel && isSupportedProviderModel(catalog, provider, normalizedModel)) {
+    return normalizedModel
+  }
+  return getDefaultModelId(catalog, provider)
 }
 
 function sanitizeApiKey(value) {
@@ -81,8 +98,9 @@ function maskApiKey(value) {
 }
 
 function buildDefaultPublicConfig() {
+  const defaultProvider = 'openai'
   return {
-    aiProvider: 'openai',
+    aiProvider: defaultProvider,
     model: '',
     isCustomAiEnabled: false,
     useForResumeGeneration: false,
@@ -94,8 +112,14 @@ function buildDefaultPublicConfig() {
   }
 }
 
-function toPublicConfig(configDoc) {
-  if (!configDoc) return buildDefaultPublicConfig()
+function toPublicConfig(configDoc, catalog = []) {
+  if (!configDoc) {
+    const defaults = buildDefaultPublicConfig()
+    const provider = getDefaultProviderKey(catalog)
+    defaults.aiProvider = provider
+    defaults.model = getDefaultModelId(catalog, provider)
+    return defaults
+  }
   let decryptedApiKey = ''
   try {
     decryptedApiKey = sanitizeApiKey(decryptSecret(configDoc.encryptedApiKey))
@@ -106,9 +130,12 @@ function toPublicConfig(configDoc) {
     )
   }
 
+  const provider = normalizeAiProvider(configDoc.aiProvider, catalog)
+  const model = resolveProviderModel(configDoc.model, provider, catalog)
+
   return {
-    aiProvider: normalizeAiProvider(configDoc.aiProvider),
-    model: sanitizeModel(configDoc.model),
+    aiProvider: provider,
+    model,
     isCustomAiEnabled: configDoc?.isCustomAiEnabled !== false,
     useForResumeGeneration: Boolean(configDoc.useForResumeGeneration),
     useForAiChat: Boolean(configDoc.useForAiChat),
@@ -122,20 +149,13 @@ function toPublicConfig(configDoc) {
 function validateUpsertPayload(payload = {}) {
   const errors = []
   const normalized = {
-    aiProvider: normalizeAiProvider(payload.aiProvider),
+    aiProvider: String(payload.aiProvider || '').trim().toLowerCase(),
     model: sanitizeModel(payload.model),
     apiKey: sanitizeApiKey(payload.apiKey),
     clearApiKey: toBoolean(payload.clearApiKey, false),
     isCustomAiEnabled: toBoolean(payload.isCustomAiEnabled, false),
     useForResumeGeneration: toBoolean(payload.useForResumeGeneration, false),
     useForAiChat: toBoolean(payload.useForAiChat, false),
-  }
-
-  if (payload.aiProvider !== undefined) {
-    const rawProvider = String(payload.aiProvider || '').trim().toLowerCase()
-    if (!AI_PROVIDERS.includes(rawProvider)) {
-      errors.push('aiProvider must be one of: openai, claude, gemini')
-    }
   }
 
   if (payload.model !== undefined && !normalized.model) {
@@ -147,17 +167,18 @@ function validateUpsertPayload(payload = {}) {
 
 async function getAiConfigurationForOwner(ownerUserId) {
   const normalizedOwnerId = toIdString(ownerUserId)
-  if (!normalizedOwnerId) return buildDefaultPublicConfig()
+  const catalog = await getActiveProviderCatalog()
+  if (!normalizedOwnerId) return toPublicConfig(null, catalog)
 
   const AdminConfigurationModel = getAdminConfigurationModel()
-  if (!AdminConfigurationModel) return buildDefaultPublicConfig()
+  if (!AdminConfigurationModel) return toPublicConfig(null, catalog)
 
   const config = await AdminConfigurationModel.findOne({ ownerUserId: normalizedOwnerId })
     .select(
       'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration useForAiChat createdAt updatedAt'
     )
     .lean()
-  return toPublicConfig(config)
+  return toPublicConfig(config, catalog)
 }
 
 async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload = {} } = {}) {
@@ -195,14 +216,38 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
   if (validation.errors.length) {
     return { ok: false, status: 400, message: validation.errors[0], data: null }
   }
+  const catalog = await getActiveProviderCatalog()
+  if (!catalog.length) {
+    return {
+      ok: false,
+      status: 500,
+      message: 'No active AI providers configured. Ask super admin to configure AI provider catalog.',
+      data: null,
+    }
+  }
 
   const existing = await AdminConfigurationModel.findOne({ ownerUserId: normalizedOwnerId }).lean()
   const nextProvider = payload.aiProvider !== undefined
-    ? validation.normalized.aiProvider
-    : normalizeAiProvider(existing?.aiProvider)
-  const nextModel = payload.model !== undefined
+    ? normalizeAiProvider(validation.normalized.aiProvider, catalog)
+    : normalizeAiProvider(existing?.aiProvider, catalog)
+
+  if (payload.aiProvider !== undefined && !findProviderEntry(catalog, validation.normalized.aiProvider)) {
+    const allowed = catalog.map((provider) => provider.providerKey).join(', ')
+    return {
+      ok: false,
+      status: 400,
+      message: `aiProvider must be one of active providers: ${allowed}`,
+      data: null,
+    }
+  }
+
+  const requestedModel = payload.model !== undefined
     ? validation.normalized.model
-    : sanitizeModel(existing?.model)
+    : ''
+  const existingModel = sanitizeModel(existing?.model)
+  const nextModel = requestedModel
+    ? requestedModel
+    : resolveProviderModel(existingModel, nextProvider, catalog)
   const nextIsCustomAiEnabled = payload.isCustomAiEnabled !== undefined
     ? validation.normalized.isCustomAiEnabled
     : existing
@@ -263,6 +308,17 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
       data: null,
     }
   }
+  if (nextModel && !isSupportedProviderModel(catalog, nextProvider, nextModel)) {
+    const allowed = (findProviderEntry(catalog, nextProvider)?.models || [])
+      .map((model) => model.modelId)
+      .join(', ')
+    return {
+      ok: false,
+      status: 400,
+      message: `model must be one of provider-supported values: ${allowed}`,
+      data: null,
+    }
+  }
 
   await AdminConfigurationModel.findOneAndUpdate(
     { ownerUserId: normalizedOwnerId },
@@ -289,7 +345,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
     )
     .lean()
 
-  return { ok: true, status: 200, message: 'AI runtime settings updated', data: toPublicConfig(saved) }
+  return { ok: true, status: 200, message: 'AI runtime settings updated', data: toPublicConfig(saved, catalog) }
 }
 
 async function resolveTeamManagerUserId(teamName) {
@@ -372,6 +428,11 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
     return buildDisabledRuntimeResult({ feature, reason: 'configuration_store_unavailable' })
   }
 
+  const catalog = await getActiveProviderCatalog()
+  if (!catalog.length) {
+    return buildDisabledRuntimeResult({ feature, reason: 'no_active_provider_catalog' })
+  }
+
   const targetUser = await UserModel.findOne({ _id: normalizedTargetUserId })
     .select('_id role team managedByUserId isActive')
     .lean()
@@ -413,9 +474,10 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
       continue
     }
 
-    const model = sanitizeModel(config.model)
-    const provider = normalizeAiProvider(config.aiProvider)
+    const provider = normalizeAiProvider(config.aiProvider, catalog)
+    const model = resolveProviderModel(config.model, provider, catalog)
     if (!decryptedKey || !model) continue
+    if (!isSupportedProviderModel(catalog, provider, model)) continue
 
     return {
       useCustom: true,
@@ -434,7 +496,6 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
 }
 
 module.exports = {
-  AI_PROVIDERS,
   AI_RUNTIME_FEATURES,
   getAiConfigurationForOwner,
   isManagementConfigRole,

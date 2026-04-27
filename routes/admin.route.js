@@ -16,7 +16,9 @@ const {
   updateUser,
 } = require('../controllers/admin.controller')
 const {
+  getAiProviderCatalog,
   getMyAiConfiguration,
+  upsertAiProviderCatalog,
   upsertMyAiConfiguration,
 } = require('../controllers/adminConfiguration.controller')
 const { patchPageAccessRule } = require('../controllers/pageAccess.controller')
@@ -151,6 +153,20 @@ router
     isAuthenticatedUser,
     permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager]),
     upsertMyAiConfiguration
+  )
+router
+  .route('/configuration/ai-catalog')
+  .get(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager]),
+    getAiProviderCatalog
+  )
+router
+  .route('/configuration/ai-catalog/:providerKey')
+  .put(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN]),
+    upsertAiProviderCatalog
   )
 
 module.exports = router

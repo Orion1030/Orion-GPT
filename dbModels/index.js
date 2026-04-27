@@ -43,6 +43,7 @@ const TemplateModel = require("./Template.Model");
 const StackModel = require("./Stack.Model");
 const TeamModel = require("./Team.Model");
 const AdminConfigurationModel = require("./AdminConfiguration.Model");
+const AiProviderCatalogModel = require("./AiProviderCatalog.Model");
 const ChatSessionModel = require("./ChatSession.Model");
 const ChatMessageModel = require("./ChatMessage.Model");
 const JobDescriptionModel = require("./JobDescription.Model");
@@ -67,6 +68,7 @@ const TemplateModelForApp = DBConnection.model("Template", TemplateModel.schema)
 const StackModelForApp = DBConnection.model("Stack", StackModel.schema);
 const TeamModelForApp = DBConnection.model("Team", TeamModel.schema);
 const AdminConfigurationModelForApp = DBConnection.model("AdminConfiguration", AdminConfigurationModel.schema);
+const AiProviderCatalogModelForApp = DBConnection.model("AiProviderCatalog", AiProviderCatalogModel.schema);
 const ChatSessionModelForApp = DBConnection.model("ChatSession", ChatSessionModel.schema);
 const ChatMessageModelForApp = DBConnection.model("ChatMessage", ChatMessageModel.schema);
 const JobDescriptionModelForApp = DBConnection.model("JobDescription", JobDescriptionModel.schema);
@@ -89,6 +91,7 @@ module.exports = {
   StackModel: StackModelForApp,
   TeamModel: TeamModelForApp,
   AdminConfigurationModel: AdminConfigurationModelForApp,
+  AiProviderCatalogModel: AiProviderCatalogModelForApp,
   ChatSessionModel: ChatSessionModelForApp,
   ChatMessageModel: ChatMessageModelForApp,
   JobDescriptionModel: JobDescriptionModelForApp,
