@@ -34,6 +34,9 @@ DBConnection.on("connected", async () => {
   console.log("Connected to appDB");
   startNotificationChangeStream()
 });
+DBConnection.on("error", (error) => {
+  console.error("MongoDB connection error:", error?.message || error);
+});
 
 const app = require("./app");
 const HOST = process.env.HOST || "0.0.0.0";
