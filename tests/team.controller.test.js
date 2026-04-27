@@ -1,3 +1,5 @@
+const { TEST_CREDENTIAL } = require('./helpers/testCredentials')
+
 describe('team.controller', () => {
   const buildRes = () => ({
     status: jest.fn().mockReturnThis(),
@@ -564,8 +566,8 @@ describe('team.controller', () => {
       body: {
         name: 'Guest One',
         email: 'guest1@example.com',
-        password: 'Passw0rd!',
-        confirmPassword: 'Passw0rd!',
+        password: TEST_CREDENTIAL,
+        confirmPassword: TEST_CREDENTIAL,
       },
     }
     const res = buildRes()
@@ -613,8 +615,8 @@ describe('team.controller', () => {
       body: {
         name: 'Guest One',
         email: 'guest1@example.com',
-        password: 'Passw0rd!',
-        confirmPassword: 'Passw0rd!',
+        password: TEST_CREDENTIAL,
+        confirmPassword: TEST_CREDENTIAL,
       },
     }
     const res = buildRes()
@@ -651,8 +653,8 @@ describe('team.controller', () => {
       body: {
         name: 'Guest Two',
         email: 'guest2@example.com',
-        password: 'Passw0rd!',
-        confirmPassword: 'Passw0rd!',
+        password: TEST_CREDENTIAL,
+        confirmPassword: TEST_CREDENTIAL,
       },
     }
     const res = buildRes()
