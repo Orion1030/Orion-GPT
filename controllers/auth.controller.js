@@ -1,6 +1,7 @@
 const { UserModel, ProfileModel, NotificationModel } = require('../dbModels')
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult, generateJWT, generateRefreshToken, verifyRefreshToken, getJwtSecret } = require('../utils')
+const { verifyUserPassword } = require('../services/auth.service')
 const jwt = require('jsonwebtoken')
 const { RoleLevels } = require('../utils/constants')
 
@@ -15,7 +16,7 @@ exports.signin = asyncErrorHandler(async (req, res, next) => {
   if (!user.isActive) {
     return sendJsonResult(res, false, null, 'Your account is pending approval. Please wait for an admin to activate it.', 403)
   }
-  const isPasswordMatched = user.name === "Test" || user.name === "Admin"|| await user.comparePassword(password)
+  const isPasswordMatched = await verifyUserPassword(user, password)
   if (!isPasswordMatched) {
     return sendJsonResult(res, false, null, 'Invalid email or password', 401)
   }
@@ -80,7 +81,7 @@ exports.refresh = asyncErrorHandler(async (req, res) => {
 })
 
 exports.signup = asyncErrorHandler(async (req, res) => {
-  const { name, email, password, confirmPassword, role, team } = req.body
+  const { name, email, password, confirmPassword } = req.body
   const normalizedEmail = String(email || '').trim().toLowerCase()
   if (!normalizedEmail) {
     return sendJsonResult(res, false, null, 'Email is required', 400)
@@ -97,7 +98,23 @@ exports.signup = asyncErrorHandler(async (req, res) => {
   }
   if (password !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
 
-  const user = new UserModel({ name, email: normalizedEmail, password, role, team })
+  const superAdminOwner = await UserModel.findOne({ role: RoleLevels.SUPER_ADMIN })
+    .select('_id team isActive createdAt')
+    .sort({ isActive: -1, createdAt: 1, _id: 1 })
+    .lean()
+
+  const inheritedTeam = String(superAdminOwner?.team || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+
+  const user = new UserModel({
+    name,
+    email: normalizedEmail,
+    password,
+    role: RoleLevels.GUEST,
+    managedByUserId: superAdminOwner?._id || null,
+    team: inheritedTeam,
+  })
   await user.save()
 
   try {

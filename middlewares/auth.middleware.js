@@ -1,35 +1,18 @@
-const jwt = require('jsonwebtoken')
 const asyncErrorHandler = require('./asyncErrorHandler')
-const { UserModel, ProfileModel } = require('../dbModels')
-const { sendJsonResult, getJwtSecret } = require('../utils')
-const { RoleLevels } = require('../utils/constants')
+const { sendJsonResult } = require('../utils')
+const { isRolePermitted, resolveAuthContextFromRequest } = require('../services/auth.service')
 
 exports.isAuthenticatedUser = asyncErrorHandler(async (req, res, next) => {
-  const authHeader = req.headers.authorization
-  // Allow token via query param for SSE endpoints (EventSource can't set headers)
-  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token
-
-  if (!token) {
-    return sendJsonResult(res, false, null, 'Please Login', 401)
+  const context = await resolveAuthContextFromRequest(req)
+  if (!context.ok) {
+    return sendJsonResult(res, false, null, context.message, context.status)
   }
 
-  let decodedData
-  try {
-    decodedData = jwt.verify(token, getJwtSecret())
-  } catch (err) {
-    return sendJsonResult(res, false, null, 'Invalid or expired token', 401)
+  req.user = context.data.user
+  if (context.data.profile) {
+    req.profile = context.data.profile
   }
-
-  const user = await UserModel.findOne({ _id: decodedData.id })
-  if (!user) return sendJsonResult(res, false, null, 'User not found', 401)
-  req.user = user
-
-  if (decodedData.profileId) {
-    const profile = await ProfileModel.findOne({ _id: decodedData.profileId })
-    if (!profile) return sendJsonResult(res, false, null, 'Profile not found', 404)
-    req.profile = profile
-  }
-  await next()
+  return next()
 })
 exports.permit = (allowedRoles) => {
   return asyncErrorHandler(async (req, res, next) => {
@@ -37,15 +20,10 @@ exports.permit = (allowedRoles) => {
     if (!user) {
       return sendJsonResult(res, false, null, 'Please Login', 401)
     }
-    const userRole = Number(user.role)
-    const normalizedAllowedRoles = Array.isArray(allowedRoles) ? allowedRoles.map((role) => Number(role)) : []
-    const superAdminAllowedAsAdmin =
-      userRole === Number(RoleLevels.SUPER_ADMIN) &&
-      normalizedAllowedRoles.includes(Number(RoleLevels.ADMIN))
-    const permitted = normalizedAllowedRoles.includes(userRole) || superAdminAllowedAsAdmin
+    const permitted = isRolePermitted(user.role, allowedRoles)
     if (!permitted) {
       return sendJsonResult(res, false, null, 'Insufficient permission', 403, { showNotification: true })
     }
-    else next()
+    return next()
   })
 }

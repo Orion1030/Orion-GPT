@@ -11,6 +11,7 @@ const {
   buildRequestAuditMeta,
 } = require('../services/promptAudit.service')
 const { isAdminUser } = require('../utils/access')
+const { RoleLevels } = require('../utils/constants')
 
 const SYSTEM_PROMPT_TYPE = 'system'
 const DEFAULT_USER_MANAGED_PROMPT_NAME = 'resume_generation'
@@ -147,6 +148,10 @@ function toPromptAuditDto(auditDoc) {
 
 function getActorTypeFromUser(user) {
   return isAdminUser(user) ? 'admin' : 'user'
+}
+
+function isSuperAdminUser(user) {
+  return Number(user?.role) === Number(RoleLevels.SUPER_ADMIN)
 }
 
 async function appendPromptChangeAudit({
@@ -601,14 +606,19 @@ exports.getMyEffectiveSystemPrompt = asyncErrorHandler(async (req, res) => {
     fallbackContext: '',
   })
 
+  const resolvedSource = sanitizeText(resolved?.source, 80) || 'no_prompt_configured'
+  const redactBasePromptContext =
+    resolvedSource === 'super_admin_base' && !isSuperAdminUser(req.user)
+
   return sendJsonResult(res, true, {
     promptName,
     type: SYSTEM_PROMPT_TYPE,
     profileId: scope.profileId ? String(scope.profileId) : null,
-    context: sanitizeText(resolved?.context, 100000),
-    source: sanitizeText(resolved?.source, 80) || 'no_prompt_configured',
-    promptId: resolved?.promptId || null,
-    promptUpdatedAt: resolved?.promptUpdatedAt || null,
+    context: redactBasePromptContext ? '' : sanitizeText(resolved?.context, 100000),
+    source: resolvedSource,
+    promptId: redactBasePromptContext ? null : resolved?.promptId || null,
+    promptUpdatedAt: redactBasePromptContext ? null : resolved?.promptUpdatedAt || null,
+    contextRedacted: redactBasePromptContext,
   })
 })
 

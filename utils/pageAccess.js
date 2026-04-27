@@ -40,19 +40,19 @@ const PAGE_ACCESS_ORDER = [
 ];
 
 const PAGE_ACCESS_DEFAULTS = {
-  [PAGE_ACCESS_KEYS.DASHBOARD]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.AICHAT]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.APPLICATIONS]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.PROFILES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.RESUMES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
-  [PAGE_ACCESS_KEYS.TEMPLATES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.DASHBOARD]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST],
+  [PAGE_ACCESS_KEYS.AICHAT]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST],
+  [PAGE_ACCESS_KEYS.APPLICATIONS]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST],
+  [PAGE_ACCESS_KEYS.PROFILES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST],
+  [PAGE_ACCESS_KEYS.RESUMES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST],
+  [PAGE_ACCESS_KEYS.TEMPLATES]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST],
   [PAGE_ACCESS_KEYS.WHITELIST]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN],
   [PAGE_ACCESS_KEYS.BLACKLIST]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN],
   [PAGE_ACCESS_KEYS.REPORTS]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN],
-  [PAGE_ACCESS_KEYS.ACCOUNT]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User],
+  [PAGE_ACCESS_KEYS.ACCOUNT]: [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST],
 };
 
-const MANAGEABLE_ROLES = [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User];
+const MANAGEABLE_ROLES = [RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User, RoleLevels.GUEST];
 
 function getPageAccessKeys() {
   return [...PAGE_ACCESS_ORDER];

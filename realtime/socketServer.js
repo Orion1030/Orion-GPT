@@ -2,13 +2,17 @@ const jwt = require('jsonwebtoken')
 const { Server } = require('socket.io')
 const { ApplicationModel, UserModel, NotificationModel } = require('../dbModels')
 const { getJwtSecret } = require('../utils')
-const { RoleLevels } = require('../utils/constants')
+const { isAdminUser } = require('../utils/access')
 const { toNotificationDto } = require('../controllers/notification.controller')
 
 const SOCKET_PATH = '/realtime/socket.io'
 const HEARTBEAT_INTERVAL_MS = 15000
+const ADMIN_PRESENCE_ROOM = 'admins:presence'
+const PRESENCE_SYNC_INTERVAL_MS = 10000
 
 let ioInstance = null
+const socketIdsByUserId = new Map()
+let presenceSyncTimer = null
 
 function buildUserRoom(userId) {
   return `user:${String(userId)}`
@@ -16,6 +20,72 @@ function buildUserRoom(userId) {
 
 function buildApplicationRoom(applicationId) {
   return `application:${String(applicationId)}`
+}
+
+function addUserSocket(userId, socketId) {
+  const normalizedUserId = String(userId || '').trim()
+  const normalizedSocketId = String(socketId || '').trim()
+  if (!normalizedUserId || !normalizedSocketId) return false
+
+  const knownSockets = socketIdsByUserId.get(normalizedUserId) || new Set()
+  const wasOnline = knownSockets.size > 0
+  knownSockets.add(normalizedSocketId)
+  socketIdsByUserId.set(normalizedUserId, knownSockets)
+  return !wasOnline && knownSockets.size > 0
+}
+
+function removeUserSocket(userId, socketId) {
+  const normalizedUserId = String(userId || '').trim()
+  const normalizedSocketId = String(socketId || '').trim()
+  if (!normalizedUserId || !normalizedSocketId) return false
+
+  const knownSockets = socketIdsByUserId.get(normalizedUserId)
+  if (!knownSockets || knownSockets.size === 0) return false
+
+  const wasOnline = knownSockets.size > 0
+  knownSockets.delete(normalizedSocketId)
+  if (knownSockets.size === 0) {
+    socketIdsByUserId.delete(normalizedUserId)
+  } else {
+    socketIdsByUserId.set(normalizedUserId, knownSockets)
+  }
+  const isOnline = knownSockets.size > 0
+  return wasOnline && !isOnline
+}
+
+function getOnlineUserIds() {
+  return Array.from(socketIdsByUserId.entries())
+    .filter(([, socketIds]) => socketIds && socketIds.size > 0)
+    .map(([userId]) => userId)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+function isUserOnline(userId) {
+  const normalizedUserId = String(userId || '').trim()
+  if (!normalizedUserId) return false
+  const knownSockets = socketIdsByUserId.get(normalizedUserId)
+  return Boolean(knownSockets && knownSockets.size > 0)
+}
+
+function buildPresencePayload() {
+  return {
+    userIds: getOnlineUserIds(),
+    timestamp: new Date().toISOString(),
+  }
+}
+
+function emitOnlineUsersToAdmins() {
+  if (!ioInstance) return false
+  const adminRoomSize = ioInstance.sockets.adapter.rooms.get(ADMIN_PRESENCE_ROOM)?.size || 0
+  if (adminRoomSize === 0) return false
+  ioInstance.to(ADMIN_PRESENCE_ROOM).emit('presence:online_users', buildPresencePayload())
+  return true
+}
+
+function emitOnlineUsersToSocket(socket) {
+  if (!socket) return false
+  socket.emit('presence:online_users', buildPresencePayload())
+  return true
 }
 
 function extractTokenFromHandshake(handshake) {
@@ -73,7 +143,7 @@ async function joinApplicationRoom(socket, payload) {
 
   try {
     const scope = { _id: rawId }
-    if (Number(socket.data.role) !== RoleLevels.ADMIN) {
+    if (!isAdminUser({ role: socket.data.role })) {
       scope.userId = socket.data.userId
     }
     const exists = await ApplicationModel.exists(scope)
@@ -128,15 +198,34 @@ function initSocketServer(httpServer) {
       origin: true,
       credentials: true,
     },
+    pingInterval: 10000,
+    pingTimeout: 5000,
   })
 
   ioInstance.use((socket, next) => {
     verifySocketIdentity(socket, next).catch(() => next(new Error('unauthorized')))
   })
 
+  if (!presenceSyncTimer) {
+    // Heartbeat resync so admin presence heals even if a lifecycle event is delayed/missed.
+    presenceSyncTimer = setInterval(() => {
+      emitOnlineUsersToAdmins()
+    }, PRESENCE_SYNC_INTERVAL_MS)
+  }
+
   ioInstance.on('connection', (socket) => {
     const userRoom = buildUserRoom(socket.data.userId)
     socket.join(userRoom)
+    addUserSocket(socket.data.userId, socket.id)
+
+    if (isAdminUser({ role: socket.data.role })) {
+      socket.join(ADMIN_PRESENCE_ROOM)
+      emitOnlineUsersToSocket(socket)
+    }
+
+    // Always refresh admin presence snapshot on each connect.
+    emitOnlineUsersToAdmins()
+
     const heartbeatTimer = setInterval(() => {
       socket.emit('applications:heartbeat', {
         timestamp: new Date().toISOString(),
@@ -189,8 +278,16 @@ function initSocketServer(httpServer) {
       }
     })
 
+    socket.on('presence:request_online_users', () => {
+      if (!isAdminUser({ role: socket.data.role })) return
+      emitOnlineUsersToSocket(socket)
+    })
+
     socket.on('disconnect', () => {
       clearInterval(heartbeatTimer)
+      removeUserSocket(socket.data.userId, socket.id)
+      // Always refresh admin presence snapshot on each disconnect.
+      emitOnlineUsersToAdmins()
     })
   })
 
@@ -205,4 +302,6 @@ module.exports = {
   emitToRoom,
   emitToApplicationRoom,
   emitToUserRoom,
+  getOnlineUserIds,
+  isUserOnline,
 }
