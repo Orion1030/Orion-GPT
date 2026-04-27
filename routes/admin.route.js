@@ -15,6 +15,12 @@ const {
   resetUserPassword,
   updateUser,
 } = require('../controllers/admin.controller')
+const {
+  getAiProviderCatalog,
+  getMyAiConfiguration,
+  upsertAiProviderCatalog,
+  upsertMyAiConfiguration,
+} = require('../controllers/adminConfiguration.controller')
 const { patchPageAccessRule } = require('../controllers/pageAccess.controller')
 const {
   addTeamMembers,
@@ -135,6 +141,32 @@ router
     isAuthenticatedUser,
     permit([RoleLevels.ADMIN, RoleLevels.Manager]),
     removeTeamMember
+  )
+router
+  .route('/configuration/ai')
+  .get(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager]),
+    getMyAiConfiguration
+  )
+  .put(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager]),
+    upsertMyAiConfiguration
+  )
+router
+  .route('/configuration/ai-catalog')
+  .get(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager]),
+    getAiProviderCatalog
+  )
+router
+  .route('/configuration/ai-catalog/:providerKey')
+  .put(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN]),
+    upsertAiProviderCatalog
   )
 
 module.exports = router

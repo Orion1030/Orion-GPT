@@ -1,4 +1,5 @@
 const { chatCompletions } = require("./openaiClient");
+const { chatCompletionText } = require("./providerChat.client");
 const {
   GENERATE_MODEL,
   GENERATE_MAX_TOKENS,
@@ -16,6 +17,10 @@ const {
 } = require("./prompts/resumeGenerate.prompts");
 const { resolveManagedPromptContext } = require("../promptRuntime.service");
 const { appendPromptAudit } = require("../promptAudit.service");
+const {
+  AI_RUNTIME_FEATURES,
+  resolveFeatureAiRuntimeConfig,
+} = require("../adminConfiguration.service");
 const {
   buildEmploymentKey,
   buildEmploymentBaseKey,
@@ -662,7 +667,7 @@ function extractStructuredJsonFromChat(body) {
     try {
       return JSON.parse(choice.message.content);
     } catch {
-      return null;
+      return extractJsonObjectFromText(choice.message.content);
     }
   }
   const chunk = choice.message.content.find((c) => typeof c?.text === "string");
@@ -670,13 +675,77 @@ function extractStructuredJsonFromChat(body) {
     try {
       return JSON.parse(chunk.text);
     } catch {
-      return null;
+      return extractJsonObjectFromText(chunk.text);
     }
   }
   return null;
 }
 
-async function callChatWithSchema(systemPrompt, userPrompt, maxCompletionTokens, model) {
+function extractJsonObjectFromText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Continue to extraction fallback.
+  }
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace <= firstBrace) return null;
+  const extracted = raw.slice(firstBrace, lastBrace + 1);
+
+  try {
+    return JSON.parse(extracted);
+  } catch {
+    const repaired = extracted.replace(/,(\s*[}\]])/g, "$1");
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function buildJsonOnlyPrompt(userPrompt) {
+  return `${userPrompt}
+
+## Critical response format:
+- Return only a single valid JSON object.
+- Do not wrap JSON in markdown fences.
+- Do not include explanations or extra text.`;
+}
+
+async function callChatWithSchema(systemPrompt, userPrompt, maxCompletionTokens, model, runtimeConfig = null) {
+  if (runtimeConfig?.useCustom) {
+    const providerResult = await chatCompletionText({
+      provider: runtimeConfig.provider,
+      apiKey: runtimeConfig.apiKey,
+      model: runtimeConfig.model || model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: buildJsonOnlyPrompt(userPrompt) },
+      ],
+      maxTokens: maxCompletionTokens,
+      timeoutMs: GENERATE_TIMEOUT_MS,
+      temperature: 0,
+      expectJson: true,
+    });
+
+    return {
+      choices: [
+        {
+          finish_reason: providerResult?.finishReason || null,
+          message: {
+            content: providerResult?.text || "",
+          },
+        },
+      ],
+      usage: providerResult?.usage || null,
+    };
+  }
+
   return chatCompletions({
     model,
     messages: [
@@ -847,17 +916,31 @@ async function generateResumeFromJD({ jd, profile, baseResume, auditContext = nu
       auditContext: auditContext || {},
     });
     const userPrompt = buildResumeGenerationUserPrompt(llmInput);
+    const runtimeConfig = await resolveFeatureAiRuntimeConfig({
+      targetUserId: scopedOwnerUserId,
+      feature: AI_RUNTIME_FEATURES.RESUME_GENERATION,
+    });
 
     let rawJson = null;
     const maxAttempts = 3;
     let maxTokens = Math.max(2000, Number(GENERATE_MAX_TOKENS) || 3000);
     const tokenCeiling = Math.max(maxTokens, Number(GENERATE_MAX_TOKEN_CEILING) || 24000);
-    let model = GENERATE_REASONING_MODEL;
-    const fallbackModel = GENERATE_MODEL || GENERATE_REASONING_MODEL;
+    let model = runtimeConfig?.useCustom
+      ? runtimeConfig.model
+      : GENERATE_REASONING_MODEL;
+    const fallbackModel = runtimeConfig?.useCustom
+      ? runtimeConfig.model
+      : (GENERATE_MODEL || GENERATE_REASONING_MODEL);
 
     try {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const body = await callChatWithSchema(systemPrompt, userPrompt, maxTokens, model);
+        const body = await callChatWithSchema(
+          systemPrompt,
+          userPrompt,
+          maxTokens,
+          model,
+          runtimeConfig
+        );
         rawJson = extractStructuredJsonFromChat(body);
         if (rawJson) break;
 
