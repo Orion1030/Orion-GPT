@@ -1,3 +1,5 @@
+const { TEST_CREDENTIAL } = require('./helpers/testCredentials')
+
 describe('admin.controller role constraints', () => {
   const buildRes = () => ({
     status: jest.fn().mockReturnThis(),
@@ -68,7 +70,7 @@ describe('admin.controller role constraints', () => {
       params: { userId: 'mgr-1' },
       body: {
         role: 3,
-        adminPassword: 'Passw0rd!',
+        adminPassword: TEST_CREDENTIAL,
       },
     }
     const res = buildRes()

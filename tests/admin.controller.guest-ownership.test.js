@@ -1,3 +1,5 @@
+const { TEST_CREDENTIAL } = require('./helpers/testCredentials')
+
 describe('admin.controller guest ownership rules', () => {
   const buildRes = () => ({
     status: jest.fn().mockReturnThis(),
@@ -93,7 +95,7 @@ describe('admin.controller guest ownership rules', () => {
       params: { userId: 'guest-1' },
       body: {
         managedByUserId: 'user-1',
-        adminPassword: 'Passw0rd!',
+        adminPassword: TEST_CREDENTIAL,
       },
     }
     const res = buildRes()
@@ -152,7 +154,7 @@ describe('admin.controller guest ownership rules', () => {
       body: {
         managedByUserId: 'user-1',
         team: 'Different Team',
-        adminPassword: 'Passw0rd!',
+        adminPassword: TEST_CREDENTIAL,
       },
     }
     const res = buildRes()
