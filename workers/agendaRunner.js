@@ -8,11 +8,9 @@
  *   const { registerHandler, start } = require('./workers/agendaRunner')
  */
 const { Agenda } = require('@hokify/agenda')
-const { JobModel } = require('../dbModels')
+const { JobModel, MONGO_URI } = require('../dbModels')
 
 const log = (...args) => console.log('[agendaRunner]', ...args)
-
-const MONGO_URI = process.env.MONGO_URI || process.env.DATABASE_URL || process.env.MONGODB_URI
 
 const agenda = new Agenda({
   db: { address: MONGO_URI, collection: 'agendaJobs' },
