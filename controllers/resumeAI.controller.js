@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const fs = require("fs/promises");
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { JobDescriptionModel, ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
@@ -17,10 +18,12 @@ const {
 } = require("../services/jdImport.service");
 const { buildEmploymentKey, areEmploymentsEquivalent } = require("../utils/employmentKey");
 const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
+const { formidable } = require("formidable");
 const {
   normalizeImportedDateRange,
   stripTrailingImportedDateRange,
 } = require("../utils/flexibleDate");
+const { extractPlainTextFromPdfBuffer } = require("../services/pdfText.service");
 
 function getRequestId(req, fallbackPrefix = "resume-generate") {
   const fromHeader = req.headers?.["x-request-id"];
@@ -126,6 +129,77 @@ function normalizeParsedExperiences(experiences) {
     };
   });
 }
+
+function parseMultipartForm(req) {
+  return new Promise((resolve, reject) => {
+    const form = formidable({
+      multiples: false,
+      maxFiles: 1,
+      maxFileSize: 5 * 1024 * 1024,
+      allowEmptyFiles: false,
+    });
+
+    form.parse(req, (error, fields, files) => {
+      if (error) {
+        error.statusCode =
+          error.httpCode ||
+          (error.code === 1009 || error.code === "ETOOBIG" ? 413 : 400);
+        reject(error);
+        return;
+      }
+      resolve({ fields, files });
+    });
+  });
+}
+
+function getUploadedFile(files) {
+  if (!files || typeof files !== "object") return null;
+  const candidate = files.file || files.resume || Object.values(files)[0];
+  if (Array.isArray(candidate)) return candidate[0] || null;
+  return candidate || null;
+}
+
+function isPdfUpload(file) {
+  const fileName = String(file?.originalFilename || file?.newFilename || "").toLowerCase();
+  const mimetype = String(file?.mimetype || "").toLowerCase();
+  return mimetype === "application/pdf" || fileName.endsWith(".pdf");
+}
+
+exports.extractResumeText = asyncErrorHandler(async (req, res) => {
+  const { files } = await parseMultipartForm(req);
+  const uploadedFile = getUploadedFile(files);
+
+  if (!uploadedFile) {
+    return sendJsonResult(res, false, null, "PDF file is required.", 400);
+  }
+
+  if (!isPdfUpload(uploadedFile)) {
+    return sendJsonResult(res, false, null, "Only PDF files are supported.", 400);
+  }
+
+  const filePath = uploadedFile.filepath;
+  if (!filePath) {
+    return sendJsonResult(res, false, null, "Uploaded PDF could not be read.", 400);
+  }
+
+  let buffer;
+  try {
+    buffer = await fs.readFile(filePath);
+  } finally {
+    await fs.unlink(filePath).catch(() => {});
+  }
+
+  const { result, error } = await extractPlainTextFromPdfBuffer(buffer);
+  if (error) {
+    return sendJsonResult(res, false, null, error.message, error.statusCode || 422);
+  }
+
+  return sendJsonResult(res, true, {
+    fileName: String(uploadedFile.originalFilename || "resume.pdf"),
+    text: result.text,
+    pageCount: result.pageCount,
+  });
+});
 
 function doesSelectedResumeMatchProfileCareerHistory(profile, baseResume) {
   const profileHistory = Array.isArray(profile?.careerHistory) ? profile.careerHistory : [];
