@@ -121,7 +121,7 @@ function tryParseJsonCandidate(candidate, label) {
 
 async function parseResumeTextWithLLM(text) {
   const systemPrompt =
-    "You are a resume parsing assistant. Extract structured resume data as JSON with keys: name, summary, experiences, skills, education. The experiences array should contain objects with title, companyName, companyLocation, descriptions (array), startDate, endDate. The skills array should contain objects with title and items (array). The education array should contain objects with degreeLevel (BS/MS when possible), universityName, major, startDate, endDate. Reply ONLY with valid JSON.";
+    "You are a resume parsing assistant. Extract structured resume data as JSON with keys: name, summary, experiences, skills, education. The experiences array should contain objects with title, companyName, companyLocation, descriptions (array), startDate, endDate. The skills array should contain objects with title and items (array). The education array should contain objects with degreeLevel (BS/MS when possible), universityName, major, startDate, endDate. Normalize each startDate/endDate to one of: YYYY-MM-DD when exact day is known, YYYY-MM when only month and year are known, YYYY when only year is known, or Present for current roles/education. Never combine date ranges into a single field, and never leave dates embedded inside title, companyName, or universityName. Reply ONLY with valid JSON.";
 
   const userPrompt = `Parse the following resume text and return the JSON described above. Text:\n\n${text}`;
 

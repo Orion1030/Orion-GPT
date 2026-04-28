@@ -17,6 +17,10 @@ const {
 } = require("../services/jdImport.service");
 const { buildEmploymentKey, areEmploymentsEquivalent } = require("../utils/employmentKey");
 const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
+const {
+  normalizeImportedDateRange,
+  stripTrailingImportedDateRange,
+} = require("../utils/flexibleDate");
 
 function getRequestId(req, fallbackPrefix = "resume-generate") {
   const fromHeader = req.headers?.["x-request-id"];
@@ -38,21 +42,87 @@ function getClientIp(req) {
 function normalizeParsedEducation(education) {
   if (!Array.isArray(education)) return [];
   return education.map((item) => {
-    if (typeof item === "string") {
-      return {
-        degreeLevel: "",
-        universityName: item,
-        major: "",
-        startDate: "",
-        endDate: "",
-      };
-    }
+    const normalizedItem =
+      typeof item === "string"
+        ? {
+            degreeLevel: "",
+            universityName: item,
+            major: "",
+            startDate: "",
+            endDate: "",
+          }
+        : {
+            degreeLevel: item?.degreeLevel || "",
+            universityName: item?.universityName || "",
+            major: item?.major || "",
+            startDate: item?.startDate || "",
+            endDate: item?.endDate || "",
+          };
+    const normalizedDates = normalizeImportedDateRange(
+      normalizedItem.startDate,
+      normalizedItem.endDate,
+      [
+        normalizedItem.universityName,
+        normalizedItem.degreeLevel,
+        normalizedItem.major,
+      ]
+    );
+
     return {
-      degreeLevel: item?.degreeLevel || "",
-      universityName: item?.universityName || "",
-      major: item?.major || "",
+      ...normalizedItem,
+      universityName: stripTrailingImportedDateRange(
+        normalizedItem.universityName
+      ),
+      startDate: normalizedDates.startDate,
+      endDate: normalizedDates.endDate,
+    };
+  });
+}
+
+function normalizeParsedExperiences(experiences) {
+  if (!Array.isArray(experiences)) return [];
+
+  return experiences.map((item) => {
+    const normalizedItem = {
+      title: item?.title || item?.roleTitle || "",
+      companyName: item?.companyName || "",
+      companyLocation: item?.companyLocation || "",
+      summary: item?.summary || item?.companySummary || "",
+      descriptions: Array.isArray(item?.descriptions) ? item.descriptions : [],
       startDate: item?.startDate || "",
       endDate: item?.endDate || "",
+    };
+    const normalizedDates = normalizeImportedDateRange(
+      normalizedItem.startDate,
+      normalizedItem.endDate,
+      [
+        normalizedItem.title,
+        normalizedItem.companyName,
+        normalizedItem.companyLocation,
+        normalizedItem.summary,
+      ]
+    );
+
+    if (typeof item === "string") {
+      return {
+        title: stripTrailingImportedDateRange(normalizedItem.title),
+        companyName: normalizedItem.companyName,
+        companyLocation: normalizedItem.companyLocation,
+        summary: normalizedItem.summary,
+        descriptions: normalizedItem.descriptions,
+        startDate: normalizedDates.startDate,
+        endDate: normalizedDates.endDate,
+      };
+    }
+
+    return {
+      title: stripTrailingImportedDateRange(normalizedItem.title),
+      companyName: normalizedItem.companyName,
+      companyLocation: normalizedItem.companyLocation,
+      summary: normalizedItem.summary,
+      descriptions: normalizedItem.descriptions,
+      startDate: normalizedDates.startDate,
+      endDate: normalizedDates.endDate,
     };
   });
 }
@@ -108,7 +178,7 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
   let parsed = parseResult.parsed || {};
   parsed.name = parsed.name || "Parsed Resume";
   parsed.summary = parsed.summary || "";
-  parsed.experiences = Array.isArray(parsed.experiences) ? parsed.experiences : [];
+  parsed.experiences = normalizeParsedExperiences(parsed.experiences);
   parsed.skills = Array.isArray(parsed.skills)
     ? parsed.skills
     : parsed.skills

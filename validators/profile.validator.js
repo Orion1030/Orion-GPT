@@ -1,8 +1,10 @@
 const { body } = require('express-validator');
 
 const FLEXIBLE_DATE_PATTERN = /^(\d{4}|\d{4}-(0[1-9]|1[0-2])|\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$/;
+const OPEN_ENDED_DATE_PATTERN = /^(present|current|ongoing|now)$/i;
 const FLEXIBLE_DATE_MESSAGE = 'Date must be YYYY, YYYY-MM, or YYYY-MM-DD';
 const DATE_RANGE_MESSAGE = 'End date must be on or after start date';
+const URL_MESSAGE = 'Must be a valid URL with http:// or https://';
 
 function isFlexibleDateValue(value) {
   if (value == null || value === '') return true;
@@ -13,6 +15,7 @@ function isFlexibleDateValue(value) {
 
   const normalized = String(value).trim();
   if (!normalized) return true;
+  if (OPEN_ENDED_DATE_PATTERN.test(normalized)) return true;
   if (FLEXIBLE_DATE_PATTERN.test(normalized)) return true;
 
   // Allow legacy datetime payloads during transition.
@@ -33,6 +36,9 @@ function getDaysInMonth(year, month) {
 
 function toFlexibleDateBound(value, bound) {
   const normalized = String(value || '').trim();
+  if (OPEN_ENDED_DATE_PATTERN.test(normalized)) {
+    return bound === 'end' ? Date.UTC(9999, 11, 31) : null;
+  }
   if (!normalized || !FLEXIBLE_DATE_PATTERN.test(normalized)) return null;
 
   const parts = normalized.split('-');
@@ -96,10 +102,20 @@ function validateDateRangeInArray(arrayField, startField) {
   };
 }
 
+function optionalUrlRule(field, message = URL_MESSAGE) {
+  return body(field)
+    .optional({ values: 'falsy' })
+    .isURL({ require_protocol: true })
+    .withMessage(message);
+}
+
 exports.createProfileRules = [
   body('fullName').trim().notEmpty().withMessage('Full name is required'),
   body('contactInfo.email').optional().isEmail().withMessage('Invalid email format'),
-  body('contactInfo.linkedin').optional().isURL({ require_protocol: true }).withMessage('LinkedIn must be a valid URL').or(body('contactInfo.linkedin').equals('')),
+  optionalUrlRule('contactInfo.linkedin', 'LinkedIn must be a valid URL'),
+  optionalUrlRule('contactInfo.github', 'GitHub must be a valid URL'),
+  optionalUrlRule('contactInfo.website'),
+  optionalUrlRule('link'),
   body('careerHistory').optional().isArray().withMessage('Career history must be an array'),
   body('careerHistory.*.startDate').optional({ nullable: true }).custom(isFlexibleDateValue).withMessage(FLEXIBLE_DATE_MESSAGE),
   body('careerHistory.*.endDate')
@@ -123,6 +139,10 @@ exports.createProfileRules = [
 exports.updateProfileRules = [
   body('fullName').optional().trim().notEmpty().withMessage('Full name cannot be empty'),
   body('contactInfo.email').optional().isEmail().withMessage('Invalid email format'),
+  optionalUrlRule('contactInfo.linkedin', 'LinkedIn must be a valid URL'),
+  optionalUrlRule('contactInfo.github', 'GitHub must be a valid URL'),
+  optionalUrlRule('contactInfo.website'),
+  optionalUrlRule('link'),
   body('careerHistory').optional().isArray().withMessage('Career history must be an array'),
   body('careerHistory.*.startDate').optional({ nullable: true }).custom(isFlexibleDateValue).withMessage(FLEXIBLE_DATE_MESSAGE),
   body('careerHistory.*.endDate')
@@ -141,4 +161,16 @@ exports.updateProfileRules = [
     .bail()
     .custom(validateDateRangeInArray('educations', 'startDate'))
     .withMessage(DATE_RANGE_MESSAGE),
+];
+
+exports.parseProfileImportRules = [
+  body('text')
+    .exists({ checkFalsy: true })
+    .withMessage('Text is required')
+    .bail()
+    .isString()
+    .withMessage('Text must be a string')
+    .bail()
+    .isLength({ max: 200 * 1024 })
+    .withMessage('Input too large. Please trim the file.'),
 ];
