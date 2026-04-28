@@ -8,12 +8,15 @@ const {
   changeMemberPassword,
   createGuest,
   deleteGuest,
+  deleteUser,
+  getGuestProfileAssignments,
   getUser,
   getUsageMetrics,
   getUsageMetricsForUser,
   listUsers,
   resetUserPassword,
   updateUser,
+  updateGuestProfileAssignments,
 } = require('../controllers/admin.controller')
 const {
   getAiProviderCatalog,
@@ -68,6 +71,11 @@ router
     permit([RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
     updateUser
   )
+  .delete(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN]),
+    deleteUser
+  )
 router
   .route('/users/:userId/reset-password')
   .put(
@@ -96,6 +104,18 @@ router
     isAuthenticatedUser,
     permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
     deleteGuest
+  )
+router
+  .route('/guests/:guestId/profiles')
+  .get(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
+    getGuestProfileAssignments
+  )
+  .put(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
+    updateGuestProfileAssignments
   )
 router
   .route('/teams')

@@ -20,6 +20,12 @@ const userSchema = new mongoose.Schema(
       ref: 'User',
       default: null
     },
+    assignedProfileIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Profile'
+      }
+    ],
     email: {
       type: String,
       default: '',

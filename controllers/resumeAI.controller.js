@@ -3,9 +3,11 @@ const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { JobDescriptionModel, ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { ProfileModel } = require("../dbModels");
+const { RoleLevels } = require("../utils/constants");
 const { tryGenerateResumeJsonFromJD } = require("../utils/resumeGeneration");
 const { tryRefineResumeWithFeedback } = require("../services/llm/resumeRefine.service");
 const { tryParseResumeTextWithLLM } = require("../utils/parseResume");
+const { buildReadableProfileFilterForUser } = require("../services/profileAccess.service");
 const {
   resolveJdContext,
   tryParseAndPersistJobDescription,
@@ -114,7 +116,11 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
       : [];
   parsed.education = normalizeParsedEducation(parsed.education);
 
-  const profiles = await ProfileModel.find({ userId: user._id });
+  const profiles = await ProfileModel.find(
+    await buildReadableProfileFilterForUser(user._id, {}, {
+      isGuest: Number(user?.role) === RoleLevels.GUEST,
+    })
+  ).lean();
 
   function normalizeName(n) {
     return String(n || "").toLowerCase().replace(/[^a-z0-9 ]+/g, "").trim();
@@ -205,7 +211,13 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
   }
 
   const jd = await JobDescriptionModel.findOne({ _id: jdId, userId }).lean();
-  const profile = await ProfileModel.findOne({ _id: profileId, userId }).lean();
+  const profile = await ProfileModel.findOne(
+    await buildReadableProfileFilterForUser(
+      userId,
+      { _id: profileId },
+      { isGuest: Number(req.user?.role) === RoleLevels.GUEST }
+    )
+  ).lean();
   if (!jd || !profile) {
     return sendJsonResult(res, false, null, "JD or profile not found", 404);
   }

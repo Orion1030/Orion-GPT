@@ -15,6 +15,8 @@ const { queueResumeEmbeddingRefresh } = require("../services/resumeEmbedding.ser
 const { appendApplicationHistory } = require("../services/applicationHistory.service");
 const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
 const { isAdminUser, buildUserScopeFilter } = require("../utils/access");
+const { RoleLevels } = require("../utils/constants");
+const { buildReadableProfileFilterForUser } = require("../services/profileAccess.service");
 
 function toTargetUserId(req) {
   const fromQuery = req.query?.userId;
@@ -316,8 +318,17 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "A profile must be selected to create a resume", 400);
   }
 
-  const profileFilter = { _id: data.profileId };
-  if (!isAdminUser(user)) profileFilter.userId = user._id;
+  const profileFilter = isAdminUser(user)
+    ? targetUserId
+      ? await buildReadableProfileFilterForUser(targetUserId, {
+          _id: data.profileId,
+        })
+      : { _id: data.profileId }
+    : await buildReadableProfileFilterForUser(
+        user._id,
+        { _id: data.profileId },
+        { isGuest: Number(user?.role) === RoleLevels.GUEST }
+      );
 
   const profile = await ProfileModel.findOne(profileFilter)
     .select("userId careerHistory stackId")
@@ -407,20 +418,24 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "A profile must be selected for the resume", 400);
   }
 
-  const profileFilter = { _id: effectiveProfileId };
-  if (!isAdminUser(user)) {
-    profileFilter.userId = user._id;
-  }
+  const targetUserId = isAdminUser(user) ? toTargetUserId(req) : null;
+  const profileFilter = isAdminUser(user)
+    ? targetUserId
+      ? await buildReadableProfileFilterForUser(targetUserId, {
+          _id: effectiveProfileId,
+        })
+      : { _id: effectiveProfileId }
+    : await buildReadableProfileFilterForUser(
+        user._id,
+        { _id: effectiveProfileId },
+        { isGuest: Number(user?.role) === RoleLevels.GUEST }
+      );
   const profile = await ProfileModel.findOne(profileFilter).select("_id userId stackId").lean();
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
 
   if (isAdminUser(user)) {
-    const targetUserId = toTargetUserId(req);
-    if (targetUserId && String(profile.userId) !== String(targetUserId)) {
-      return sendJsonResult(res, false, null, "Selected profile does not belong to the target user", 400);
-    }
     setDoc.userId = targetUserId || profile.userId;
   }
   if (setDoc.stackId === undefined) {

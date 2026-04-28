@@ -1,8 +1,14 @@
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
-const { ProfileModel, TemplateModel, StackModel } = require("../dbModels");
+const { ProfileModel, TemplateModel, StackModel, UserModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
-const { isAdminUser, buildUserScopeFilter } = require("../utils/access");
-const { StatusCodes } = require("../utils/constants");
+const { isAdminUser } = require("../utils/access");
+const { StatusCodes, RoleLevels } = require("../utils/constants");
+const {
+  buildProfileAccessDescriptor,
+  buildReadableProfileFilterForUser,
+  buildWritableProfileFilterForUser,
+  mergeMongoFilters,
+} = require("../services/profileAccess.service");
 
 function toTargetUserId(req) {
   const fromQuery = req.query?.userId;
@@ -97,14 +103,20 @@ function normalizeEducations(educations) {
   }));
 }
 
-function normalizeProfileForResponse(profile) {
+function normalizeProfileForResponse(profile, access = null) {
   if (!profile) return profile;
   const source = typeof profile.toObject === "function" ? profile.toObject() : profile;
-  return {
+  const response = {
     ...source,
     careerHistory: normalizeCareerHistory(source.careerHistory),
     educations: normalizeEducations(source.educations),
   };
+  if (access && typeof access === "object") {
+    response.ownerUserId = access.ownerUserId || null;
+    response.isAssigned = Boolean(access.isAssigned);
+    response.canEdit = access.canEdit !== false;
+  }
+  return response;
 }
 
 function toNullableId(value) {
@@ -191,33 +203,63 @@ async function resolveStackAssignment({ rawStackId, currentStackId = null }) {
 
 exports.getProfiles = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
-  let scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
+  const isGuestActor = Number(user?.role) === RoleLevels.GUEST;
+  let scopeFilter = await buildReadableProfileFilterForUser(
+    user?._id,
+    {},
+    { isGuest: isGuestActor }
+  );
   if (isAdminUser(user)) {
     const targetUserId = toTargetUserId(req);
     const includeOtherUsers = toBooleanQuery(req.query?.includeOtherUsers, false);
     if (targetUserId) {
-      scopeFilter = { userId: targetUserId };
+      scopeFilter = await buildReadableProfileFilterForUser(targetUserId);
     } else {
       scopeFilter = includeOtherUsers ? {} : { userId: user._id };
     }
   }
   const activeOnly = toBooleanQuery(req.query?.activeOnly, false);
   if (activeOnly) {
-    scopeFilter = { ...scopeFilter, status: StatusCodes.ACTIVE };
+    scopeFilter = mergeMongoFilters(scopeFilter, { status: StatusCodes.ACTIVE });
   }
   const profiles = await ProfileModel.find(scopeFilter).sort({ updatedAt: -1 });
-  return sendJsonResult(res, true, profiles.map((profile) => normalizeProfileForResponse(profile)));
+  return sendJsonResult(
+    res,
+    true,
+    profiles.map((profile) =>
+      normalizeProfileForResponse(profile, buildProfileAccessDescriptor(profile, user))
+    )
+  );
 });
 
 exports.getProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { profileId } = req.params;
-  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
-  const profile = await ProfileModel.findOne({ ...scopeFilter, _id: profileId });
+  let profileFilter = { _id: profileId };
+  if (isAdminUser(user)) {
+    const targetUserId = toTargetUserId(req);
+    if (targetUserId) {
+      profileFilter = await buildReadableProfileFilterForUser(targetUserId, {
+        _id: profileId,
+      });
+    }
+  } else {
+    profileFilter = await buildReadableProfileFilterForUser(
+      user?._id,
+      { _id: profileId },
+      { isGuest: Number(user?.role) === RoleLevels.GUEST }
+    );
+  }
+
+  const profile = await ProfileModel.findOne(profileFilter);
   if (!profile) {
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
-  return sendJsonResult(res, true, normalizeProfileForResponse(profile));
+  return sendJsonResult(
+    res,
+    true,
+    normalizeProfileForResponse(profile, buildProfileAccessDescriptor(profile, user))
+  );
 });
 
 exports.createProfile = asyncErrorHandler(async (req, res, next) => {
@@ -302,10 +344,31 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   } = req.body;
   const normalizedCareerHistory = normalizeCareerHistory(careerHistory);
   const normalizedEducations = normalizeEducations(educations);
-  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
+  const writableFilter = isAdminUser(user)
+    ? { _id: profileId }
+    : buildWritableProfileFilterForUser(user?._id, { _id: profileId });
 
-  const profile = await ProfileModel.findOne({ ...scopeFilter, _id: profileId });
+  const profile = await ProfileModel.findOne(writableFilter);
   if (!profile) {
+    if (!isAdminUser(user)) {
+      const readableFilter = await buildReadableProfileFilterForUser(
+        user?._id,
+        { _id: profileId },
+        { isGuest: Number(user?.role) === RoleLevels.GUEST }
+      );
+      const readableProfile = await ProfileModel.findOne(readableFilter)
+        .select("_id")
+        .lean();
+      if (readableProfile) {
+        return sendJsonResult(
+          res,
+          false,
+          null,
+          "Assigned profiles are read-only for guests",
+          403
+        );
+      }
+    }
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
   const templateAssignment = await resolveDefaultTemplateAssignment({
@@ -351,17 +414,47 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   if (status !== undefined) profile.status = status;
 
   await profile.save();
-  return sendJsonResult(res, true, normalizeProfileForResponse(profile));
+  return sendJsonResult(
+    res,
+    true,
+    normalizeProfileForResponse(profile, buildProfileAccessDescriptor(profile, user))
+  );
 });
 
 exports.deleteProfile = asyncErrorHandler(async (req, res, next) => {
   const { user } = req;
   const { profileId } = req.params;
-  const scopeFilter = buildUserScopeFilter(user, isAdminUser(user) ? toTargetUserId(req) : null);
-  const profile = await ProfileModel.findOne({ ...scopeFilter, _id: profileId });
+  const writableFilter = isAdminUser(user)
+    ? { _id: profileId }
+    : buildWritableProfileFilterForUser(user?._id, { _id: profileId });
+
+  const profile = await ProfileModel.findOne(writableFilter);
   if (!profile) {
+    if (!isAdminUser(user)) {
+      const readableFilter = await buildReadableProfileFilterForUser(
+        user?._id,
+        { _id: profileId },
+        { isGuest: Number(user?.role) === RoleLevels.GUEST }
+      );
+      const readableProfile = await ProfileModel.findOne(readableFilter)
+        .select("_id")
+        .lean();
+      if (readableProfile) {
+        return sendJsonResult(
+          res,
+          false,
+          null,
+          "Assigned profiles are read-only for guests",
+          403
+        );
+      }
+    }
     return sendJsonResult(res, false, null, "Profile not found", 404);
   }
   await profile.deleteOne();
+  await UserModel.updateMany(
+    { assignedProfileIds: profile._id },
+    { $pull: { assignedProfileIds: profile._id } }
+  );
   return sendJsonResult(res, true, null, "Profile deleted successfully");
 });

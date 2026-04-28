@@ -12,6 +12,7 @@ const {
 } = require('./jdImport.service')
 const { tryGenerateResumeJsonFromJD } = require('../utils/resumeGeneration')
 const { appendApplicationHistory } = require('./applicationHistory.service')
+const { buildReadableProfileFilterForUser } = require('./profileAccess.service')
 const {
   buildApplicationEventEnvelope,
   publishApplicationEvent,
@@ -232,10 +233,11 @@ async function updateAndPublish({
 async function resolveProfile({ application, jdId, userId }) {
   const mode = application.applyConfig?.profileSelectionMode
   if (mode === 'manual' && application.applyConfig?.manualProfileId) {
-    const profile = await ProfileModel.findOne({
-      _id: application.applyConfig.manualProfileId,
-      userId,
-    }).lean()
+    const profile = await ProfileModel.findOne(
+      await buildReadableProfileFilterForUser(userId, {
+        _id: application.applyConfig.manualProfileId,
+      })
+    ).lean()
     if (!profile) throw new Error('Manual profile not found')
     return profile
   }
@@ -246,10 +248,9 @@ async function resolveProfile({ application, jdId, userId }) {
   const topProfile = Array.isArray(result?.topProfiles) ? result.topProfiles[0] : null
   if (!topProfile?.profileId) throw new Error('No matching profile found for this JD')
 
-  const profile = await ProfileModel.findOne({
-    _id: topProfile.profileId,
-    userId,
-  }).lean()
+  const profile = await ProfileModel.findOne(
+    await buildReadableProfileFilterForUser(userId, { _id: topProfile.profileId })
+  ).lean()
   if (!profile) throw new Error('Matched profile not found')
   return profile
 }

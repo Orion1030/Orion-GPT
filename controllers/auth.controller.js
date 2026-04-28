@@ -98,22 +98,14 @@ exports.signup = asyncErrorHandler(async (req, res) => {
   }
   if (password !== confirmPassword) return sendJsonResult(res, false, null, 'Password and confirm password should match', 400)
 
-  const superAdminOwner = await UserModel.findOne({ role: RoleLevels.SUPER_ADMIN })
-    .select('_id team isActive createdAt')
-    .sort({ isActive: -1, createdAt: 1, _id: 1 })
-    .lean()
-
-  const inheritedTeam = String(superAdminOwner?.team || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-
   const user = new UserModel({
     name,
     email: normalizedEmail,
     password,
-    role: RoleLevels.GUEST,
-    managedByUserId: superAdminOwner?._id || null,
-    team: inheritedTeam,
+    role: RoleLevels.User,
+    isActive: false,
+    managedByUserId: null,
+    team: '',
   })
   await user.save()
 
