@@ -20,6 +20,7 @@ const {
 } = require('../controllers/admin.controller')
 const {
   getAiProviderCatalog,
+  getMyEffectiveResumeGenerationMode,
   getMyAiConfiguration,
   upsertAiProviderCatalog,
   upsertMyAiConfiguration,
@@ -161,6 +162,13 @@ router
     isAuthenticatedUser,
     permit([RoleLevels.ADMIN, RoleLevels.Manager]),
     removeTeamMember
+  )
+router
+  .route('/configuration/ai/effective-resume')
+  .get(
+    isAuthenticatedUser,
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
+    getMyEffectiveResumeGenerationMode
   )
 router
   .route('/configuration/ai')

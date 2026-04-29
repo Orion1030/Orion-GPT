@@ -1,12 +1,30 @@
 jest.mock('../services/llm/openaiClient', () => ({
   chatCompletions: jest.fn(),
+  responsesCreate: jest.fn(),
 }));
 jest.mock('../services/promptRuntime.service', () => ({
   resolveManagedPromptContext: jest.fn(),
 }));
+jest.mock('../services/adminConfiguration.service', () => ({
+  AI_RUNTIME_FEATURES: {
+    RESUME_GENERATION: 'resume_generation',
+  },
+  RESUME_GENERATION_MODES: {
+    LEGACY: 'legacy',
+    REASONING: 'reasoning',
+  },
+  resolveFeatureAiRuntimeConfig: jest.fn(async () => ({
+    useCustom: false,
+    resumeGenerationMode: 'legacy',
+    provider: null,
+    model: null,
+    apiKey: null,
+  })),
+}));
 
-const { chatCompletions } = require('../services/llm/openaiClient');
+const { chatCompletions, responsesCreate } = require('../services/llm/openaiClient');
 const { resolveManagedPromptContext } = require('../services/promptRuntime.service');
+const { resolveFeatureAiRuntimeConfig } = require('../services/adminConfiguration.service');
 const {
   generateResumeFromJD,
   _buildResumeGenerationInput,
@@ -20,6 +38,13 @@ const profile = { fullName: 'Jane Doe', title: 'Engineer', mainStack: 'Data', ca
 describe('generateResumeFromJD', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resolveFeatureAiRuntimeConfig.mockResolvedValue({
+      useCustom: false,
+      resumeGenerationMode: 'legacy',
+      provider: null,
+      model: null,
+      apiKey: null,
+    });
     resolveManagedPromptContext.mockImplementation(async ({ fallbackContext }) => ({
       context: fallbackContext,
       source: 'no_prompt_configured',
@@ -41,6 +66,42 @@ describe('generateResumeFromJD', () => {
     const res = await generateResumeFromJD({ jd, profile, baseResume: null });
     expect(res.name).toBe('Fallback');
     expect(chatCompletions).toHaveBeenCalled();
+  });
+
+  it('uses reasoning mode when configured for resume generation', async () => {
+    resolveFeatureAiRuntimeConfig.mockResolvedValue({
+      useCustom: false,
+      resumeGenerationMode: 'reasoning',
+      provider: null,
+      model: null,
+      apiKey: null,
+    });
+    responsesCreate.mockResolvedValue({
+      output: [
+        {
+          type: 'message',
+          content: [
+            {
+              type: 'output_text',
+              text: JSON.stringify({
+                name: 'Reasoned Resume',
+                summary: '',
+                experiences: [],
+                skills: [],
+                education: [],
+              }),
+            },
+          ],
+        },
+      ],
+      usage: { total_tokens: 10 },
+    });
+
+    const res = await generateResumeFromJD({ jd, profile, baseResume: null });
+
+    expect(res.name).toBe('Reasoned Resume');
+    expect(responsesCreate).toHaveBeenCalled();
+    expect(chatCompletions).not.toHaveBeenCalled();
   });
 
   it('anchors generated experience dates to profile career history dates', async () => {

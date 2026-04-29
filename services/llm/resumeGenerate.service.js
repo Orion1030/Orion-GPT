@@ -1,4 +1,4 @@
-const { chatCompletions } = require("./openaiClient");
+const { chatCompletions, responsesCreate } = require("./openaiClient");
 const { chatCompletionText } = require("./providerChat.client");
 const {
   GENERATE_MODEL,
@@ -19,6 +19,7 @@ const { resolveManagedPromptContext } = require("../promptRuntime.service");
 const { appendPromptAudit } = require("../promptAudit.service");
 const {
   AI_RUNTIME_FEATURES,
+  RESUME_GENERATION_MODES,
   resolveFeatureAiRuntimeConfig,
 } = require("../adminConfiguration.service");
 const {
@@ -717,6 +718,91 @@ function buildJsonOnlyPrompt(userPrompt) {
 - Do not include explanations or extra text.`;
 }
 
+function supportsOpenAiReasoningModel(model) {
+  const normalized = sanitizePromptStr(model, 120).toLowerCase();
+  if (!normalized) return false;
+  return /^gpt-5(?:[.-]|$)/.test(normalized) || /^o[134](?:[.-]|$)/.test(normalized);
+}
+
+function extractTextFromResponsesOutput(body) {
+  if (typeof body?.output_text === "string" && body.output_text.trim()) {
+    return body.output_text;
+  }
+
+  const output = Array.isArray(body?.output) ? body.output : [];
+  const parts = [];
+
+  for (const item of output) {
+    if (typeof item?.content === "string" && item.content.trim()) {
+      parts.push(item.content);
+      continue;
+    }
+
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const chunk of content) {
+      if (typeof chunk?.text === "string" && chunk.text.trim()) {
+        parts.push(chunk.text);
+        continue;
+      }
+      if (typeof chunk?.content === "string" && chunk.content.trim()) {
+        parts.push(chunk.content);
+      }
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
+function extractStructuredJsonFromResponses(body) {
+  const text = extractTextFromResponsesOutput(body);
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return extractJsonObjectFromText(text);
+  }
+}
+
+async function callReasoningWithSchema(
+  systemPrompt,
+  userPrompt,
+  maxOutputTokens,
+  model,
+  runtimeConfig = null
+) {
+  const response = await responsesCreate({
+    apiKey: runtimeConfig?.useCustom && runtimeConfig?.provider === "openai"
+      ? runtimeConfig.apiKey
+      : undefined,
+    model,
+    input: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: buildJsonOnlyPrompt(userPrompt) },
+    ],
+    max_output_tokens: maxOutputTokens,
+    timeout_ms: GENERATE_TIMEOUT_MS,
+    reasoning: {
+      effort: "medium",
+    },
+    text: {
+      format: {
+        type: "json_schema",
+        name: "generate_resume",
+        schema: resumeSchema,
+        strict: false,
+      },
+    },
+  });
+
+  return {
+    output: Array.isArray(response?.output) ? response.output : [],
+    output_text: extractTextFromResponsesOutput(response),
+    usage: response?.usage || null,
+    status: response?.status || null,
+  };
+}
+
 async function callChatWithSchema(systemPrompt, userPrompt, maxCompletionTokens, model, runtimeConfig = null) {
   if (runtimeConfig?.useCustom) {
     const providerResult = await chatCompletionText({
@@ -789,6 +875,28 @@ function isReasoningSaturated(body) {
   const reasoningTokens = Number(body?.usage?.completion_tokens_details?.reasoning_tokens || 0);
   if (!completionTokens) return false;
   return reasoningTokens >= Math.floor(completionTokens * 0.95);
+}
+
+function resolveResumeGenerationMode(runtimeConfig) {
+  return runtimeConfig?.resumeGenerationMode === RESUME_GENERATION_MODES.REASONING
+    ? RESUME_GENERATION_MODES.REASONING
+    : RESUME_GENERATION_MODES.LEGACY;
+}
+
+function isReasoningModeSupported(runtimeConfig, model) {
+  if (!runtimeConfig?.useCustom) return true;
+  if (runtimeConfig?.provider !== "openai") return false;
+  return supportsOpenAiReasoningModel(model);
+}
+
+function getInitialGenerationModel(runtimeConfig, resumeGenerationMode) {
+  if (runtimeConfig?.useCustom) {
+    return runtimeConfig.model;
+  }
+  if (resumeGenerationMode === RESUME_GENERATION_MODES.REASONING) {
+    return GENERATE_REASONING_MODEL;
+  }
+  return GENERATE_MODEL || GENERATE_REASONING_MODEL;
 }
 
 function buildFallbackResume({ jd, profile }) {
@@ -925,43 +1033,91 @@ async function generateResumeFromJD({ jd, profile, baseResume, auditContext = nu
     const maxAttempts = 3;
     let maxTokens = Math.max(2000, Number(GENERATE_MAX_TOKENS) || 3000);
     const tokenCeiling = Math.max(maxTokens, Number(GENERATE_MAX_TOKEN_CEILING) || 24000);
-    let model = runtimeConfig?.useCustom
-      ? runtimeConfig.model
-      : GENERATE_REASONING_MODEL;
+    let resumeGenerationMode = resolveResumeGenerationMode(runtimeConfig);
+    let model = getInitialGenerationModel(runtimeConfig, resumeGenerationMode);
     const fallbackModel = runtimeConfig?.useCustom
       ? runtimeConfig.model
       : (GENERATE_MODEL || GENERATE_REASONING_MODEL);
 
+    if (!isReasoningModeSupported(runtimeConfig, model)) {
+      if (resumeGenerationMode === RESUME_GENERATION_MODES.REASONING) {
+        console.warn(
+          `[Generate] reasoning mode is not supported for provider=${runtimeConfig?.provider || "builtin"} model=${model}; falling back to legacy mode`
+        );
+      }
+      resumeGenerationMode = RESUME_GENERATION_MODES.LEGACY;
+      model = getInitialGenerationModel(runtimeConfig, resumeGenerationMode);
+    }
+
     try {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const body = await callChatWithSchema(
-          systemPrompt,
-          userPrompt,
-          maxTokens,
-          model,
-          runtimeConfig
-        );
-        rawJson = extractStructuredJsonFromChat(body);
+        let body = null;
+
+        try {
+          body = resumeGenerationMode === RESUME_GENERATION_MODES.REASONING
+            ? await callReasoningWithSchema(
+                systemPrompt,
+                userPrompt,
+                maxTokens,
+                model,
+                runtimeConfig
+              )
+            : await callChatWithSchema(
+                systemPrompt,
+                userPrompt,
+                maxTokens,
+                model,
+                runtimeConfig
+              );
+        } catch (error) {
+          if (
+            resumeGenerationMode === RESUME_GENERATION_MODES.REASONING &&
+            attempt < maxAttempts
+          ) {
+            console.warn(
+              `[Generate] reasoning path failed; retrying in legacy mode model=${fallbackModel}`
+            );
+            resumeGenerationMode = RESUME_GENERATION_MODES.LEGACY;
+            model = fallbackModel;
+            continue;
+          }
+          throw error;
+        }
+
+        rawJson = resumeGenerationMode === RESUME_GENERATION_MODES.REASONING
+          ? extractStructuredJsonFromResponses(body)
+          : extractStructuredJsonFromChat(body);
         if (rawJson) break;
 
-        const truncated = isLikelyTruncatedStructuredResponse(body);
-        const reasoningSaturated = isReasoningSaturated(body);
+        const truncated = resumeGenerationMode === RESUME_GENERATION_MODES.REASONING
+          ? !extractTextFromResponsesOutput(body)
+          : isLikelyTruncatedStructuredResponse(body);
+        const reasoningSaturated =
+          resumeGenerationMode === RESUME_GENERATION_MODES.REASONING
+            ? false
+            : isReasoningSaturated(body);
         const shouldRetry = (truncated || reasoningSaturated) && attempt < maxAttempts;
         if (!shouldRetry) break;
 
-        if (reasoningSaturated && model === GENERATE_REASONING_MODEL && fallbackModel !== GENERATE_REASONING_MODEL) {
+        if (
+          reasoningSaturated &&
+          model === GENERATE_REASONING_MODEL &&
+          fallbackModel !== GENERATE_REASONING_MODEL
+        ) {
           model = fallbackModel;
-          console.warn(`[Generate] reasoning token saturation detected; switching model to ${model}`);
+          console.warn(
+            `[Generate] reasoning token saturation detected; switching model to ${model}`
+          );
         }
 
         const nextMax = Math.min(Math.floor(maxTokens * 1.8), tokenCeiling);
         console.warn(
-          `[Generate] empty/length-limited structured output; retrying with model=${model} max_completion_tokens=${nextMax}`
+          `[Generate] empty/length-limited structured output; retrying with mode=${resumeGenerationMode} model=${model} max_completion_tokens=${nextMax}`
         );
         maxTokens = nextMax;
       }
     } catch (e) {
-      console.error("[Generate] chat completions with schema FAILED");
+      console.error("[Generate] resume generation request FAILED");
       console.error("Status:", e?.status);
       console.error("Message:", e?.message);
       console.error("Response:", e?.body || e?.response?.data || e);

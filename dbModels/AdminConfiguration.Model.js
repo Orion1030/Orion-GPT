@@ -1,6 +1,7 @@
 const mongoose = require('mongoose')
 
 const AI_PROVIDERS = ['openai', 'claude', 'gemini']
+const RESUME_GENERATION_MODES = ['legacy', 'reasoning']
 
 const adminConfigurationSchema = new mongoose.Schema(
   {
@@ -36,6 +37,13 @@ const adminConfigurationSchema = new mongoose.Schema(
     useForResumeGeneration: {
       type: Boolean,
       default: false,
+    },
+    resumeGenerationMode: {
+      type: String,
+      enum: RESUME_GENERATION_MODES,
+      default: 'legacy',
+      trim: true,
+      lowercase: true,
     },
     useForAiChat: {
       type: Boolean,
