@@ -22,6 +22,7 @@ const whitelistRoutes = require("./routes/whitelist.route");
 const blacklistRoutes = require("./routes/blacklist.route");
 const reportingRoutes = require("./routes/reporting.route");
 const notificationRoutes = require("./routes/notification.route");
+const { DBConnection } = require("./dbModels");
 
 // app
 const app = express();
@@ -79,8 +80,7 @@ app.get('/health', (req, res) => {
 
 app.get('/ready', async (req, res) => {
   try {
-    const mongoose = require('mongoose');
-    const dbState = mongoose.connection.readyState;
+    const dbState = DBConnection.readyState;
     if (dbState !== 1) {
       return res.status(503).json({ status: 'not_ready', db: 'disconnected' });
     }
