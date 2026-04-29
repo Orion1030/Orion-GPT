@@ -28,6 +28,8 @@ const {
   sanitizeString,
 } = require('../services/applicationContract')
 const { isAdminUser, buildUserScopeFilter } = require('../utils/access')
+const { RoleLevels } = require('../utils/constants')
+const { buildReadableProfileFilterForUser } = require('../services/profileAccess.service')
 
 function toIdString(value) {
   if (!value) return null
@@ -191,12 +193,13 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
   let profileSnapshot = ''
   let profileId = null
   if (applyConfig.profileSelectionMode === 'manual' && applyConfig.manualProfileId) {
-    const profileFilter = {
-      _id: applyConfig.manualProfileId,
-    }
-    if (!adminActor) {
-      profileFilter.userId = userId
-    }
+    const profileFilter = adminActor
+      ? { _id: applyConfig.manualProfileId }
+      : await buildReadableProfileFilterForUser(
+          userId,
+          { _id: applyConfig.manualProfileId },
+          { isGuest: Number(req.user?.role) === RoleLevels.GUEST }
+        )
 
     const profile = await ProfileModel.findOne(profileFilter)
       .select('_id userId fullName title')

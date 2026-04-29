@@ -1,7 +1,23 @@
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult } = require('../utils')
-const { TeamModel, UserModel } = require('../dbModels')
-const { RoleLevels } = require('../utils/constants')
+const {
+  AdminConfigurationModel,
+  ApplicationEventModel,
+  ApplicationModel,
+  ChatMessageModel,
+  ChatSessionModel,
+  JobDescriptionModel,
+  JobModel,
+  NotificationModel,
+  ProfileModel,
+  PromptAuditModel,
+  PromptModel,
+  ResumeModel,
+  TeamModel,
+  TemplateModel,
+  UserModel,
+} = require('../dbModels')
+const { RoleLevels, StatusCodes } = require('../utils/constants')
 const { buildUsageMetricsMap, createEmptyUsageMetrics } = require('../services/usageMetrics.service')
 const { verifyRequesterPassword } = require('../services/auth.service')
 const { getOnlineUserIds, isUserOnline } = require('../realtime/socketServer')
@@ -108,6 +124,56 @@ function toPublicUser(user, options = {}) {
   }
 
   return dto
+}
+
+function normalizeObjectIdArray(values) {
+  return Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((value) => toIdString(value))
+        .filter(Boolean)
+    )
+  )
+}
+
+function toGuestAssignableProfileDto(profile, assignedProfileIds = []) {
+  const profileId = toIdString(profile?._id || profile?.id)
+  const assignedSet = assignedProfileIds instanceof Set
+    ? assignedProfileIds
+    : new Set(normalizeObjectIdArray(assignedProfileIds))
+
+  return {
+    id: profileId,
+    fullName: String(profile?.fullName || '').trim(),
+    title: String(profile?.title || '').trim(),
+    mainStack: String(profile?.mainStack || '').trim(),
+    defaultTemplateId: toIdString(profile?.defaultTemplateId) || null,
+    status: Number(profile?.status) === StatusCodes.ACTIVE ? 'Active' : 'Inactive',
+    updatedAt: profile?.updatedAt || null,
+    isAssigned: assignedSet.has(profileId),
+  }
+}
+
+async function findManagedGuest(actor, guestId, select = '_id role team managedByUserId assignedProfileIds') {
+  const guest = await UserModel.findOne({ _id: guestId })
+    .select(select)
+    .lean()
+
+  if (!guest || Number(guest.role) !== RoleLevels.GUEST) {
+    return {
+      guest: null,
+      error: { status: 404, message: 'Guest not found' },
+    }
+  }
+
+  if (!canManageTargetUser(actor, guest)) {
+    return {
+      guest: null,
+      error: { status: 403, message: 'Insufficient permission' },
+    }
+  }
+
+  return { guest, error: null }
 }
 
 async function buildOwnerLookup(users) {
@@ -328,6 +394,69 @@ async function resetUserPasswordCore({
   return { ok: true, status: 200, message: 'Password reset successfully' }
 }
 
+function toDeletedCount(result) {
+  return Number(result?.deletedCount || 0)
+}
+
+async function deleteOwnedUserData(targetUserId) {
+  const chatSessions = await ChatSessionModel.find({ userId: targetUserId })
+    .select('_id')
+    .lean()
+  const chatSessionIds = chatSessions
+    .map((session) => session?._id)
+    .filter(Boolean)
+
+  const [
+    profiles,
+    resumes,
+    applications,
+    applicationEvents,
+    chatMessages,
+    removedChatSessions,
+    jobDescriptions,
+    jobs,
+    templates,
+    prompts,
+    promptAudits,
+    notifications,
+    adminConfigurations,
+  ] = await Promise.all([
+    ProfileModel.deleteMany({ userId: targetUserId }),
+    ResumeModel.deleteMany({ userId: targetUserId }),
+    ApplicationModel.deleteMany({ userId: targetUserId }),
+    ApplicationEventModel.deleteMany({ userId: targetUserId }),
+    chatSessionIds.length > 0
+      ? ChatMessageModel.deleteMany({ sessionId: { $in: chatSessionIds } })
+      : Promise.resolve({ deletedCount: 0 }),
+    ChatSessionModel.deleteMany({ userId: targetUserId }),
+    JobDescriptionModel.deleteMany({ userId: targetUserId }),
+    JobModel.deleteMany({ userId: targetUserId }),
+    TemplateModel.deleteMany({ userId: targetUserId }),
+    PromptModel.deleteMany({ owner: targetUserId }),
+    PromptAuditModel.deleteMany({ ownerUserId: targetUserId }),
+    NotificationModel.deleteMany({
+      $or: [{ toUserId: targetUserId }, { fromUserId: targetUserId }],
+    }),
+    AdminConfigurationModel.deleteMany({ ownerUserId: targetUserId }),
+  ])
+
+  return {
+    profiles: toDeletedCount(profiles),
+    resumes: toDeletedCount(resumes),
+    applications: toDeletedCount(applications),
+    applicationEvents: toDeletedCount(applicationEvents),
+    chatSessions: toDeletedCount(removedChatSessions),
+    chatMessages: toDeletedCount(chatMessages),
+    jobDescriptions: toDeletedCount(jobDescriptions),
+    jobs: toDeletedCount(jobs),
+    templates: toDeletedCount(templates),
+    prompts: toDeletedCount(prompts),
+    promptAudits: toDeletedCount(promptAudits),
+    notifications: toDeletedCount(notifications),
+    adminConfigurations: toDeletedCount(adminConfigurations),
+  }
+}
+
 exports.changeMemberPassword = asyncErrorHandler(async (req, res) => {
   const { newPassword, confirmPassword, memberId, adminPassword } = req.body || {}
   if (!memberId) {
@@ -473,6 +602,9 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, 'User not found', 404)
   }
 
+  const currentTargetRole = Number(targetUser.role)
+  const existingGuestOwnerId = toIdString(targetUser.managedByUserId)
+
   const isSelfUpdate = requesterId && requesterId === targetUserId
   const isSuperAdminSelfMemberIdOnlyUpdate =
     requesterRole === RoleLevels.SUPER_ADMIN &&
@@ -552,8 +684,7 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
       return sendJsonResult(res, false, null, 'You cannot assign this role', 403)
     }
 
-    const currentRole = Number(targetUser.role)
-    if (currentRole === RoleLevels.GUEST && parsedRole !== RoleLevels.GUEST) {
+    if (currentTargetRole === RoleLevels.GUEST && parsedRole !== RoleLevels.GUEST) {
       return sendJsonResult(
         res,
         false,
@@ -563,7 +694,7 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
       )
     }
     const demotingAssignedManager =
-      currentRole === RoleLevels.Manager && parsedRole !== RoleLevels.Manager
+      currentTargetRole === RoleLevels.Manager && parsedRole !== RoleLevels.Manager
     if (demotingAssignedManager) {
       const managesAnyTeam = await TeamModel.exists({ managerUserId: targetUser._id })
       if (managesAnyTeam) {
@@ -598,8 +729,7 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
       }
       requestedOwnerId = requesterId
     } else if (!requestedOwnerId) {
-      const existingOwnerId = toIdString(targetUser.managedByUserId)
-      requestedOwnerId = existingOwnerId || ''
+      requestedOwnerId = existingGuestOwnerId || ''
     }
 
     if (!requestedOwnerId) {
@@ -631,6 +761,12 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
 
     updates.managedByUserId = owner._id
     updates.team = normalizeTeamName(owner.team)
+    if (
+      currentTargetRole !== RoleLevels.GUEST ||
+      existingGuestOwnerId !== toIdString(owner._id)
+    ) {
+      updates.assignedProfileIds = []
+    }
 
     if (requestedTeam !== undefined && requestedTeam !== updates.team) {
       return sendJsonResult(
@@ -652,6 +788,7 @@ exports.updateUser = asyncErrorHandler(async (req, res) => {
 
     if (parsedRole != null && parsedRole !== RoleLevels.GUEST) {
       updates.managedByUserId = null
+      updates.assignedProfileIds = []
     }
   }
 
@@ -817,6 +954,134 @@ exports.createGuest = asyncErrorHandler(async (req, res) => {
   )
 })
 
+exports.getGuestProfileAssignments = asyncErrorHandler(async (req, res) => {
+  const { guestId } = req.params
+  const { guest, error } = await findManagedGuest(
+    req.user,
+    guestId,
+    '_id role team managedByUserId assignedProfileIds'
+  )
+  if (error) {
+    return sendJsonResult(res, false, null, error.message, error.status)
+  }
+
+  const ownerUserId = toIdString(guest.managedByUserId)
+  if (!ownerUserId) {
+    return sendJsonResult(res, true, {
+      guestId: toIdString(guest._id),
+      ownerUserId: null,
+      ownerName: '',
+      ownerMemberId: '',
+      assignedProfileIds: [],
+      profiles: [],
+    })
+  }
+
+  const [owner, profiles] = await Promise.all([
+    UserModel.findOne({ _id: ownerUserId })
+      .select('_id name memberId')
+      .lean(),
+    ProfileModel.find({ userId: ownerUserId })
+      .select('_id fullName title mainStack defaultTemplateId status updatedAt')
+      .sort({ updatedAt: -1 })
+      .lean(),
+  ])
+
+  const assignedIdSet = new Set(normalizeObjectIdArray(guest.assignedProfileIds))
+  const validAssignedProfileIds = []
+  const profileDtos = (profiles || []).map((profile) => {
+    const profileId = toIdString(profile._id)
+    if (profileId && assignedIdSet.has(profileId)) {
+      validAssignedProfileIds.push(profileId)
+    }
+    return toGuestAssignableProfileDto(profile, assignedIdSet)
+  })
+
+  return sendJsonResult(res, true, {
+    guestId: toIdString(guest._id),
+    ownerUserId,
+    ownerName: String(owner?.name || '').trim(),
+    ownerMemberId: String(owner?.memberId || '').trim(),
+    assignedProfileIds: validAssignedProfileIds,
+    profiles: profileDtos,
+  })
+})
+
+exports.updateGuestProfileAssignments = asyncErrorHandler(async (req, res) => {
+  const { guestId } = req.params
+  if (!Array.isArray(req.body?.assignedProfileIds)) {
+    return sendJsonResult(res, false, null, 'assignedProfileIds must be an array', 400)
+  }
+
+  const { guest, error } = await findManagedGuest(
+    req.user,
+    guestId,
+    '_id role team managedByUserId assignedProfileIds'
+  )
+  if (error) {
+    return sendJsonResult(res, false, null, error.message, error.status)
+  }
+
+  const ownerUserId = toIdString(guest.managedByUserId)
+  const requestedProfileIds = normalizeObjectIdArray(req.body.assignedProfileIds)
+  if (requestedProfileIds.length > 0 && !ownerUserId) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'Guest owner is required before assigning profiles',
+      400
+    )
+  }
+
+  const matchingProfiles = requestedProfileIds.length > 0
+    ? await ProfileModel.find({
+        _id: { $in: requestedProfileIds },
+        userId: ownerUserId,
+      })
+        .select('_id')
+        .lean()
+    : []
+
+  const matchingIdSet = new Set(
+    (matchingProfiles || []).map((profile) => toIdString(profile._id)).filter(Boolean)
+  )
+  const hasInvalidSelection = requestedProfileIds.some((profileId) => !matchingIdSet.has(profileId))
+  if (hasInvalidSelection) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'Assigned profiles must belong to the guest owner',
+      400
+    )
+  }
+
+  const orderedAssignedProfileIds = requestedProfileIds.filter((profileId) =>
+    matchingIdSet.has(profileId)
+  )
+
+  const updatedGuest = await UserModel.findOneAndUpdate(
+    { _id: guest._id },
+    { $set: { assignedProfileIds: orderedAssignedProfileIds } },
+    { returnDocument: 'after' }
+  )
+    .select('_id assignedProfileIds')
+    .lean()
+
+  return sendJsonResult(
+    res,
+    true,
+    {
+      guestId: toIdString(updatedGuest?._id || guest._id),
+      assignedProfileIds: normalizeObjectIdArray(
+        updatedGuest?.assignedProfileIds || orderedAssignedProfileIds
+      ),
+    },
+    'Guest profile assignments updated'
+  )
+})
+
 exports.deleteGuest = asyncErrorHandler(async (req, res) => {
   const { guestId } = req.params
   const guest = await UserModel.findOne({ _id: guestId })
@@ -836,6 +1101,90 @@ exports.deleteGuest = asyncErrorHandler(async (req, res) => {
     true,
     { userId: toIdString(guest._id) },
     'Guest deleted'
+  )
+})
+
+exports.deleteUser = asyncErrorHandler(async (req, res) => {
+  const { userId } = req.params
+  const requesterId = toIdString(req.user?._id || req.user?.id)
+  const targetUserId = toIdString(userId)
+
+  if (requesterId && targetUserId && requesterId === targetUserId) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'You cannot permanently delete your own account.',
+      403
+    )
+  }
+
+  const targetUser = await UserModel.findOne({ _id: userId })
+    .select('_id role team managedByUserId name email memberId')
+    .lean()
+  if (!targetUser) {
+    return sendJsonResult(res, false, null, 'User not found', 404)
+  }
+
+  const stepUp = await verifyStepUpPassword(req, req.body?.adminPassword)
+  if (!stepUp.ok) {
+    return sendJsonResult(res, false, null, stepUp.message, stepUp.status)
+  }
+
+  if (Number(targetUser.role) === RoleLevels.SUPER_ADMIN) {
+    const superAdminCount = await UserModel.countDocuments({
+      role: RoleLevels.SUPER_ADMIN,
+    })
+    if (superAdminCount <= 1) {
+      return sendJsonResult(
+        res,
+        false,
+        null,
+        'Cannot delete the last Super Admin account.',
+        400
+      )
+    }
+  }
+
+  const [managesAnyTeam, ownsGuests] = await Promise.all([
+    TeamModel.exists({ managerUserId: targetUser._id }),
+    UserModel.exists({ role: RoleLevels.GUEST, managedByUserId: targetUser._id }),
+  ])
+
+  if (managesAnyTeam) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'Cannot delete user while they are assigned as a team manager. Reassign the team manager first.',
+      400
+    )
+  }
+
+  if (ownsGuests) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      'Cannot delete user while they still own guest accounts. Reassign or delete those guests first.',
+      400
+    )
+  }
+
+  const deleted = await deleteOwnedUserData(targetUser._id)
+  const deleteResult = await UserModel.deleteOne({ _id: targetUser._id })
+  if (!deleteResult?.deletedCount) {
+    return sendJsonResult(res, false, null, 'User not found', 404)
+  }
+
+  return sendJsonResult(
+    res,
+    true,
+    {
+      userId: toIdString(targetUser._id),
+      deleted,
+    },
+    'User permanently deleted'
   )
 })
 

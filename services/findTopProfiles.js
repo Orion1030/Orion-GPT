@@ -9,6 +9,7 @@
  * A +15 base is added so that profiles with partial data still show a non-zero score.
  */
 const { JobDescriptionModel, ProfileModel } = require('../dbModels');
+const { buildReadableProfileFilterForUser } = require('./profileAccess.service');
 
 function tokenize(text) {
   return String(text || '')
@@ -41,7 +42,9 @@ async function findTopProfilesCore(userId, jdId) {
   const jdKeywords = new Set(tokenize(jdReqText).filter(w => w.length > 2));
   const jdTitleTokens = new Set(tokenize(jd.title || '').filter(w => w.length > 2));
 
-  const profiles = await ProfileModel.find({ userId }).lean();
+  const profiles = await ProfileModel.find(
+    await buildReadableProfileFilterForUser(userId)
+  ).lean();
 
   const scored = profiles.map((profile) => {
     // Build token sets from profile data

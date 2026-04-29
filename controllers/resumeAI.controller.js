@@ -1,11 +1,14 @@
 const crypto = require("crypto");
+const fs = require("fs/promises");
 const asyncErrorHandler = require("../middlewares/asyncErrorHandler");
 const { JobDescriptionModel, ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { ProfileModel } = require("../dbModels");
+const { RoleLevels } = require("../utils/constants");
 const { tryGenerateResumeJsonFromJD } = require("../utils/resumeGeneration");
 const { tryRefineResumeWithFeedback } = require("../services/llm/resumeRefine.service");
 const { tryParseResumeTextWithLLM } = require("../utils/parseResume");
+const { buildReadableProfileFilterForUser } = require("../services/profileAccess.service");
 const {
   resolveJdContext,
   tryParseAndPersistJobDescription,
@@ -15,6 +18,12 @@ const {
 } = require("../services/jdImport.service");
 const { buildEmploymentKey, areEmploymentsEquivalent } = require("../utils/employmentKey");
 const { alignResumeExperiencesToCareerHistory } = require("../utils/experienceAdapter");
+const { formidable } = require("formidable");
+const {
+  normalizeImportedDateRange,
+  stripTrailingImportedDateRange,
+} = require("../utils/flexibleDate");
+const { extractPlainTextFromPdfBuffer } = require("../services/pdfText.service");
 
 function getRequestId(req, fallbackPrefix = "resume-generate") {
   const fromHeader = req.headers?.["x-request-id"];
@@ -36,24 +45,161 @@ function getClientIp(req) {
 function normalizeParsedEducation(education) {
   if (!Array.isArray(education)) return [];
   return education.map((item) => {
-    if (typeof item === "string") {
-      return {
-        degreeLevel: "",
-        universityName: item,
-        major: "",
-        startDate: "",
-        endDate: "",
-      };
-    }
+    const normalizedItem =
+      typeof item === "string"
+        ? {
+            degreeLevel: "",
+            universityName: item,
+            major: "",
+            startDate: "",
+            endDate: "",
+          }
+        : {
+            degreeLevel: item?.degreeLevel || "",
+            universityName: item?.universityName || "",
+            major: item?.major || "",
+            startDate: item?.startDate || "",
+            endDate: item?.endDate || "",
+          };
+    const normalizedDates = normalizeImportedDateRange(
+      normalizedItem.startDate,
+      normalizedItem.endDate,
+      [
+        normalizedItem.universityName,
+        normalizedItem.degreeLevel,
+        normalizedItem.major,
+      ]
+    );
+
     return {
-      degreeLevel: item?.degreeLevel || "",
-      universityName: item?.universityName || "",
-      major: item?.major || "",
-      startDate: item?.startDate || "",
-      endDate: item?.endDate || "",
+      ...normalizedItem,
+      universityName: stripTrailingImportedDateRange(
+        normalizedItem.universityName
+      ),
+      startDate: normalizedDates.startDate,
+      endDate: normalizedDates.endDate,
     };
   });
 }
+
+function normalizeParsedExperiences(experiences) {
+  if (!Array.isArray(experiences)) return [];
+
+  return experiences.map((item) => {
+    const normalizedItem = {
+      title: item?.title || item?.roleTitle || "",
+      companyName: item?.companyName || "",
+      companyLocation: item?.companyLocation || "",
+      summary: item?.summary || item?.companySummary || "",
+      descriptions: Array.isArray(item?.descriptions) ? item.descriptions : [],
+      startDate: item?.startDate || "",
+      endDate: item?.endDate || "",
+    };
+    const normalizedDates = normalizeImportedDateRange(
+      normalizedItem.startDate,
+      normalizedItem.endDate,
+      [
+        normalizedItem.title,
+        normalizedItem.companyName,
+        normalizedItem.companyLocation,
+        normalizedItem.summary,
+      ]
+    );
+
+    if (typeof item === "string") {
+      return {
+        title: stripTrailingImportedDateRange(normalizedItem.title),
+        companyName: normalizedItem.companyName,
+        companyLocation: normalizedItem.companyLocation,
+        summary: normalizedItem.summary,
+        descriptions: normalizedItem.descriptions,
+        startDate: normalizedDates.startDate,
+        endDate: normalizedDates.endDate,
+      };
+    }
+
+    return {
+      title: stripTrailingImportedDateRange(normalizedItem.title),
+      companyName: normalizedItem.companyName,
+      companyLocation: normalizedItem.companyLocation,
+      summary: normalizedItem.summary,
+      descriptions: normalizedItem.descriptions,
+      startDate: normalizedDates.startDate,
+      endDate: normalizedDates.endDate,
+    };
+  });
+}
+
+function parseMultipartForm(req) {
+  return new Promise((resolve, reject) => {
+    const form = formidable({
+      multiples: false,
+      maxFiles: 1,
+      maxFileSize: 5 * 1024 * 1024,
+      allowEmptyFiles: false,
+    });
+
+    form.parse(req, (error, fields, files) => {
+      if (error) {
+        error.statusCode =
+          error.httpCode ||
+          (error.code === 1009 || error.code === "ETOOBIG" ? 413 : 400);
+        reject(error);
+        return;
+      }
+      resolve({ fields, files });
+    });
+  });
+}
+
+function getUploadedFile(files) {
+  if (!files || typeof files !== "object") return null;
+  const candidate = files.file || files.resume || Object.values(files)[0];
+  if (Array.isArray(candidate)) return candidate[0] || null;
+  return candidate || null;
+}
+
+function isPdfUpload(file) {
+  const fileName = String(file?.originalFilename || file?.newFilename || "").toLowerCase();
+  const mimetype = String(file?.mimetype || "").toLowerCase();
+  return mimetype === "application/pdf" || fileName.endsWith(".pdf");
+}
+
+exports.extractResumeText = asyncErrorHandler(async (req, res) => {
+  const { files } = await parseMultipartForm(req);
+  const uploadedFile = getUploadedFile(files);
+
+  if (!uploadedFile) {
+    return sendJsonResult(res, false, null, "PDF file is required.", 400);
+  }
+
+  if (!isPdfUpload(uploadedFile)) {
+    return sendJsonResult(res, false, null, "Only PDF files are supported.", 400);
+  }
+
+  const filePath = uploadedFile.filepath;
+  if (!filePath) {
+    return sendJsonResult(res, false, null, "Uploaded PDF could not be read.", 400);
+  }
+
+  let buffer;
+  try {
+    buffer = await fs.readFile(filePath);
+  } finally {
+    await fs.unlink(filePath).catch(() => {});
+  }
+
+  const { result, error } = await extractPlainTextFromPdfBuffer(buffer);
+  if (error) {
+    return sendJsonResult(res, false, null, error.message, error.statusCode || 422);
+  }
+
+  return sendJsonResult(res, true, {
+    fileName: String(uploadedFile.originalFilename || "resume.pdf"),
+    text: result.text,
+    pageCount: result.pageCount,
+  });
+});
 
 function doesSelectedResumeMatchProfileCareerHistory(profile, baseResume) {
   const profileHistory = Array.isArray(profile?.careerHistory) ? profile.careerHistory : [];
@@ -106,7 +252,7 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
   let parsed = parseResult.parsed || {};
   parsed.name = parsed.name || "Parsed Resume";
   parsed.summary = parsed.summary || "";
-  parsed.experiences = Array.isArray(parsed.experiences) ? parsed.experiences : [];
+  parsed.experiences = normalizeParsedExperiences(parsed.experiences);
   parsed.skills = Array.isArray(parsed.skills)
     ? parsed.skills
     : parsed.skills
@@ -114,7 +260,11 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
       : [];
   parsed.education = normalizeParsedEducation(parsed.education);
 
-  const profiles = await ProfileModel.find({ userId: user._id });
+  const profiles = await ProfileModel.find(
+    await buildReadableProfileFilterForUser(user._id, {}, {
+      isGuest: Number(user?.role) === RoleLevels.GUEST,
+    })
+  ).lean();
 
   function normalizeName(n) {
     return String(n || "").toLowerCase().replace(/[^a-z0-9 ]+/g, "").trim();
@@ -205,7 +355,13 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
   }
 
   const jd = await JobDescriptionModel.findOne({ _id: jdId, userId }).lean();
-  const profile = await ProfileModel.findOne({ _id: profileId, userId }).lean();
+  const profile = await ProfileModel.findOne(
+    await buildReadableProfileFilterForUser(
+      userId,
+      { _id: profileId },
+      { isGuest: Number(req.user?.role) === RoleLevels.GUEST }
+    )
+  ).lean();
   if (!jd || !profile) {
     return sendJsonResult(res, false, null, "JD or profile not found", 404);
   }
