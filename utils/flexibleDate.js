@@ -94,6 +94,38 @@ function getDaysInMonth(year, month) {
   return new Date(year, month, 0).getDate();
 }
 
+function toFlexibleDateSortValue(value, bound) {
+  const normalized = normalizeImportedDateValue(value);
+  if (!normalized) return null;
+  if (OPEN_ENDED_DATE_PATTERN.test(normalized)) {
+    return Date.UTC(9999, 11, 31);
+  }
+
+  const parts = normalized.split("-");
+  const year = Number(parts[0]);
+  if (Number.isNaN(year)) return null;
+
+  if (parts.length === 1) {
+    const month = bound === "start" ? 1 : 12;
+    const day = bound === "start" ? 1 : 31;
+    return Date.UTC(year, month - 1, day);
+  }
+
+  const month = Number(parts[1]);
+  if (Number.isNaN(month) || month < 1 || month > 12) return null;
+
+  if (parts.length === 2) {
+    const day = bound === "start" ? 1 : getDaysInMonth(year, month);
+    return Date.UTC(year, month - 1, day);
+  }
+
+  const day = Number(parts[2]);
+  if (Number.isNaN(day) || day < 1 || day > getDaysInMonth(year, month)) {
+    return null;
+  }
+  return Date.UTC(year, month - 1, day);
+}
+
 function normalizeMonthKey(raw) {
   return String(raw || "").toLowerCase().replace(/\./g, "");
 }
@@ -261,6 +293,39 @@ function normalizeImportedDateRange(startValue, endValue, contextValues = []) {
   return { startDate, endDate };
 }
 
+function compareFlexibleDateValuesDesc(left, right, bound = "end") {
+  const leftValue = toFlexibleDateSortValue(left, bound);
+  const rightValue = toFlexibleDateSortValue(right, bound);
+
+  if (leftValue == null && rightValue == null) return 0;
+  if (leftValue == null) return 1;
+  if (rightValue == null) return -1;
+  return rightValue - leftValue;
+}
+
+function sortCareerHistoryMostRecentFirst(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const endCompare = compareFlexibleDateValuesDesc(
+        left.item?.endDate,
+        right.item?.endDate,
+        "end"
+      );
+      if (endCompare !== 0) return endCompare;
+
+      const startCompare = compareFlexibleDateValuesDesc(
+        left.item?.startDate,
+        right.item?.startDate,
+        "start"
+      );
+      if (startCompare !== 0) return startCompare;
+
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
 function stripTrailingImportedDateRange(value) {
   const raw = toText(value).replace(/\s+/g, " ");
   if (!raw) return "";
@@ -276,8 +341,10 @@ function stripTrailingImportedDateRange(value) {
 }
 
 module.exports = {
+  compareFlexibleDateValuesDesc,
   extractNormalizedDateTokens,
   normalizeImportedDateValue,
   normalizeImportedDateRange,
+  sortCareerHistoryMostRecentFirst,
   stripTrailingImportedDateRange,
 };

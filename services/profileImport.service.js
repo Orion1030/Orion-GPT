@@ -7,6 +7,7 @@ const { RoleLevels } = require("../utils/constants");
 const { toIdString } = require("../utils/managementScope");
 const {
   normalizeImportedDateRange,
+  sortCareerHistoryMostRecentFirst,
   stripTrailingImportedDateRange,
 } = require("../utils/flexibleDate");
 
@@ -330,8 +331,9 @@ function normalizeParsedEducations(education) {
 function normalizeParsedCareerHistory(experiences) {
   if (!Array.isArray(experiences)) return [];
 
-  return experiences
-    .map((entry) => {
+  return sortCareerHistoryMostRecentFirst(
+    experiences
+      .map((entry) => {
       const descriptions = Array.isArray(entry?.descriptions)
         ? entry.descriptions.map((line) => toCleanString(line)).filter(Boolean)
         : [];
@@ -360,16 +362,17 @@ function normalizeParsedCareerHistory(experiences) {
         startDate: normalizedDates.startDate,
         endDate: normalizedDates.endDate,
       };
-    })
-    .filter(
-      (entry) =>
-        entry.companyName ||
-        entry.roleTitle ||
-        entry.startDate ||
-        entry.endDate ||
-        entry.companySummary ||
-        entry.keyPoints
-    );
+      })
+      .filter(
+        (entry) =>
+          entry.companyName ||
+          entry.roleTitle ||
+          entry.startDate ||
+          entry.endDate ||
+          entry.companySummary ||
+          entry.keyPoints
+      )
+  );
 }
 
 function inferProfileTitle(parsed, text, fullName = "") {

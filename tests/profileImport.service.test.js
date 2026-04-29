@@ -236,18 +236,18 @@ describe("profileImport.service parseProfileImportText", () => {
           summary: "Data engineer",
           experiences: [
             {
-              title: "Senior Data Platform Engineer | Aug. 2025 – Present",
-              companyName: "Axos Bank",
-              descriptions: ["Built data pipelines"],
-              startDate: "",
-              endDate: "",
-            },
-            {
               title: "Senior Data Engineer",
               companyName: "Restaurant365",
               descriptions: ["Modernized ETL"],
               startDate: "01/2025",
               endDate: "07/2025",
+            },
+            {
+              title: "Senior Data Platform Engineer | Aug. 2025 – Present",
+              companyName: "Axos Bank",
+              descriptions: ["Built data pipelines"],
+              startDate: "",
+              endDate: "",
             },
           ],
           skills: [],
