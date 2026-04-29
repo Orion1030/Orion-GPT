@@ -154,6 +154,87 @@ function toGuestAssignableProfileDto(profile, assignedProfileIds = []) {
   }
 }
 
+function compareProfilesByUpdatedAtDesc(left, right) {
+  const leftTime = new Date(left?.updatedAt || 0).getTime()
+  const rightTime = new Date(right?.updatedAt || 0).getTime()
+  const normalizedLeftTime = Number.isNaN(leftTime) ? 0 : leftTime
+  const normalizedRightTime = Number.isNaN(rightTime) ? 0 : rightTime
+
+  if (normalizedLeftTime !== normalizedRightTime) {
+    return normalizedRightTime - normalizedLeftTime
+  }
+
+  return toIdString(left?._id || left?.id).localeCompare(toIdString(right?._id || right?.id))
+}
+
+function resolveGuestProfileSourceUserId(actor, guest) {
+  return toIdString(actor?._id || actor?.id) || toIdString(guest?.managedByUserId)
+}
+
+async function loadGuestAssignmentUserSummary(userId) {
+  const normalizedUserId = toIdString(userId)
+  if (!normalizedUserId) return null
+
+  return UserModel.findOne({ _id: normalizedUserId })
+    .select('_id name memberId')
+    .lean()
+}
+
+async function buildGuestProfileAssignmentState(actor, guest) {
+  const ownerUserId = toIdString(guest?.managedByUserId) || null
+  const profileSourceUserId = resolveGuestProfileSourceUserId(actor, guest) || null
+  const normalizedAssignedProfileIds = normalizeObjectIdArray(guest?.assignedProfileIds)
+
+  const [owner, profileSourceUser, sourceProfiles, assignedProfiles] = await Promise.all([
+    loadGuestAssignmentUserSummary(ownerUserId),
+    profileSourceUserId && profileSourceUserId !== ownerUserId
+      ? loadGuestAssignmentUserSummary(profileSourceUserId)
+      : Promise.resolve(null),
+    profileSourceUserId
+      ? ProfileModel.find({ userId: profileSourceUserId })
+          .select('_id fullName title mainStack defaultTemplateId status updatedAt')
+          .sort({ updatedAt: -1 })
+          .lean()
+      : Promise.resolve([]),
+    normalizedAssignedProfileIds.length > 0
+      ? ProfileModel.find({ _id: { $in: normalizedAssignedProfileIds } })
+          .select('_id fullName title mainStack defaultTemplateId status updatedAt')
+          .sort({ updatedAt: -1 })
+          .lean()
+      : Promise.resolve([]),
+  ])
+
+  const mergedProfiles = new Map()
+  for (const profile of sourceProfiles || []) {
+    const profileId = toIdString(profile?._id)
+    if (profileId) mergedProfiles.set(profileId, profile)
+  }
+  for (const profile of assignedProfiles || []) {
+    const profileId = toIdString(profile?._id)
+    if (profileId && !mergedProfiles.has(profileId)) {
+      mergedProfiles.set(profileId, profile)
+    }
+  }
+
+  const validAssignedProfileIds = normalizedAssignedProfileIds.filter((profileId) =>
+    mergedProfiles.has(profileId)
+  )
+  const assignedIdSet = new Set(validAssignedProfileIds)
+
+  return {
+    ownerUserId,
+    ownerName: String(owner?.name || '').trim(),
+    ownerMemberId: String(owner?.memberId || '').trim(),
+    profileSourceUserId,
+    profileSourceName: String((profileSourceUser || owner)?.name || '').trim(),
+    profileSourceMemberId: String((profileSourceUser || owner)?.memberId || '').trim(),
+    assignedProfileIds: validAssignedProfileIds,
+    profiles: Array.from(mergedProfiles.values())
+      .sort(compareProfilesByUpdatedAtDesc)
+      .map((profile) => toGuestAssignableProfileDto(profile, assignedIdSet)),
+  }
+}
+
 async function findManagedGuest(actor, guestId, select = '_id role team managedByUserId assignedProfileIds') {
   const guest = await UserModel.findOne({ _id: guestId })
     .select(select)
@@ -965,45 +1046,18 @@ exports.getGuestProfileAssignments = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, error.message, error.status)
   }
 
-  const ownerUserId = toIdString(guest.managedByUserId)
-  if (!ownerUserId) {
-    return sendJsonResult(res, true, {
-      guestId: toIdString(guest._id),
-      ownerUserId: null,
-      ownerName: '',
-      ownerMemberId: '',
-      assignedProfileIds: [],
-      profiles: [],
-    })
-  }
-
-  const [owner, profiles] = await Promise.all([
-    UserModel.findOne({ _id: ownerUserId })
-      .select('_id name memberId')
-      .lean(),
-    ProfileModel.find({ userId: ownerUserId })
-      .select('_id fullName title mainStack defaultTemplateId status updatedAt')
-      .sort({ updatedAt: -1 })
-      .lean(),
-  ])
-
-  const assignedIdSet = new Set(normalizeObjectIdArray(guest.assignedProfileIds))
-  const validAssignedProfileIds = []
-  const profileDtos = (profiles || []).map((profile) => {
-    const profileId = toIdString(profile._id)
-    if (profileId && assignedIdSet.has(profileId)) {
-      validAssignedProfileIds.push(profileId)
-    }
-    return toGuestAssignableProfileDto(profile, assignedIdSet)
-  })
+  const assignmentState = await buildGuestProfileAssignmentState(req.user, guest)
 
   return sendJsonResult(res, true, {
     guestId: toIdString(guest._id),
-    ownerUserId,
-    ownerName: String(owner?.name || '').trim(),
-    ownerMemberId: String(owner?.memberId || '').trim(),
-    assignedProfileIds: validAssignedProfileIds,
-    profiles: profileDtos,
+    ownerUserId: assignmentState.ownerUserId,
+    ownerName: assignmentState.ownerName,
+    ownerMemberId: assignmentState.ownerMemberId,
+    profileSourceUserId: assignmentState.profileSourceUserId,
+    profileSourceName: assignmentState.profileSourceName,
+    profileSourceMemberId: assignmentState.profileSourceMemberId,
+    assignedProfileIds: assignmentState.assignedProfileIds,
+    profiles: assignmentState.profiles,
   })
 })
 
@@ -1022,43 +1076,50 @@ exports.updateGuestProfileAssignments = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, error.message, error.status)
   }
 
-  const ownerUserId = toIdString(guest.managedByUserId)
   const requestedProfileIds = normalizeObjectIdArray(req.body.assignedProfileIds)
-  if (requestedProfileIds.length > 0 && !ownerUserId) {
-    return sendJsonResult(
-      res,
-      false,
-      null,
-      'Guest owner is required before assigning profiles',
-      400
-    )
-  }
+  const existingAssignedProfileIds = normalizeObjectIdArray(guest.assignedProfileIds)
+  const profileSourceUserId = resolveGuestProfileSourceUserId(req.user, guest)
 
-  const matchingProfiles = requestedProfileIds.length > 0
+  const [matchingProfiles, existingAssignedProfiles] = await Promise.all([
+    requestedProfileIds.length > 0 && profileSourceUserId
     ? await ProfileModel.find({
         _id: { $in: requestedProfileIds },
-        userId: ownerUserId,
+        userId: profileSourceUserId,
       })
         .select('_id')
         .lean()
-    : []
+      : [],
+    existingAssignedProfileIds.length > 0
+      ? await ProfileModel.find({
+          _id: { $in: existingAssignedProfileIds },
+        })
+          .select('_id')
+          .lean()
+      : [],
+  ])
 
   const matchingIdSet = new Set(
     (matchingProfiles || []).map((profile) => toIdString(profile._id)).filter(Boolean)
   )
-  const hasInvalidSelection = requestedProfileIds.some((profileId) => !matchingIdSet.has(profileId))
+  const existingAssignedIdSet = new Set(
+    (existingAssignedProfiles || []).map((profile) => toIdString(profile._id)).filter(Boolean)
+  )
+  const hasInvalidSelection = requestedProfileIds.some((profileId) => {
+    if (matchingIdSet.has(profileId)) return false
+    return !existingAssignedIdSet.has(profileId)
+  })
   if (hasInvalidSelection) {
     return sendJsonResult(
       res,
       false,
       null,
-      'Assigned profiles must belong to the guest owner',
+      'Assigned profiles must come from your account or already be assigned to this guest',
       400
     )
   }
 
   const orderedAssignedProfileIds = requestedProfileIds.filter((profileId) =>
-    matchingIdSet.has(profileId)
+    matchingIdSet.has(profileId) || existingAssignedIdSet.has(profileId)
   )
 
   const updatedGuest = await UserModel.findOneAndUpdate(

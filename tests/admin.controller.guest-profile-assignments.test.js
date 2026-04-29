@@ -66,7 +66,7 @@ describe('admin.controller guest profile assignments', () => {
     jest.clearAllMocks()
   })
 
-  it('lists owner profiles and current assignments for a managed guest', async () => {
+  it('lists profiles from the current managing account and preserves current assignments', async () => {
     const UserModel = jest.fn()
     UserModel.findOne = jest
       .fn()
@@ -88,26 +88,40 @@ describe('admin.controller guest profile assignments', () => {
       )
 
     const ProfileModel = {
-      find: jest.fn().mockReturnValue(
-        buildFindSelectSortLean([
-          {
-            _id: 'profile-1',
-            fullName: 'Jane Doe',
-            title: 'Platform Engineer',
-            mainStack: 'Node.js',
-            status: 1,
-            updatedAt: '2026-04-20T00:00:00.000Z',
-          },
-          {
-            _id: 'profile-2',
-            fullName: 'Janet Doe',
-            title: 'Backend Engineer',
-            mainStack: 'Java',
-            status: 0,
-            updatedAt: '2026-04-19T00:00:00.000Z',
-          },
-        ])
-      ),
+      find: jest
+        .fn()
+        .mockReturnValueOnce(
+          buildFindSelectSortLean([
+            {
+              _id: 'profile-1',
+              fullName: 'Jane Doe',
+              title: 'Platform Engineer',
+              mainStack: 'Node.js',
+              status: 1,
+              updatedAt: '2026-04-20T00:00:00.000Z',
+            },
+            {
+              _id: 'profile-2',
+              fullName: 'Janet Doe',
+              title: 'Backend Engineer',
+              mainStack: 'Java',
+              status: 0,
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ])
+        )
+        .mockReturnValueOnce(
+          buildFindSelectSortLean([
+            {
+              _id: 'profile-2',
+              fullName: 'Janet Doe',
+              title: 'Backend Engineer',
+              mainStack: 'Java',
+              status: 0,
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ])
+        ),
     }
 
     mockCommonModules({ UserModel, ProfileModel })
@@ -121,13 +135,17 @@ describe('admin.controller guest profile assignments', () => {
 
     await invoke(controller.getGuestProfileAssignments, req, res)
 
-    expect(ProfileModel.find).toHaveBeenCalledWith({ userId: 'user-1' })
+    expect(ProfileModel.find).toHaveBeenNthCalledWith(1, { userId: 'user-1' })
+    expect(ProfileModel.find).toHaveBeenNthCalledWith(2, {
+      _id: { $in: ['profile-2'] },
+    })
     expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: true,
         data: expect.objectContaining({
           ownerUserId: 'user-1',
+          profileSourceUserId: 'user-1',
           assignedProfileIds: ['profile-2'],
           profiles: expect.arrayContaining([
             expect.objectContaining({
@@ -146,7 +164,96 @@ describe('admin.controller guest profile assignments', () => {
     )
   })
 
-  it('updates guest profile assignments when all selected profiles belong to the guest owner', async () => {
+  it('lists current manager profiles when guest ownership belongs to another user', async () => {
+    const UserModel = jest.fn()
+    UserModel.findOne = jest
+      .fn()
+      .mockReturnValueOnce(
+        buildSelectLean({
+          _id: 'guest-1',
+          role: 0,
+          team: 'Platform',
+          managedByUserId: 'user-1',
+          assignedProfileIds: ['profile-9'],
+        })
+      )
+      .mockReturnValueOnce(
+        buildSelectLean({
+          _id: 'user-1',
+          name: 'Owner User',
+          memberId: 'USR-1',
+        })
+      )
+      .mockReturnValueOnce(
+        buildSelectLean({
+          _id: 'mgr-1',
+          name: 'Manager One',
+          memberId: 'MGR-1',
+        })
+      )
+
+    const ProfileModel = {
+      find: jest
+        .fn()
+        .mockReturnValueOnce(
+          buildFindSelectSortLean([
+            {
+              _id: 'profile-1',
+              fullName: 'Manager Profile',
+              title: 'Delivery Manager',
+              mainStack: 'Operations',
+              status: 1,
+              updatedAt: '2026-04-21T00:00:00.000Z',
+            },
+          ])
+        )
+        .mockReturnValueOnce(
+          buildFindSelectSortLean([
+            {
+              _id: 'profile-9',
+              fullName: 'Existing Assigned',
+              title: 'Platform Analyst',
+              mainStack: 'BI',
+              status: 1,
+              updatedAt: '2026-04-18T00:00:00.000Z',
+            },
+          ])
+        ),
+    }
+
+    mockCommonModules({ UserModel, ProfileModel })
+
+    const controller = require('../controllers/admin.controller')
+    const req = {
+      user: { _id: 'mgr-1', role: 2, team: 'Platform' },
+      params: { guestId: 'guest-1' },
+    }
+    const res = buildRes()
+
+    await invoke(controller.getGuestProfileAssignments, req, res)
+
+    expect(ProfileModel.find).toHaveBeenNthCalledWith(1, { userId: 'mgr-1' })
+    expect(ProfileModel.find).toHaveBeenNthCalledWith(2, {
+      _id: { $in: ['profile-9'] },
+    })
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          ownerUserId: 'user-1',
+          profileSourceUserId: 'mgr-1',
+          assignedProfileIds: ['profile-9'],
+          profiles: expect.arrayContaining([
+            expect.objectContaining({ id: 'profile-1', isAssigned: false }),
+            expect.objectContaining({ id: 'profile-9', isAssigned: true }),
+          ]),
+        }),
+      })
+    )
+  })
+
+  it('updates guest profile assignments when all selected profiles belong to the current managing account', async () => {
     const UserModel = jest.fn()
     UserModel.findOne = jest.fn().mockReturnValue(
       buildSelectLean({
@@ -194,7 +301,59 @@ describe('admin.controller guest profile assignments', () => {
     expect(res.status).toHaveBeenCalledWith(200)
   })
 
-  it('rejects assignments that are outside the guest owner scope', async () => {
+  it('allows a manager to add their own profile while keeping an existing assigned profile', async () => {
+    const UserModel = jest.fn()
+    UserModel.findOne = jest.fn().mockReturnValue(
+      buildSelectLean({
+        _id: 'guest-1',
+        role: 0,
+        team: 'Platform',
+        managedByUserId: 'user-1',
+        assignedProfileIds: ['profile-9'],
+      })
+    )
+    UserModel.findOneAndUpdate = jest.fn().mockReturnValue(
+      buildSelectLean({
+        _id: 'guest-1',
+        assignedProfileIds: ['profile-9', 'profile-1'],
+      })
+    )
+
+    const ProfileModel = {
+      find: jest
+        .fn()
+        .mockReturnValueOnce(buildFindSelectLean([{ _id: 'profile-1' }]))
+        .mockReturnValueOnce(buildFindSelectLean([{ _id: 'profile-9' }])),
+    }
+
+    mockCommonModules({ UserModel, ProfileModel })
+
+    const controller = require('../controllers/admin.controller')
+    const req = {
+      user: { _id: 'mgr-1', role: 2, team: 'Platform' },
+      params: { guestId: 'guest-1' },
+      body: { assignedProfileIds: ['profile-9', 'profile-1'] },
+    }
+    const res = buildRes()
+
+    await invoke(controller.updateGuestProfileAssignments, req, res)
+
+    expect(ProfileModel.find).toHaveBeenNthCalledWith(1, {
+      _id: { $in: ['profile-9', 'profile-1'] },
+      userId: 'mgr-1',
+    })
+    expect(ProfileModel.find).toHaveBeenNthCalledWith(2, {
+      _id: { $in: ['profile-9'] },
+    })
+    expect(UserModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'guest-1' },
+      { $set: { assignedProfileIds: ['profile-9', 'profile-1'] } },
+      { returnDocument: 'after' }
+    )
+    expect(res.status).toHaveBeenCalledWith(200)
+  })
+
+  it('rejects assignments that are outside the current managing account scope', async () => {
     const UserModel = jest.fn()
     UserModel.findOne = jest.fn().mockReturnValue(
       buildSelectLean({
@@ -228,7 +387,7 @@ describe('admin.controller guest profile assignments', () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        message: 'Assigned profiles must belong to the guest owner',
+        message: 'Assigned profiles must come from your account or already be assigned to this guest',
       })
     )
   })
