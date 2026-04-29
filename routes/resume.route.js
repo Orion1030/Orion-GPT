@@ -13,7 +13,7 @@ const {
 } = require('../controllers/resume.controller')
 const {
   parseTextResume, importJdAndMatch, generateResumeFromJD, refineResume,
-  parseJdAndMatchProfiles, matchResumesForProfile, getLastUsedJd,
+  parseJdAndMatchProfiles, matchResumesForProfile, getLastUsedJd, extractResumeText,
 } = require('../controllers/resumeAI.controller')
 const { requireNoRunningJob, requireNoRunningJobOfType } = require('../middlewares/requireNoRunningJob')
 const { createResumeRules, generateResumeRules, refineResumeRules, jdParsingRules, parseJdRules, matchResumesRules } = require('../validators/resume.validator')
@@ -37,6 +37,7 @@ router.route('/download/:resumeId').post(...auth, downloadResumeFromHtml)
 router.route('/by-profile/:profileId/:resumeId').get(...auth, getResumeByProfileAndId)
 
 // Static-segment routes must come before /:resumeId to avoid param capture
+router.route('/extract-text').post(...auth, extractResumeText)
 router.route('/parse-text').post(...auth, parseTextResume)
 
 // JD-based resume flow (used by resume creation UI; not part of chat)

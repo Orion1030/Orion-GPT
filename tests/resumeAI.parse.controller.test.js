@@ -3,6 +3,12 @@ describe("resumeAI.parseTextResume controller", () => {
   let profileFindMock;
   let tryParseResumeTextWithLLMMock;
 
+  function buildLeanQuery(result) {
+    return {
+      lean: jest.fn().mockResolvedValue(result),
+    };
+  }
+
   const makeResponse = () => ({
     status: jest.fn().mockReturnThis(),
     json: jest.fn(),
@@ -71,22 +77,24 @@ describe("resumeAI.parseTextResume controller", () => {
       error: null,
     });
 
-    profileFindMock.mockResolvedValue([
-      {
-        _id: "profile-1",
-        fullName: "Jane Doe",
-        careerHistory: [
-          {
-            companyName: "Acme",
-            roleTitle: "Engineer",
-            startDate: "2023-01-01",
-            endDate: "2024-01-01",
-            companySummary: "Profile summary",
-            keyPoints: ["Profile bullet"],
-          },
-        ],
-      },
-    ]);
+    profileFindMock.mockReturnValue(
+      buildLeanQuery([
+        {
+          _id: "profile-1",
+          fullName: "Jane Doe",
+          careerHistory: [
+            {
+              companyName: "Acme",
+              roleTitle: "Engineer",
+              startDate: "2023-01-01",
+              endDate: "2024-01-01",
+              companySummary: "Profile summary",
+              keyPoints: ["Profile bullet"],
+            },
+          ],
+        },
+      ])
+    );
 
     const req = {
       user: { _id: "user-1" },
@@ -106,5 +114,79 @@ describe("resumeAI.parseTextResume controller", () => {
     expect(payload.data.parsed.experiences[0].descriptions).toEqual(
       expect.arrayContaining(["Imported bullet"])
     );
+  });
+
+  it("normalizes mixed imported date styles before returning parsed resume data", async () => {
+    tryParseResumeTextWithLLMMock.mockResolvedValue({
+      result: {
+        parsed: {
+          name: "Jordan Example",
+          summary: "Imported summary",
+          experiences: [
+            {
+              title: "Senior Data Platform Engineer | Aug 2025 – Present",
+              companyName: "Axos Bank",
+              descriptions: ["Built data platforms"],
+              startDate: "",
+              endDate: "",
+            },
+            {
+              title: "Senior Data Engineer",
+              companyName: "Restaurant365",
+              descriptions: ["Modernized ETL"],
+              startDate: "01/2025",
+              endDate: "07/2025",
+            },
+          ],
+          skills: [],
+          education: [
+            {
+              degreeLevel: "Bachelor of Science",
+              universityName: "The University of Texas at Austin | 2013–2017",
+              major: "Computer Science",
+              startDate: "",
+              endDate: "",
+            },
+          ],
+        },
+      },
+      error: null,
+    });
+
+    profileFindMock.mockReturnValue(buildLeanQuery([]));
+
+    const req = {
+      user: { _id: "user-2" },
+      body: { text: "resume text payload" },
+    };
+    const res = makeResponse();
+
+    await invokeController(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.success).toBe(true);
+    expect(payload.data.bestMatch).toBeNull();
+    expect(payload.data.parsed.experiences[0]).toEqual(
+      expect.objectContaining({
+        title: "Senior Data Platform Engineer",
+        startDate: "2025-08",
+        endDate: "Present",
+      })
+    );
+    expect(payload.data.parsed.experiences[1]).toEqual(
+      expect.objectContaining({
+        startDate: "2025-01",
+        endDate: "2025-07",
+      })
+    );
+    expect(payload.data.parsed.education[0]).toEqual(
+      expect.objectContaining({
+        universityName: "The University of Texas at Austin",
+        startDate: "2013",
+        endDate: "2017",
+      })
+    );
+    expect(payload.data.createNewProfileSuggested).toBe(true);
   });
 });

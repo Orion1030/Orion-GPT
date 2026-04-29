@@ -1,0 +1,235 @@
+describe('admin.controller guest profile assignments', () => {
+  const buildRes = () => ({
+    status: jest.fn().mockReturnThis(),
+    json: jest.fn(),
+  })
+
+  const invoke = async (handler, req, res) => {
+    handler(req, res, jest.fn())
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+
+  const buildSelectLean = (result) => ({
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue(result),
+    }),
+  })
+
+  const buildFindSelectSortLean = (result) => ({
+    select: jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue(result),
+      }),
+    }),
+  })
+
+  const buildFindSelectLean = (result) => ({
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue(result),
+    }),
+  })
+
+  function mockCommonModules({ UserModel, ProfileModel }) {
+    jest.doMock('../dbModels', () => ({
+      AdminConfigurationModel: { deleteMany: jest.fn() },
+      ApplicationEventModel: { deleteMany: jest.fn() },
+      ApplicationModel: { deleteMany: jest.fn() },
+      ChatMessageModel: { deleteMany: jest.fn() },
+      ChatSessionModel: { find: jest.fn().mockReturnValue(buildFindSelectLean([])), deleteMany: jest.fn() },
+      JobDescriptionModel: { deleteMany: jest.fn() },
+      JobModel: { deleteMany: jest.fn() },
+      NotificationModel: { deleteMany: jest.fn() },
+      ProfileModel,
+      PromptAuditModel: { deleteMany: jest.fn() },
+      PromptModel: { deleteMany: jest.fn() },
+      ResumeModel: { deleteMany: jest.fn() },
+      TeamModel: {},
+      TemplateModel: { deleteMany: jest.fn() },
+      UserModel,
+    }))
+
+    jest.doMock('../services/usageMetrics.service', () => ({
+      buildUsageMetricsMap: jest.fn().mockResolvedValue({}),
+      createEmptyUsageMetrics: jest.fn().mockReturnValue({}),
+    }))
+    jest.doMock('../services/auth.service', () => ({
+      verifyRequesterPassword: jest.fn().mockResolvedValue(true),
+    }))
+    jest.doMock('../realtime/socketServer', () => ({
+      getOnlineUserIds: jest.fn().mockReturnValue([]),
+      isUserOnline: jest.fn().mockReturnValue(false),
+    }))
+  }
+
+  beforeEach(() => {
+    jest.resetModules()
+    jest.clearAllMocks()
+  })
+
+  it('lists owner profiles and current assignments for a managed guest', async () => {
+    const UserModel = jest.fn()
+    UserModel.findOne = jest
+      .fn()
+      .mockReturnValueOnce(
+        buildSelectLean({
+          _id: 'guest-1',
+          role: 0,
+          team: 'Platform',
+          managedByUserId: 'user-1',
+          assignedProfileIds: ['profile-2'],
+        })
+      )
+      .mockReturnValueOnce(
+        buildSelectLean({
+          _id: 'user-1',
+          name: 'Owner One',
+          memberId: 'USR-1',
+        })
+      )
+
+    const ProfileModel = {
+      find: jest.fn().mockReturnValue(
+        buildFindSelectSortLean([
+          {
+            _id: 'profile-1',
+            fullName: 'Jane Doe',
+            title: 'Platform Engineer',
+            mainStack: 'Node.js',
+            status: 1,
+            updatedAt: '2026-04-20T00:00:00.000Z',
+          },
+          {
+            _id: 'profile-2',
+            fullName: 'Janet Doe',
+            title: 'Backend Engineer',
+            mainStack: 'Java',
+            status: 0,
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ])
+      ),
+    }
+
+    mockCommonModules({ UserModel, ProfileModel })
+
+    const controller = require('../controllers/admin.controller')
+    const req = {
+      user: { _id: 'user-1', role: 3, team: 'Platform' },
+      params: { guestId: 'guest-1' },
+    }
+    const res = buildRes()
+
+    await invoke(controller.getGuestProfileAssignments, req, res)
+
+    expect(ProfileModel.find).toHaveBeenCalledWith({ userId: 'user-1' })
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          ownerUserId: 'user-1',
+          assignedProfileIds: ['profile-2'],
+          profiles: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'profile-1',
+              isAssigned: false,
+              status: 'Active',
+            }),
+            expect.objectContaining({
+              id: 'profile-2',
+              isAssigned: true,
+              status: 'Inactive',
+            }),
+          ]),
+        }),
+      })
+    )
+  })
+
+  it('updates guest profile assignments when all selected profiles belong to the guest owner', async () => {
+    const UserModel = jest.fn()
+    UserModel.findOne = jest.fn().mockReturnValue(
+      buildSelectLean({
+        _id: 'guest-1',
+        role: 0,
+        team: 'Platform',
+        managedByUserId: 'user-1',
+        assignedProfileIds: [],
+      })
+    )
+    UserModel.findOneAndUpdate = jest.fn().mockReturnValue(
+      buildSelectLean({
+        _id: 'guest-1',
+        assignedProfileIds: ['profile-1', 'profile-2'],
+      })
+    )
+
+    const ProfileModel = {
+      find: jest.fn().mockReturnValue(
+        buildFindSelectLean([{ _id: 'profile-1' }, { _id: 'profile-2' }])
+      ),
+    }
+
+    mockCommonModules({ UserModel, ProfileModel })
+
+    const controller = require('../controllers/admin.controller')
+    const req = {
+      user: { _id: 'user-1', role: 3, team: 'Platform' },
+      params: { guestId: 'guest-1' },
+      body: { assignedProfileIds: ['profile-1', 'profile-2'] },
+    }
+    const res = buildRes()
+
+    await invoke(controller.updateGuestProfileAssignments, req, res)
+
+    expect(ProfileModel.find).toHaveBeenCalledWith({
+      _id: { $in: ['profile-1', 'profile-2'] },
+      userId: 'user-1',
+    })
+    expect(UserModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'guest-1' },
+      { $set: { assignedProfileIds: ['profile-1', 'profile-2'] } },
+      { returnDocument: 'after' }
+    )
+    expect(res.status).toHaveBeenCalledWith(200)
+  })
+
+  it('rejects assignments that are outside the guest owner scope', async () => {
+    const UserModel = jest.fn()
+    UserModel.findOne = jest.fn().mockReturnValue(
+      buildSelectLean({
+        _id: 'guest-1',
+        role: 0,
+        team: 'Platform',
+        managedByUserId: 'user-1',
+        assignedProfileIds: [],
+      })
+    )
+    UserModel.findOneAndUpdate = jest.fn()
+
+    const ProfileModel = {
+      find: jest.fn().mockReturnValue(buildFindSelectLean([{ _id: 'profile-1' }])),
+    }
+
+    mockCommonModules({ UserModel, ProfileModel })
+
+    const controller = require('../controllers/admin.controller')
+    const req = {
+      user: { _id: 'user-1', role: 3, team: 'Platform' },
+      params: { guestId: 'guest-1' },
+      body: { assignedProfileIds: ['profile-1', 'profile-9'] },
+    }
+    const res = buildRes()
+
+    await invoke(controller.updateGuestProfileAssignments, req, res)
+
+    expect(UserModel.findOneAndUpdate).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        message: 'Assigned profiles must belong to the guest owner',
+      })
+    )
+  })
+})

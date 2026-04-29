@@ -3,7 +3,9 @@ const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { ChatSessionModel, ChatMessageModel, ProfileModel, JobDescriptionModel } = require('../dbModels')
 const { sendJsonResult } = require('../utils')
 const { isAdminUser } = require('../utils/access')
+const { RoleLevels } = require('../utils/constants')
 const { tryGetChatReply } = require('../services/llm/chatResponder.service')
+const { buildReadableProfileFilterForUser } = require('../services/profileAccess.service')
 const {
   AI_RUNTIME_FEATURES,
   resolveFeatureAiRuntimeConfig,
@@ -77,7 +79,13 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
   const { profileId, jobDescriptionId, chatType } = req.body || {}
   let profileRef = null
   if (profileId) {
-    const profile = await ProfileModel.findOne({ _id: profileId, userId })
+    const profile = await ProfileModel.findOne(
+      await buildReadableProfileFilterForUser(
+        userId,
+        { _id: profileId },
+        { isGuest: Number(req.user?.role) === RoleLevels.GUEST }
+      )
+    )
     if (!profile) {
       return sendJsonResult(res, false, null, 'Profile not found', 404)
     }
@@ -160,7 +168,9 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
     if (profileId === null || profileId === '') {
       updates.profileId = null
     } else {
-      const profile = await ProfileModel.findOne({ _id: profileId, userId: scopeUserId })
+      const profile = await ProfileModel.findOne(
+        await buildReadableProfileFilterForUser(scopeUserId, { _id: profileId })
+      )
       if (!profile) {
         return sendJsonResult(res, false, null, 'Profile not found', 404)
       }
@@ -227,7 +237,9 @@ exports.deleteSession = asyncErrorHandler(async (req, res) => {
 async function buildSessionContext(session, userId) {
   const parts = ['You are a helpful resume and career assistant. Help the user improve their resume, tailor it to job descriptions, and answer questions about their career.']
   if (session.profileId) {
-    const profile = await ProfileModel.findOne({ _id: session.profileId, userId }).lean()
+    const profile = await ProfileModel.findOne(
+      await buildReadableProfileFilterForUser(userId, { _id: session.profileId })
+    ).lean()
     if (profile) {
       parts.push(`\nCurrent profile: ${profile.fullName || profile.name || 'Candidate'}, Title: ${profile.title || 'N/A'}.`)
       if (profile.careerHistory && profile.careerHistory.length) {

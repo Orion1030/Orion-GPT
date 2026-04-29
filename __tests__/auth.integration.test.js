@@ -13,7 +13,6 @@ describe('POST /api/auth/signup', () => {
     email: `testuser_${Date.now()}@example.com`,
     password: 'SecurePass1!',
     confirmPassword: 'SecurePass1!',
-    role: '1',
   };
 
   test('returns 201 and success message', async () => {
@@ -49,7 +48,6 @@ describe('POST /api/auth/signup', () => {
     const res = await request(app).post('/api/auth/signup').send({
       password: 'SecurePass1!',
       confirmPassword: 'SecurePass1!',
-      role: '1',
     });
     expect(res.status).toBe(400);
   });
