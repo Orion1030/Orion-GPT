@@ -2,6 +2,7 @@ const mongoose = require('mongoose')
 
 const AI_PROVIDERS = ['openai', 'claude', 'gemini']
 const RESUME_GENERATION_MODES = ['legacy', 'reasoning']
+const RESUME_GENERATION_PIPELINE_VERSIONS = ['legacy-v1', 'reasoning-v1']
 
 const adminConfigurationSchema = new mongoose.Schema(
   {
@@ -42,6 +43,13 @@ const adminConfigurationSchema = new mongoose.Schema(
       type: String,
       enum: RESUME_GENERATION_MODES,
       default: 'legacy',
+      trim: true,
+      lowercase: true,
+    },
+    resumeGenerationPipelineVersion: {
+      type: String,
+      enum: RESUME_GENERATION_PIPELINE_VERSIONS,
+      default: 'legacy-v1',
       trim: true,
       lowercase: true,
     },

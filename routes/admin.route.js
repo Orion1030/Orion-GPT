@@ -174,12 +174,12 @@ router
   .route('/configuration/ai')
   .get(
     isAuthenticatedUser,
-    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager]),
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
     getMyAiConfiguration
   )
   .put(
     isAuthenticatedUser,
-    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager]),
+    permit([RoleLevels.SUPER_ADMIN, RoleLevels.ADMIN, RoleLevels.Manager, RoleLevels.User]),
     upsertMyAiConfiguration
   )
 router

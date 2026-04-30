@@ -8,6 +8,12 @@ const {
   isSupportedProviderModel,
   listAiProviderCatalog,
 } = require('./aiProviderCatalog.service')
+const {
+  getPipelineVersionForMode,
+} = require('./resume-generation/contracts/constants')
+const {
+  resolveEffectiveResumeGenerationRuntime,
+} = require('./resume-generation/runtime')
 
 const AI_RUNTIME_FEATURES = {
   RESUME_GENERATION: 'resume_generation',
@@ -17,6 +23,11 @@ const AI_RUNTIME_FEATURES = {
 const RESUME_GENERATION_MODES = {
   LEGACY: 'legacy',
   REASONING: 'reasoning',
+}
+
+const RESUME_GENERATION_PIPELINE_VERSIONS = {
+  LEGACY_V1: 'legacy-v1',
+  REASONING_V1: 'reasoning-v1',
 }
 
 const AI_FEATURE_FIELD_MAP = {
@@ -102,7 +113,8 @@ function isManagementConfigRole(role) {
   return (
     normalized === RoleLevels.SUPER_ADMIN ||
     normalized === RoleLevels.ADMIN ||
-    normalized === RoleLevels.Manager
+    normalized === RoleLevels.Manager ||
+    normalized === RoleLevels.User
   )
 }
 
@@ -121,6 +133,7 @@ function buildDefaultPublicConfig() {
     isCustomAiEnabled: false,
     useForResumeGeneration: false,
     resumeGenerationMode: RESUME_GENERATION_MODES.LEGACY,
+    resumeGenerationPipelineVersion: RESUME_GENERATION_PIPELINE_VERSIONS.LEGACY_V1,
     useForAiChat: false,
     hasApiKey: false,
     maskedApiKey: '',
@@ -159,6 +172,14 @@ function toPublicConfig(configDoc, catalog = []) {
       configDoc?.resumeGenerationMode,
       RESUME_GENERATION_MODES.LEGACY
     ),
+    resumeGenerationPipelineVersion:
+      String(configDoc?.resumeGenerationPipelineVersion || '').trim().toLowerCase() ||
+      getPipelineVersionForMode(
+        normalizeResumeGenerationMode(
+          configDoc?.resumeGenerationMode,
+          RESUME_GENERATION_MODES.LEGACY
+        )
+      ),
     useForAiChat: Boolean(configDoc.useForAiChat),
     hasApiKey: Boolean(decryptedApiKey),
     maskedApiKey: decryptedApiKey ? maskApiKey(decryptedApiKey) : '',
@@ -179,6 +200,12 @@ function validateUpsertPayload(payload = {}) {
     resumeGenerationMode: normalizeResumeGenerationMode(
       payload.resumeGenerationMode,
       RESUME_GENERATION_MODES.LEGACY
+    ),
+    resumeGenerationPipelineVersion: getPipelineVersionForMode(
+      normalizeResumeGenerationMode(
+        payload.resumeGenerationMode,
+        RESUME_GENERATION_MODES.LEGACY
+      )
     ),
     useForAiChat: toBoolean(payload.useForAiChat, false),
   }
@@ -206,7 +233,7 @@ async function getAiConfigurationForOwner(ownerUserId) {
 
   const config = await AdminConfigurationModel.findOne({ ownerUserId: normalizedOwnerId })
     .select(
-      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode useForAiChat createdAt updatedAt'
+      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion useForAiChat createdAt updatedAt'
     )
     .lean()
   return toPublicConfig(config, catalog)
@@ -235,7 +262,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
     return {
       ok: false,
       status: 403,
-      message: 'Only super admin, admin, or manager accounts can configure AI runtime settings',
+      message: 'Only super admin, admin, manager, or user accounts can configure AI runtime settings',
       data: null,
     }
   }
@@ -247,22 +274,18 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
   if (validation.errors.length) {
     return { ok: false, status: 400, message: validation.errors[0], data: null }
   }
-  const catalog = await getActiveProviderCatalog()
-  if (!catalog.length) {
-    return {
-      ok: false,
-      status: 500,
-      message: 'No active AI providers configured. Ask super admin to configure AI provider catalog.',
-      data: null,
-    }
-  }
+  const catalog = await getActiveProviderCatalog().catch(() => [])
 
   const existing = await AdminConfigurationModel.findOne({ ownerUserId: normalizedOwnerId }).lean()
   const nextProvider = payload.aiProvider !== undefined
     ? normalizeAiProvider(validation.normalized.aiProvider, catalog)
     : normalizeAiProvider(existing?.aiProvider, catalog)
 
-  if (payload.aiProvider !== undefined && !findProviderEntry(catalog, validation.normalized.aiProvider)) {
+  if (
+    payload.aiProvider !== undefined &&
+    catalog.length > 0 &&
+    !findProviderEntry(catalog, validation.normalized.aiProvider)
+  ) {
     const allowed = catalog.map((provider) => provider.providerKey).join(', ')
     return {
       ok: false,
@@ -293,6 +316,9 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
         existing?.resumeGenerationMode,
         RESUME_GENERATION_MODES.LEGACY
       )
+  const nextResumeGenerationPipelineVersion = getPipelineVersionForMode(
+    nextResumeGenerationMode
+  )
   const nextUseForAiChat = payload.useForAiChat !== undefined
     ? validation.normalized.useForAiChat
     : Boolean(existing?.useForAiChat)
@@ -337,6 +363,14 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
       data: null,
     }
   }
+  if (nextIsCustomAiEnabled && (nextUseForResumeGeneration || nextUseForAiChat) && !catalog.length) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'No active AI providers configured. Ask super admin to configure AI provider catalog.',
+      data: null,
+    }
+  }
   if (nextIsCustomAiEnabled && (nextUseForResumeGeneration || nextUseForAiChat) && !nextModel) {
     return {
       ok: false,
@@ -367,6 +401,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
         isCustomAiEnabled: nextIsCustomAiEnabled,
         useForResumeGeneration: nextUseForResumeGeneration,
         resumeGenerationMode: nextResumeGenerationMode,
+        resumeGenerationPipelineVersion: nextResumeGenerationPipelineVersion,
         useForAiChat: nextUseForAiChat,
         updatedByUserId: normalizedActorId || normalizedOwnerId,
       },
@@ -379,7 +414,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
 
   const saved = await AdminConfigurationModel.findOne({ ownerUserId: normalizedOwnerId })
     .select(
-      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode useForAiChat createdAt updatedAt'
+      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion useForAiChat createdAt updatedAt'
     )
     .lean()
 
@@ -440,6 +475,7 @@ function buildDisabledRuntimeResult({
   feature,
   reason = 'no_custom_ai_configuration',
   resumeGenerationMode = RESUME_GENERATION_MODES.LEGACY,
+  resumeGenerationPipelineVersion = RESUME_GENERATION_PIPELINE_VERSIONS.LEGACY_V1,
 } = {}) {
   return {
     useCustom: false,
@@ -454,6 +490,9 @@ function buildDisabledRuntimeResult({
       resumeGenerationMode,
       RESUME_GENERATION_MODES.LEGACY
     ),
+    resumeGenerationPipelineVersion:
+      String(resumeGenerationPipelineVersion || '').trim().toLowerCase() ||
+      getPipelineVersionForMode(resumeGenerationMode),
   }
 }
 
@@ -461,33 +500,11 @@ function getFeatureFieldName(feature) {
   return AI_FEATURE_FIELD_MAP[feature] || ''
 }
 
-function supportsOpenAiReasoningModel(model) {
-  const normalized = sanitizeModel(model).toLowerCase()
-  if (!normalized) return false
-  return /^gpt-5(?:[.-]|$)/.test(normalized) || /^o[134](?:[.-]|$)/.test(normalized)
-}
-
-function resolveEffectiveResumeGenerationMode(runtimeConfig = {}) {
-  const configuredMode = normalizeResumeGenerationMode(
-    runtimeConfig?.resumeGenerationMode,
-    RESUME_GENERATION_MODES.LEGACY
-  )
-
-  if (configuredMode !== RESUME_GENERATION_MODES.REASONING) {
-    return RESUME_GENERATION_MODES.LEGACY
-  }
-
-  if (!runtimeConfig?.useCustom) {
-    return RESUME_GENERATION_MODES.REASONING
-  }
-
-  if (runtimeConfig?.provider !== 'openai') {
-    return RESUME_GENERATION_MODES.LEGACY
-  }
-
-  return supportsOpenAiReasoningModel(runtimeConfig?.model)
-    ? RESUME_GENERATION_MODES.REASONING
-    : RESUME_GENERATION_MODES.LEGACY
+function resolveEffectiveResumeGenerationMode(runtimeConfig = {}, catalog = []) {
+  return resolveEffectiveResumeGenerationRuntime({
+    runtimeConfig,
+    catalog,
+  }).effectiveMode
 }
 
 async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
@@ -503,10 +520,7 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
     return buildDisabledRuntimeResult({ feature, reason: 'configuration_store_unavailable' })
   }
 
-  const catalog = await getActiveProviderCatalog()
-  if (!catalog.length) {
-    return buildDisabledRuntimeResult({ feature, reason: 'no_active_provider_catalog' })
-  }
+  const catalog = await getActiveProviderCatalog().catch(() => [])
 
   const targetUser = await UserModel.findOne({ _id: normalizedTargetUserId })
     .select('_id role team managedByUserId isActive')
@@ -524,13 +538,14 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
     ownerUserId: { $in: candidateOwnerIds },
   })
     .select(
-      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode useForAiChat updatedAt'
+      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion useForAiChat updatedAt'
     )
     .lean()
   const byOwnerId = new Map(
     configs.map((config) => [toIdString(config.ownerUserId), config])
   )
   let resolvedResumeGenerationMode = RESUME_GENERATION_MODES.LEGACY
+  let resolvedResumeGenerationPipelineVersion = RESUME_GENERATION_PIPELINE_VERSIONS.LEGACY_V1
 
   for (const ownerId of candidateOwnerIds) {
     const config = byOwnerId.get(ownerId)
@@ -539,6 +554,9 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
       config?.resumeGenerationMode,
       resolvedResumeGenerationMode
     )
+    resolvedResumeGenerationPipelineVersion =
+      String(config?.resumeGenerationPipelineVersion || '').trim().toLowerCase() ||
+      getPipelineVersionForMode(resolvedResumeGenerationMode)
     const isCustomAiEnabled = config?.isCustomAiEnabled !== false
     if (!isCustomAiEnabled) continue
     if (!Boolean(config[featureField])) continue
@@ -557,6 +575,7 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
     const provider = normalizeAiProvider(config.aiProvider, catalog)
     const model = resolveProviderModel(config.model, provider, catalog)
     if (!decryptedKey || !model) continue
+    if (!catalog.length) continue
     if (!isSupportedProviderModel(catalog, provider, model)) continue
 
     return {
@@ -572,42 +591,52 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
         config?.resumeGenerationMode,
         RESUME_GENERATION_MODES.LEGACY
       ),
+      resumeGenerationPipelineVersion:
+        String(config?.resumeGenerationPipelineVersion || '').trim().toLowerCase() ||
+        getPipelineVersionForMode(
+          normalizeResumeGenerationMode(
+            config?.resumeGenerationMode,
+            RESUME_GENERATION_MODES.LEGACY
+          )
+        ),
       updatedAt: config.updatedAt || null,
     }
   }
 
   return buildDisabledRuntimeResult({
     feature,
-    reason: 'custom_configuration_not_enabled',
+    reason: catalog.length ? 'custom_configuration_not_enabled' : 'no_active_provider_catalog',
     resumeGenerationMode: resolvedResumeGenerationMode,
+    resumeGenerationPipelineVersion: resolvedResumeGenerationPipelineVersion,
   })
 }
 
 async function resolveEffectiveResumeGenerationStatus({ targetUserId } = {}) {
   const normalizedTargetUserId = toIdString(targetUserId)
+  const catalog = await getActiveProviderCatalog().catch(() => [])
   const runtimeConfig = await resolveFeatureAiRuntimeConfig({
     targetUserId: normalizedTargetUserId,
     feature: AI_RUNTIME_FEATURES.RESUME_GENERATION,
   })
-  const configuredResumeGenerationMode = normalizeResumeGenerationMode(
-    runtimeConfig?.resumeGenerationMode,
-    RESUME_GENERATION_MODES.LEGACY
-  )
-  const effectiveResumeGenerationMode = resolveEffectiveResumeGenerationMode(
-    runtimeConfig
-  )
+  const resolvedRuntime = resolveEffectiveResumeGenerationRuntime({
+    runtimeConfig,
+    catalog,
+  })
 
   return {
     targetUserId: normalizedTargetUserId || null,
-    configuredResumeGenerationMode,
-    effectiveResumeGenerationMode,
+    configuredResumeGenerationMode: resolvedRuntime.configuredMode,
+    effectiveResumeGenerationMode: resolvedRuntime.effectiveMode,
     fallsBackToLegacy:
-      configuredResumeGenerationMode === RESUME_GENERATION_MODES.REASONING &&
-      effectiveResumeGenerationMode !== configuredResumeGenerationMode,
+      resolvedRuntime.configuredMode === RESUME_GENERATION_MODES.REASONING &&
+      resolvedRuntime.effectiveMode !== resolvedRuntime.configuredMode,
+    supportsReasoning: Boolean(resolvedRuntime.supportsReasoning),
+    fallbackReason: resolvedRuntime.fallbackReason || null,
+    pipelineVersion: resolvedRuntime.pipelineVersion,
     source: runtimeConfig?.source || 'builtin',
     useCustomRuntime: Boolean(runtimeConfig?.useCustom),
-    provider: runtimeConfig?.provider || null,
-    model: runtimeConfig?.model || null,
+    provider: resolvedRuntime.provider || null,
+    model: resolvedRuntime.model || null,
     reason: runtimeConfig?.reason || null,
   }
 }

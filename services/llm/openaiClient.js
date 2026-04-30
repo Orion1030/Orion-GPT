@@ -189,7 +189,7 @@ async function responsesCreate({
   apiKey,
   model,
   input,
-  temperature = 0,
+  temperature,
   max_output_tokens = 2000,
   response_format,
   text,
@@ -206,25 +206,25 @@ async function responsesCreate({
   const body = {
     model,
     input,
-    temperature,
     max_output_tokens,
   };
+  if (temperature !== undefined && temperature !== null) body.temperature = temperature;
   if (response_format) body.response_format = response_format;
   if (text) body.text = text;
   if (reasoning && typeof reasoning === "object") body.reasoning = reasoning;
   if (typeof store === "boolean") body.store = store;
   if (previous_response_id) body.previous_response_id = previous_response_id;
 
-  const options = {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  };
+  async function send(requestBody) {
+    const options = {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    };
 
-  const result = await withRetry(async () => {
     const resp = await fetchWithTimeout(
       "https://api.openai.com/v1/responses",
       options,
@@ -256,7 +256,26 @@ async function responsesCreate({
       err.body = text;
       throw err;
     }
-  });
+  }
+
+  let result;
+  try {
+    result = await withRetry(() => send(body));
+  } catch (err) {
+    const unsupportedTemp =
+      err?.status === 400 &&
+      err?.body?.error?.param === "temperature" &&
+      body.temperature !== undefined;
+    if (unsupportedTemp) {
+      console.warn(
+        `[LLM] responses temperature not supported for model=${model}; retrying without temperature`
+      );
+      const { temperature: _discard, ...bodyWithoutTemp } = body;
+      result = await withRetry(() => send(bodyWithoutTemp));
+    } else {
+      throw err;
+    }
+  }
 
   const latencyMs = Date.now() - start;
   const usage = result.usage;
