@@ -79,7 +79,7 @@ module.exports = {
     <div class="exp-item">
       <div class="exp-row">
         <div><h3><%= experience.roleTitle %></h3><span class="exp-company"><%= experience.companyName %></span></div>
-        <span class="exp-date"><%= experience.startDate %> – <%= experience.endDate %></span>
+        <span class="exp-date"><%= experience.startDate %> - <%= experience.endDate %></span>
       </div>
       <div class="description"><ul><%- experience.description %></ul></div>
     </div>
@@ -95,7 +95,7 @@ module.exports = {
     <div class="edu-item">
       <div class="edu-row">
         <h3><%= educationItem.degreeLevel %> in <%= educationItem.major %>, <%= educationItem.universityName %></h3>
-        <span class="edu-meta"><%= educationItem.startDate %> – <%= educationItem.endDate %></span>
+        <span class="edu-meta"><%= educationItem.startDate %> - <%= educationItem.endDate %></span>
       </div>
     </div>
     <% }) %>
