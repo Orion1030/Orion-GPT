@@ -4,6 +4,11 @@ const { sendJsonResult } = require("../utils");
 const { getBuiltInSeedTemplates } = require("../utils/builtInTemplates");
 const { isAdminUser } = require("../utils/access");
 const { validateTemplateWrite } = require("../utils/templatePolicy");
+const {
+  MAX_PROMPT_LENGTH,
+  MAX_TEMPLATE_CONTEXT_LENGTH,
+  tryGenerateTemplateWithAi,
+} = require("../services/llm/templateGenerate.service");
 
 function toTargetUserId(req) {
   const fromQuery = req.query?.userId;
@@ -51,6 +56,54 @@ exports.getTemplate = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Template not found", 404);
   }
   sendJsonResult(res, true, template);
+});
+
+exports.generateTemplateWithAi = asyncErrorHandler(async (req, res) => {
+  if (!isAdminUser(req.user)) {
+    return sendJsonResult(res, false, null, "Only Admin can generate EJS templates", 403, {
+      showNotification: true,
+    });
+  }
+
+  const {
+    prompt,
+    currentTemplateHtml,
+    currentName,
+    currentDescription,
+    layoutMode,
+  } = req.body || {};
+  const cleanPrompt = typeof prompt === "string" ? prompt.trim() : "";
+  const cleanTemplate = typeof currentTemplateHtml === "string" ? currentTemplateHtml.trim() : "";
+
+  if (!cleanPrompt) {
+    return sendJsonResult(res, false, null, "Prompt is required", 400);
+  }
+  if (!cleanTemplate) {
+    return sendJsonResult(res, false, null, "Current template HTML is required", 400);
+  }
+  if (cleanPrompt.length > MAX_PROMPT_LENGTH) {
+    return sendJsonResult(res, false, null, `Prompt must be ${MAX_PROMPT_LENGTH} characters or fewer`, 413);
+  }
+  if (cleanTemplate.length > MAX_TEMPLATE_CONTEXT_LENGTH) {
+    return sendJsonResult(res, false, null, `Current template HTML must be ${MAX_TEMPLATE_CONTEXT_LENGTH} characters or fewer`, 413);
+  }
+
+  const { result, error } = await tryGenerateTemplateWithAi({
+    prompt: cleanPrompt,
+    currentTemplateHtml: cleanTemplate,
+    currentName,
+    currentDescription,
+    layoutMode,
+    targetUserId: req.user?._id,
+  });
+
+  if (error) {
+    return sendJsonResult(res, false, null, error.message, error.statusCode || 502, {
+      showNotification: true,
+    });
+  }
+
+  sendJsonResult(res, true, result.template);
 });
 
 exports.createTemplate = asyncErrorHandler(async (req, res) => {
