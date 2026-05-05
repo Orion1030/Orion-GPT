@@ -1,3 +1,5 @@
+const { convertLegacyTemplateToEjs } = require('./templateSyntaxMigration');
+
 const SEED_TEMPLATES = [
     {
         name: 'Classic',
@@ -52,67 +54,67 @@ const SEED_TEMPLATES = [
 </style></head><body>
 <div class="resume">
   <header class="header">
-    <h1>{{fullName}}</h1>
-    <div class="title">{{title}}</div>
+    <h1><%= fullName %></h1>
+    <div class="title"><%= title %></div>
     <div class="contact-info">
-      <span>{{email}}</span>
-      <span>{{phone}}</span>
-      <span>{{linkedin}}</span>
-      <span>{{address}}</span>
+      <span><%= email %></span>
+      <span><%= phone %></span>
+      <span><%= linkedin %></span>
+      <span><%= address %></span>
     </div>
   </header>
 
-  {{#section summary}}
+  <% if (showSection("summary")) { %><!--section:summary-->
   <section class="section section-summary">
-    <h2>{{label:summary:Professional Summary}}</h2>
-    <div class="summary">{{summary}}</div>
+    <h2><%= sectionLabel("summary", "Professional Summary") %></h2>
+    <div class="summary"><%- summary %></div>
   </section>
-  {{/section}}
+  <!--/section:summary--><% } %>
 
-  {{#section experience}}
+  <% if (showSection("experience")) { %><!--section:experience-->
   <section class="section section-experience">
-    <h2>{{label:experience:Experience}}</h2>
+    <h2><%= sectionLabel("experience", "Experience") %></h2>
 
-    {{#each experiences}}
+    <% (experiences || []).forEach((experience) => { %>
     <div class="exp-item">
       <div class="exp-header">
-        <h3>{{roleTitle}}</h3>
-        <span class="exp-date">{{startDate}} – {{endDate}}</span>
+        <h3><%= experience.roleTitle %></h3>
+        <span class="exp-date"><%= experience.startDate %> – <%= experience.endDate %></span>
       </div>
-      <div class="exp-company">{{companyName}}</div>
-      <div class="description"><ul>{{description}}</ul></div>
+      <div class="exp-company"><%= experience.companyName %></div>
+      <div class="description"><ul><%- experience.description %></ul></div>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:experience--><% } %>
 
-  {{#section education}}
+  <% if (showSection("education")) { %><!--section:education-->
   <section class="section section-education">
-    <h2>{{label:education:Education}}</h2>
+    <h2><%= sectionLabel("education", "Education") %></h2>
 
-    {{#each education}}
+    <% (education || []).forEach((educationItem) => { %>
     <div class="edu-item">
-      <h3>{{degreeLevel}} in {{major}}</h3>
-      <div class="edu-meta">{{universityName}} | {{startDate}} – {{endDate}}</div>
+      <h3><%= educationItem.degreeLevel %> in <%= educationItem.major %></h3>
+      <div class="edu-meta"><%= educationItem.universityName %> | <%= educationItem.startDate %> – <%= educationItem.endDate %></div>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:education--><% } %>
 
-  {{#section skills}}
+  <% if (showSection("skills")) { %><!--section:skills-->
   <section class="section section-skills">
-    <h2>{{label:skills:Skills}}</h2>
+    <h2><%= sectionLabel("skills", "Skills") %></h2>
 
     <div class="skill-groups">
-      {{#each skillGroups}}
+      <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title">{{title}}</div>
-        <div class="skill-items">{{#each items}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span class="skill-tag"><%= item %></span><% }) %></div>
       </div>
-      {{/each}}
+      <% }) %>
     </div>
   </section>
-  {{/section}}
+  <!--/section:skills--><% } %>
 </div>
 </body></html>`,
     },
@@ -170,65 +172,65 @@ const SEED_TEMPLATES = [
 </style></head><body>
 <div class="resume">
   <header class="header">
-    <h1>{{fullName}}</h1>
-    <div class="title">{{title}}</div>
+    <h1><%= fullName %></h1>
+    <div class="title"><%= title %></div>
     <div class="contact-info">
-      <span>{{email}}</span>
-      <span>{{phone}}</span>
-      <span>{{linkedin}}</span>
-      <span>{{address}}</span>
+      <span><%= email %></span>
+      <span><%= phone %></span>
+      <span><%= linkedin %></span>
+      <span><%= address %></span>
     </div>
   </header>
   <div class="content">
-  {{#section summary}}
+  <% if (showSection("summary")) { %><!--section:summary-->
   <section class="section section-summary">
-    <h2>{{label:summary:Professional Summary}}</h2>
-    <div class="summary">{{summary}}</div>
+    <h2><%= sectionLabel("summary", "Professional Summary") %></h2>
+    <div class="summary"><%- summary %></div>
   </section>
-  {{/section}}
+  <!--/section:summary--><% } %>
 
-  {{#section experience}}
+  <% if (showSection("experience")) { %><!--section:experience-->
   <section class="section section-experience">
-    <h2>{{label:experience:Experience}}</h2>
+    <h2><%= sectionLabel("experience", "Experience") %></h2>
 
-    {{#each experiences}}
+    <% (experiences || []).forEach((experience) => { %>
     <div class="exp-item">
-      <h3>{{roleTitle}}</h3>
-      <div class="exp-company">{{companyName}}</div>
-      <div class="exp-date">{{startDate}} – {{endDate}}</div>
-      <div class="description"><ul>{{description}}</ul></div>
+      <h3><%= experience.roleTitle %></h3>
+      <div class="exp-company"><%= experience.companyName %></div>
+      <div class="exp-date"><%= experience.startDate %> – <%= experience.endDate %></div>
+      <div class="description"><ul><%- experience.description %></ul></div>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:experience--><% } %>
 
-  {{#section education}}
+  <% if (showSection("education")) { %><!--section:education-->
   <section class="section section-education">
-    <h2>{{label:education:Education}}</h2>
+    <h2><%= sectionLabel("education", "Education") %></h2>
 
-    {{#each education}}
+    <% (education || []).forEach((educationItem) => { %>
     <div class="edu-item">
-      <h3>{{degreeLevel}} in {{major}}</h3>
-      <div class="edu-meta">{{universityName}} | {{startDate}} – {{endDate}}</div>
+      <h3><%= educationItem.degreeLevel %> in <%= educationItem.major %></h3>
+      <div class="edu-meta"><%= educationItem.universityName %> | <%= educationItem.startDate %> – <%= educationItem.endDate %></div>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:education--><% } %>
 
-  {{#section skills}}
+  <% if (showSection("skills")) { %><!--section:skills-->
   <section class="section section-skills">
-    <h2>{{label:skills:Skills}}</h2>
+    <h2><%= sectionLabel("skills", "Skills") %></h2>
 
     <div class="skill-groups">
-      {{#each skillGroups}}
+      <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title">{{title}}</div>
-        <div class="skill-items">{{#each items}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span class="skill-tag"><%= item %></span><% }) %></div>
       </div>
-      {{/each}}
+      <% }) %>
     </div>
   </section>
-  {{/section}}
+  <!--/section:skills--><% } %>
   </div>
 </div>
 </body></html>`,
@@ -288,69 +290,69 @@ const SEED_TEMPLATES = [
 </style></head><body>
 <div class="resume">
   <header class="header">
-    <h1>{{fullName}}</h1>
-    <div class="title">{{title}}</div>
+    <h1><%= fullName %></h1>
+    <div class="title"><%= title %></div>
     <div class="contact-info">
-      <span>{{email}}</span>
-      <span>{{phone}}</span>
-      <span>{{linkedin}}</span>
-      <span>{{address}}</span>
+      <span><%= email %></span>
+      <span><%= phone %></span>
+      <span><%= linkedin %></span>
+      <span><%= address %></span>
     </div>
   </header>
   <hr class="divider"/>
 
-  {{#section summary}}
+  <% if (showSection("summary")) { %><!--section:summary-->
   <section class="section section-summary">
-    <h2>{{label:summary:Summary}}</h2>
-    <div class="summary">{{summary}}</div>
+    <h2><%= sectionLabel("summary", "Summary") %></h2>
+    <div class="summary"><%- summary %></div>
   </section>
-  {{/section}}
+  <!--/section:summary--><% } %>
 
-  {{#section experience}}
+  <% if (showSection("experience")) { %><!--section:experience-->
   <section class="section section-experience">
-    <h2>{{label:experience:Experience}}</h2>
+    <h2><%= sectionLabel("experience", "Experience") %></h2>
 
-    {{#each experiences}}
+    <% (experiences || []).forEach((experience) => { %>
     <div class="exp-item">
       <div class="exp-row">
-        <div><h3>{{roleTitle}}</h3><span class="exp-company">{{companyName}}</span></div>
-        <span class="exp-date">{{startDate}} – {{endDate}}</span>
+        <div><h3><%= experience.roleTitle %></h3><span class="exp-company"><%= experience.companyName %></span></div>
+        <span class="exp-date"><%= experience.startDate %> – <%= experience.endDate %></span>
       </div>
-      <div class="description"><ul>{{description}}</ul></div>
+      <div class="description"><ul><%- experience.description %></ul></div>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:experience--><% } %>
 
-  {{#section education}}
+  <% if (showSection("education")) { %><!--section:education-->
   <section class="section section-education">
-    <h2>{{label:education:Education}}</h2>
+    <h2><%= sectionLabel("education", "Education") %></h2>
 
-    {{#each education}}
+    <% (education || []).forEach((educationItem) => { %>
     <div class="edu-item">
       <div class="edu-row">
-        <h3>{{degreeLevel}} in {{major}}, {{universityName}}</h3>
-        <span class="edu-meta">{{startDate}} – {{endDate}}</span>
+        <h3><%= educationItem.degreeLevel %> in <%= educationItem.major %>, <%= educationItem.universityName %></h3>
+        <span class="edu-meta"><%= educationItem.startDate %> – <%= educationItem.endDate %></span>
       </div>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:education--><% } %>
 
-  {{#section skills}}
+  <% if (showSection("skills")) { %><!--section:skills-->
   <section class="section section-skills">
-    <h2>{{label:skills:Skills}}</h2>
+    <h2><%= sectionLabel("skills", "Skills") %></h2>
 
     <div class="skill-groups">
-      {{#each skillGroups}}
+      <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title">{{title}}</div>
-        <div class="skill-items">{{#each items}}<span>{{this}}</span>{{/each}}</div>
+        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span><%= item %></span><% }) %></div>
       </div>
-      {{/each}}
+      <% }) %>
     </div>
   </section>
-  {{/section}}
+  <!--/section:skills--><% } %>
 </div>
 </body></html>`,
     },
@@ -407,67 +409,67 @@ const SEED_TEMPLATES = [
 <div class="resume">
   <header class="header">
     <div class="header-left">
-      <h1>{{fullName}}</h1>
-      <div class="title">{{title}}</div>
+      <h1><%= fullName %></h1>
+      <div class="title"><%= title %></div>
     </div>
     <div class="header-right">
-      <div>{{email}}</div>
-      <div>{{phone}}</div>
-      <div>{{linkedin}}</div>
-      <div>{{address}}</div>
+      <div><%= email %></div>
+      <div><%= phone %></div>
+      <div><%= linkedin %></div>
+      <div><%= address %></div>
     </div>
   </header>
 
-  {{#section summary}}
+  <% if (showSection("summary")) { %><!--section:summary-->
   <section class="section section-summary">
-    <h2>{{label:summary:Summary}}</h2>
-    <div class="summary">{{summary}}</div>
+    <h2><%= sectionLabel("summary", "Summary") %></h2>
+    <div class="summary"><%- summary %></div>
   </section>
-  {{/section}}
+  <!--/section:summary--><% } %>
 
-  {{#section experience}}
+  <% if (showSection("experience")) { %><!--section:experience-->
   <section class="section section-experience">
-    <h2>{{label:experience:Experience}}</h2>
+    <h2><%= sectionLabel("experience", "Experience") %></h2>
 
-    {{#each experiences}}
+    <% (experiences || []).forEach((experience) => { %>
     <div class="exp-item">
       <div class="exp-top">
-        <div><h3>{{roleTitle}}</h3><span class="exp-company">{{companyName}}</span></div>
-        <span class="exp-date">{{startDate}} – {{endDate}}</span>
+        <div><h3><%= experience.roleTitle %></h3><span class="exp-company"><%= experience.companyName %></span></div>
+        <span class="exp-date"><%= experience.startDate %> – <%= experience.endDate %></span>
       </div>
-      <div class="description"><ul>{{description}}</ul></div>
+      <div class="description"><ul><%- experience.description %></ul></div>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:experience--><% } %>
 
-  {{#section education}}
+  <% if (showSection("education")) { %><!--section:education-->
   <section class="section section-education">
-    <h2>{{label:education:Education}}</h2>
+    <h2><%= sectionLabel("education", "Education") %></h2>
 
-    {{#each education}}
+    <% (education || []).forEach((educationItem) => { %>
     <div class="edu-row">
-      <h3>{{degreeLevel}} in {{major}} — {{universityName}}</h3>
-      <span class="edu-meta">{{startDate}} – {{endDate}}</span>
+      <h3><%= educationItem.degreeLevel %> in <%= educationItem.major %> — <%= educationItem.universityName %></h3>
+      <span class="edu-meta"><%= educationItem.startDate %> – <%= educationItem.endDate %></span>
     </div>
-    {{/each}}
+    <% }) %>
   </section>
-  {{/section}}
+  <!--/section:education--><% } %>
 
-  {{#section skills}}
+  <% if (showSection("skills")) { %><!--section:skills-->
   <section class="section section-skills">
-    <h2>{{label:skills:Technical Skills}}</h2>
+    <h2><%= sectionLabel("skills", "Technical Skills") %></h2>
 
     <div class="skills-inline">
-      {{#each skillGroups}}
+      <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title">{{title}}</div>
-        <div class="skill-items">{{#each items}}<span>{{this}}</span>{{/each}}</div>
+        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span><%= item %></span><% }) %></div>
       </div>
-      {{/each}}
+      <% }) %>
     </div>
   </section>
-  {{/section}}
+  <!--/section:skills--><% } %>
 </div>
 </body></html>`,
     },
@@ -526,75 +528,75 @@ const SEED_TEMPLATES = [
 </style></head><body>
 <div class="resume">
   <header class="header">
-    <h1>{{fullName}}</h1>
-    <div class="title">{{title}}</div>
+    <h1><%= fullName %></h1>
+    <div class="title"><%= title %></div>
   </header>
   <div class="two-col">
     <aside class="sidebar">
       <section class="section">
         <h2>Contact</h2>
         <ul class="contact-list">
-          <li>{{email}}</li>
-          <li>{{phone}}</li>
-          <li>{{linkedin}}</li>
-          <li>{{address}}</li>
+          <li><%= email %></li>
+          <li><%= phone %></li>
+          <li><%= linkedin %></li>
+          <li><%= address %></li>
         </ul>
       </section>
 
-      {{#section education}}
+      <% if (showSection("education")) { %><!--section:education-->
       <section class="section section-education">
-        <h2>{{label:education:Education}}</h2>
+        <h2><%= sectionLabel("education", "Education") %></h2>
 
-        {{#each education}}
+        <% (education || []).forEach((educationItem) => { %>
         <div class="edu-item">
-          <h3>{{degreeLevel}}</h3>
-          <div class="edu-meta">{{major}}</div>
-          <div class="edu-meta">{{universityName}}</div>
-          <div class="edu-meta">{{startDate}} – {{endDate}}</div>
+          <h3><%= educationItem.degreeLevel %></h3>
+          <div class="edu-meta"><%= educationItem.major %></div>
+          <div class="edu-meta"><%= educationItem.universityName %></div>
+          <div class="edu-meta"><%= educationItem.startDate %> – <%= educationItem.endDate %></div>
         </div>
-        {{/each}}
+        <% }) %>
       </section>
-      {{/section}}
+      <!--/section:education--><% } %>
 
-      {{#section skills}}
+      <% if (showSection("skills")) { %><!--section:skills-->
       <section class="section section-skills">
-        <h2>{{label:skills:Skills}}</h2>
+        <h2><%= sectionLabel("skills", "Skills") %></h2>
 
         <div class="skill-groups">
-          {{#each skillGroups}}
+          <% (skillGroups || []).forEach((skillGroup) => { %>
           <div class="skill-group">
-            <div class="skill-group-title">{{title}}</div>
+            <div class="skill-group-title"><%= skillGroup.title %></div>
             <ul class="skill-list">
-              {{#each items}}<li>{{this}}</li>{{/each}}
+              <% (skillGroup.items || []).forEach((item) => { %><li><%= item %></li><% }) %>
             </ul>
           </div>
-          {{/each}}
+          <% }) %>
         </div>
       </section>
-      {{/section}}
+      <!--/section:skills--><% } %>
     </aside>
     <div class="main">
-      {{#section summary}}
+      <% if (showSection("summary")) { %><!--section:summary-->
       <section class="section section-summary">
-        <h2>{{label:summary:Professional Summary}}</h2>
-        <div class="summary">{{summary}}</div>
+        <h2><%= sectionLabel("summary", "Professional Summary") %></h2>
+        <div class="summary"><%- summary %></div>
       </section>
-      {{/section}}
+      <!--/section:summary--><% } %>
 
-      {{#section experience}}
+      <% if (showSection("experience")) { %><!--section:experience-->
       <section class="section section-experience">
-        <h2>{{label:experience:Experience}}</h2>
+        <h2><%= sectionLabel("experience", "Experience") %></h2>
 
-        {{#each experiences}}
+        <% (experiences || []).forEach((experience) => { %>
         <div class="exp-item">
-          <h3>{{roleTitle}}</h3>
-          <div class="exp-company">{{companyName}}</div>
-          <div class="exp-date">{{startDate}} – {{endDate}}</div>
-          <div class="description"><ul>{{description}}</ul></div>
+          <h3><%= experience.roleTitle %></h3>
+          <div class="exp-company"><%= experience.companyName %></div>
+          <div class="exp-date"><%= experience.startDate %> – <%= experience.endDate %></div>
+          <div class="description"><ul><%- experience.description %></ul></div>
         </div>
-        {{/each}}
+        <% }) %>
       </section>
-      {{/section}}
+      <!--/section:experience--><% } %>
     </div>
   </div>
 </div>
@@ -603,7 +605,12 @@ const SEED_TEMPLATES = [
 ];
 
 function getBuiltInSeedTemplates() {
-    return SEED_TEMPLATES;
+    return SEED_TEMPLATES.map(template => ({
+        ...template,
+        data: convertLegacyTemplateToEjs(template.data),
+        templateEngine: 'ejs',
+        migrationStatus: 'ready',
+    }));
 }
 
 module.exports = { getBuiltInSeedTemplates };

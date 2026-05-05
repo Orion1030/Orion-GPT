@@ -8,7 +8,9 @@
  * '@jobsy/resume-renderer' instead of duplicating them here.
  */
 const sanitizeHtml = require('sanitize-html');
+const ejs = require('ejs');
 const { profileExperienceToResumeExperience } = require('./experienceAdapter');
+const { convertLegacyTemplateToEjs } = require('./templateSyntaxMigration');
 
 const RESUME_RICH_SUMMARY = {
     allowedTags: ['b', 'i', 'em', 'strong', 'u', 'a', 'br', 'p', 'ul', 'ol', 'li'],
@@ -43,7 +45,7 @@ const DEFAULT_CONFIG = {
     hiddenSections: [],
 };
 
-const FALLBACK_TEMPLATE = `<!DOCTYPE html>
+const FALLBACK_TEMPLATE = convertLegacyTemplateToEjs(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -104,7 +106,15 @@ const FALLBACK_TEMPLATE = `<!DOCTYPE html>
   </section>
   {{/section}}
 </div>
-</body></html>`;
+</body></html>`);
+
+const EJS_RENDER_OPTIONS = {
+    async: false,
+    cache: false,
+    compileDebug: false,
+};
+
+const DISALLOWED_EJS_IDENTIFIER_RE = /<%[\s\S]*?\b(?:require|process|global|globalThis|Function|eval|module|exports|__dirname|__filename)\b[\s\S]*?%>/;
 
 function escapeHtml(text) {
     return String(text)
@@ -265,6 +275,11 @@ function applySectionConfig(html, config) {
     );
 
     result = result.replace(
+        /<!--section:(\w+)-->([\s\S]*?)<!--\/section:\1-->/g,
+        (match, sectionId) => hidden.has(sectionId) ? '' : match,
+    );
+
+    result = result.replace(
         /\{\{label:(\w+):([^}]*)\}\}/g,
         (_match, sectionId, defaultLabel) => labels[sectionId] || defaultLabel,
     );
@@ -293,6 +308,47 @@ function applySectionConfig(html, config) {
 
     result = result.replace(/<!--\/?section:\w+-->/g, '');
     return result;
+}
+
+function showSectionForConfig(config, sectionId) {
+    const hidden = new Set(config.hiddenSections || []);
+    return !hidden.has(sectionId);
+}
+
+function sectionLabelForConfig(config, sectionId, defaultLabel) {
+    const labels = config.sectionLabels || {};
+    return labels[sectionId] || defaultLabel;
+}
+
+function safeHtml(value) {
+    return String(value ?? '');
+}
+
+function buildEjsLocals(data, config = DEFAULT_CONFIG) {
+    return {
+        fullName: data.fullName || '',
+        title: data.title || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        linkedin: data.linkedin || '',
+        github: data.github || '',
+        website: data.website || '',
+        address: data.address || '',
+        summary: data.summary || '',
+        experiences: Array.isArray(data.experiences) ? data.experiences : [],
+        education: Array.isArray(data.education) ? data.education : [],
+        skills: Array.isArray(data.skills) ? data.skills : [],
+        skillGroups: Array.isArray(data.skillGroups) ? data.skillGroups : [],
+        showSection: (sectionId) => showSectionForConfig(config, sectionId),
+        sectionLabel: (sectionId, defaultLabel) => sectionLabelForConfig(config, sectionId, defaultLabel),
+        safeHtml,
+    };
+}
+
+function assertEjsTemplateIsAllowed(templateHtml) {
+    if (DISALLOWED_EJS_IDENTIFIER_RE.test(String(templateHtml || ''))) {
+        throw new Error('Template uses a blocked EJS identifier');
+    }
 }
 
 function buildRenderData(resume) {
@@ -387,58 +443,12 @@ function replaceEachBlock(html, collectionName, renderBlock) {
 }
 
 function renderTemplate(templateHtml, data, config) {
-    let html = templateHtml;
-
-    html = replaceEachBlock(html, 'skillGroups', (groupBlock) => (data.skillGroups || []).map((group) => {
-        let renderedGroup = groupBlock.replace(/\{\{title\}\}/g, escapeHtml(group.title || 'Skills'));
-        renderedGroup = replaceEachBlock(renderedGroup, 'items', (itemBlock) => (group.items || [])
-            .map((item) => itemBlock.replace(/\{\{this\}\}/g, escapeHtml(item)))
-            .join(''));
-        return renderedGroup;
-    }).join(''));
-
-    html = html.replace(/\{\{fullName\}\}/g, data.fullName);
-    html = html.replace(/\{\{title\}\}/g, data.title);
-    html = html.replace(/\{\{email\}\}/g, data.email);
-    html = html.replace(/\{\{phone\}\}/g, data.phone);
-    html = html.replace(/\{\{linkedin\}\}/g, data.linkedin);
-    html = html.replace(/\{\{github\}\}/g, data.github);
-    html = html.replace(/\{\{website\}\}/g, data.website);
-    html = html.replace(/\{\{address\}\}/g, data.address);
-    html = html.replace(/\{\{summary\}\}/g, data.summary);
-
-    const expMatch = html.match(/\{\{#each experiences\}\}([\s\S]*?)\{\{\/each\}\}/);
-    if (expMatch) {
-        const block = expMatch[1];
-        const rendered = data.experiences.map(exp =>
-            block
-                .replace(/\{\{roleTitle\}\}/g, exp.roleTitle)
-                .replace(/\{\{companyName\}\}/g, exp.companyName)
-                .replace(/\{\{startDate\}\}/g, exp.startDate)
-                .replace(/\{\{endDate\}\}/g, exp.endDate)
-                .replace(/\{\{location\}\}/g, exp.location)
-                .replace(/\{\{description\}\}/g, exp.description)
-        ).join('');
-        html = html.replace(/\{\{#each experiences\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
-    }
-
-    const eduMatch = html.match(/\{\{#each education\}\}([\s\S]*?)\{\{\/each\}\}/);
-    if (eduMatch) {
-        const block = eduMatch[1];
-        const rendered = data.education.map(edu =>
-            block
-                .replace(/\{\{degreeLevel\}\}/g, edu.degreeLevel)
-                .replace(/\{\{major\}\}/g, edu.major)
-                .replace(/\{\{universityName\}\}/g, edu.universityName)
-                .replace(/\{\{startDate\}\}/g, edu.startDate)
-                .replace(/\{\{endDate\}\}/g, edu.endDate)
-        ).join('');
-        html = html.replace(/\{\{#each education\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
-    }
-
-    html = replaceEachBlock(html, 'skills', (skillBlock) => (data.skills || [])
-        .map((skill) => skillBlock.replace(/\{\{this\}\}/g, escapeHtml(skill)))
-        .join(''));
+    assertEjsTemplateIsAllowed(templateHtml);
+    let html = ejs.render(
+        String(templateHtml || ''),
+        buildEjsLocals(data || {}, config || DEFAULT_CONFIG),
+        EJS_RENDER_OPTIONS,
+    );
 
     if (config) {
         html = applySectionConfig(html, config);
@@ -505,6 +515,8 @@ module.exports = {
     cssVarsBlock,
     injectCssVars,
     applySectionConfig,
+    buildEjsLocals,
+    assertEjsTemplateIsAllowed,
     buildRenderData,
     renderTemplate,
     resolveTemplateHtml,

@@ -11,7 +11,9 @@
     "test": "jest",
     "security:audit": "npm audit --audit-level=high",
     "migrate:prompts:dry": "node scripts/migrations/migrate-hardcoded-prompts-to-db.js --dry-run",
-    "migrate:prompts": "node scripts/migrations/migrate-hardcoded-prompts-to-db.js --commit"
+    "migrate:prompts": "node scripts/migrations/migrate-hardcoded-prompts-to-db.js --commit",
+    "migrate:templates:ejs:dry": "node scripts/migrations/migrate-templates-to-ejs.js --dry-run",
+    "migrate:templates:ejs": "node scripts/migrations/migrate-templates-to-ejs.js --commit"
   },
   "jest": {
     "testEnvironment": "node",
@@ -30,6 +32,7 @@
     "cookie-parser": "1.4.7",
     "cors": "2.8.6",
     "dotenv": "17.3.1",
+    "ejs": "5.0.2",
     "express": "5.2.1",
     "express-session": "1.19.0",
     "express-validator": "7.3.2",

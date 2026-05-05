@@ -3,6 +3,7 @@ const { TemplateModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { getBuiltInSeedTemplates } = require("../utils/builtInTemplates");
 const { isAdminUser } = require("../utils/access");
+const { validateTemplateWrite } = require("../utils/templatePolicy");
 
 function toTargetUserId(req) {
   const fromQuery = req.query?.userId;
@@ -53,9 +54,16 @@ exports.getTemplate = asyncErrorHandler(async (req, res) => {
 });
 
 exports.createTemplate = asyncErrorHandler(async (req, res) => {
-  const { name, data, note, description, layoutMode } = req.body;
+  const { name, data, note, description, layoutMode, templateEngine } = req.body;
   if (!name || !data) {
     return sendJsonResult(res, false, null, "Name and data are required", 400);
+  }
+
+  const writeValidation = validateTemplateWrite({ data }, req.user);
+  if (!writeValidation.ok) {
+    return sendJsonResult(res, false, null, writeValidation.message, writeValidation.statusCode, {
+      showNotification: true,
+    });
   }
 
   const userIsAdmin = isAdminUser(req.user);
@@ -72,6 +80,8 @@ exports.createTemplate = asyncErrorHandler(async (req, res) => {
     note,
     description,
     layoutMode,
+    templateEngine: templateEngine || "ejs",
+    migrationStatus: "ready",
     isBuiltIn: false,
     userId: ownerId,
   });
@@ -80,7 +90,7 @@ exports.createTemplate = asyncErrorHandler(async (req, res) => {
 });
 
 exports.updateTemplate = asyncErrorHandler(async (req, res) => {
-  const { name, data, note, description, layoutMode } = req.body;
+  const { name, data, note, description, layoutMode, templateEngine } = req.body;
   if (!name || !data) {
     return sendJsonResult(res, false, null, "Name and data are required", 400);
   }
@@ -100,6 +110,13 @@ exports.updateTemplate = asyncErrorHandler(async (req, res) => {
     });
   }
 
+  const writeValidation = validateTemplateWrite({ data }, req.user);
+  if (!writeValidation.ok) {
+    return sendJsonResult(res, false, null, writeValidation.message, writeValidation.statusCode, {
+      showNotification: true,
+    });
+  }
+
   const duplicateFilter = template.isBuiltIn
     ? { _id: { $ne: template._id }, name, isBuiltIn: true }
     : { _id: { $ne: template._id }, name, isBuiltIn: false, userId: template.userId || null };
@@ -112,6 +129,8 @@ exports.updateTemplate = asyncErrorHandler(async (req, res) => {
   template.note = note ?? template.note;
   template.description = description ?? template.description;
   if (layoutMode) template.layoutMode = layoutMode;
+  template.templateEngine = templateEngine || "ejs";
+  template.migrationStatus = "ready";
   await template.save();
   sendJsonResult(res, true, template, "Template updated successfully");
 });
@@ -155,14 +174,29 @@ exports.clearTemplates = asyncErrorHandler(async (req, res) => {
 
 exports.seedTemplates = asyncErrorHandler(async (req, res) => {
   const seeds = getBuiltInSeedTemplates();
-  const existing = await TemplateModel.find({ isBuiltIn: true }).select('name');
-  const existingNames = new Set(existing.map(t => t.name));
-  const toInsert = seeds.filter(s => !existingNames.has(s.name));
-  if (toInsert.length > 0) {
-    await TemplateModel.insertMany(toInsert);
+  let inserted = 0;
+  let updated = 0;
+
+  for (const seed of seeds) {
+    const result = await TemplateModel.updateOne(
+      { name: seed.name, isBuiltIn: true },
+      {
+        $set: {
+          ...seed,
+          isBuiltIn: true,
+          userId: null,
+          templateEngine: "ejs",
+          migrationStatus: "ready",
+        },
+      },
+      { upsert: true },
+    );
+    if (result.upsertedCount > 0) inserted += result.upsertedCount;
+    else updated += result.modifiedCount > 0 ? 1 : 0;
   }
+
   const all = await TemplateModel.find(buildTemplateReadFilter(req)).sort({ isBuiltIn: -1, updatedAt: -1 });
-  sendJsonResult(res, true, all, `Seeded ${toInsert.length} built-in templates`);
+  sendJsonResult(res, true, all, `Upserted built-in templates: inserted ${inserted}, updated ${updated}`);
 });
 
 exports.migrateBuiltInTemplates = asyncErrorHandler(async (req, res) => {
