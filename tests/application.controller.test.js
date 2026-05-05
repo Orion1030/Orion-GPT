@@ -335,6 +335,7 @@ describe('application.controller', () => {
           lean: jest.fn().mockResolvedValue({ _id: 'chat-9' }),
         }),
       }),
+      updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     }
 
     jest.doMock('../dbModels', () => ({
@@ -368,6 +369,17 @@ describe('application.controller', () => {
       expect.objectContaining({
         eventType: 'chat_opened',
         payload: expect.objectContaining({ chatSessionId: 'chat-9', isNew: false }),
+      })
+    )
+    expect(ChatSessionModel.updateOne).toHaveBeenCalledWith(
+      { _id: 'chat-9', userId: 'user-1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          applicationId: 'app-1',
+          profileId: null,
+          jobDescriptionId: null,
+          resumeId: null,
+        }),
       })
     )
     expect(res.status).toHaveBeenCalledWith(200)

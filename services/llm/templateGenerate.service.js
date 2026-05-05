@@ -1,9 +1,5 @@
 const { tryGetChatReply } = require("./chatResponder.service");
 const {
-  AI_RUNTIME_FEATURES,
-  resolveFeatureAiRuntimeConfig,
-} = require("../adminConfiguration.service");
-const {
   DEFAULT_CONFIG,
   renderTemplate,
 } = require("../../utils/templateRenderer");
@@ -191,10 +187,6 @@ async function generateTemplateWithAi({
     throw new Error("Current template HTML is required");
   }
 
-  const runtimeConfig = await resolveFeatureAiRuntimeConfig({
-    targetUserId,
-    feature: AI_RUNTIME_FEATURES.AI_CHAT,
-  });
   const { result, error } = await tryGetChatReply({
     messages: [
       { role: "system", content: buildSystemPrompt() },
@@ -211,7 +203,6 @@ async function generateTemplateWithAi({
     ],
     temperature: 0.2,
     max_tokens: TEMPLATE_GENERATE_MAX_TOKENS,
-    runtimeConfig,
   });
 
   if (error || !result?.reply) {

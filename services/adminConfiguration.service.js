@@ -17,7 +17,6 @@ const {
 
 const AI_RUNTIME_FEATURES = {
   RESUME_GENERATION: 'resume_generation',
-  AI_CHAT: 'ai_chat',
 }
 
 const RESUME_GENERATION_MODES = {
@@ -32,7 +31,6 @@ const RESUME_GENERATION_PIPELINE_VERSIONS = {
 
 const AI_FEATURE_FIELD_MAP = {
   [AI_RUNTIME_FEATURES.RESUME_GENERATION]: 'useForResumeGeneration',
-  [AI_RUNTIME_FEATURES.AI_CHAT]: 'useForAiChat',
 }
 
 function shouldUseDatabase() {
@@ -134,7 +132,6 @@ function buildDefaultPublicConfig() {
     useForResumeGeneration: false,
     resumeGenerationMode: RESUME_GENERATION_MODES.LEGACY,
     resumeGenerationPipelineVersion: RESUME_GENERATION_PIPELINE_VERSIONS.LEGACY_V1,
-    useForAiChat: false,
     hasApiKey: false,
     maskedApiKey: '',
     updatedAt: null,
@@ -180,7 +177,6 @@ function toPublicConfig(configDoc, catalog = []) {
           RESUME_GENERATION_MODES.LEGACY
         )
       ),
-    useForAiChat: Boolean(configDoc.useForAiChat),
     hasApiKey: Boolean(decryptedApiKey),
     maskedApiKey: decryptedApiKey ? maskApiKey(decryptedApiKey) : '',
     updatedAt: configDoc.updatedAt || null,
@@ -207,7 +203,6 @@ function validateUpsertPayload(payload = {}) {
         RESUME_GENERATION_MODES.LEGACY
       )
     ),
-    useForAiChat: toBoolean(payload.useForAiChat, false),
   }
 
   if (payload.model !== undefined && !normalized.model) {
@@ -233,7 +228,7 @@ async function getAiConfigurationForOwner(ownerUserId) {
 
   const config = await AdminConfigurationModel.findOne({ ownerUserId: normalizedOwnerId })
     .select(
-      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion useForAiChat createdAt updatedAt'
+      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion createdAt updatedAt'
     )
     .lean()
   return toPublicConfig(config, catalog)
@@ -319,10 +314,6 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
   const nextResumeGenerationPipelineVersion = getPipelineVersionForMode(
     nextResumeGenerationMode
   )
-  const nextUseForAiChat = payload.useForAiChat !== undefined
-    ? validation.normalized.useForAiChat
-    : Boolean(existing?.useForAiChat)
-
   let nextEncryptedApiKey = String(existing?.encryptedApiKey || '').trim()
   if (validation.normalized.clearApiKey) {
     nextEncryptedApiKey = ''
@@ -355,7 +346,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
       data: null,
     }
   }
-  if (nextIsCustomAiEnabled && (nextUseForResumeGeneration || nextUseForAiChat) && !hasApiKey) {
+  if (nextIsCustomAiEnabled && nextUseForResumeGeneration && !hasApiKey) {
     return {
       ok: false,
       status: 400,
@@ -363,7 +354,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
       data: null,
     }
   }
-  if (nextIsCustomAiEnabled && (nextUseForResumeGeneration || nextUseForAiChat) && !catalog.length) {
+  if (nextIsCustomAiEnabled && nextUseForResumeGeneration && !catalog.length) {
     return {
       ok: false,
       status: 400,
@@ -371,7 +362,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
       data: null,
     }
   }
-  if (nextIsCustomAiEnabled && (nextUseForResumeGeneration || nextUseForAiChat) && !nextModel) {
+  if (nextIsCustomAiEnabled && nextUseForResumeGeneration && !nextModel) {
     return {
       ok: false,
       status: 400,
@@ -402,7 +393,6 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
         useForResumeGeneration: nextUseForResumeGeneration,
         resumeGenerationMode: nextResumeGenerationMode,
         resumeGenerationPipelineVersion: nextResumeGenerationPipelineVersion,
-        useForAiChat: nextUseForAiChat,
         updatedByUserId: normalizedActorId || normalizedOwnerId,
       },
       $setOnInsert: {
@@ -414,7 +404,7 @@ async function upsertAiConfigurationForOwner({ ownerUserId, actorUserId, payload
 
   const saved = await AdminConfigurationModel.findOne({ ownerUserId: normalizedOwnerId })
     .select(
-      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion useForAiChat createdAt updatedAt'
+      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion createdAt updatedAt'
     )
     .lean()
 
@@ -538,7 +528,7 @@ async function resolveFeatureAiRuntimeConfig({ targetUserId, feature } = {}) {
     ownerUserId: { $in: candidateOwnerIds },
   })
     .select(
-      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion useForAiChat updatedAt'
+      'ownerUserId aiProvider model encryptedApiKey isCustomAiEnabled useForResumeGeneration resumeGenerationMode resumeGenerationPipelineVersion updatedAt'
     )
     .lean()
   const byOwnerId = new Map(

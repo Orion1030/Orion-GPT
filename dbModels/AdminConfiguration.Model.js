@@ -53,10 +53,6 @@ const adminConfigurationSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
-    useForAiChat: {
-      type: Boolean,
-      default: false,
-    },
     updatedByUserId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

@@ -88,7 +88,7 @@ describe("templateGenerate.service", () => {
     ).toThrow();
   });
 
-  test("generates a template through the AI chat runtime", async () => {
+  test("generates a template through the built-in chat responder", async () => {
     const tryGetChatReply = jest.fn().mockResolvedValue({
       result: {
         reply: JSON.stringify({
@@ -100,17 +100,9 @@ describe("templateGenerate.service", () => {
       },
       error: null,
     });
-    const resolveFeatureAiRuntimeConfig = jest.fn().mockResolvedValue({
-      useCustom: false,
-      feature: "ai_chat",
-    });
 
     jest.doMock("../services/llm/chatResponder.service", () => ({
       tryGetChatReply,
-    }));
-    jest.doMock("../services/adminConfiguration.service", () => ({
-      AI_RUNTIME_FEATURES: { AI_CHAT: "ai_chat" },
-      resolveFeatureAiRuntimeConfig,
     }));
 
     const { generateTemplateWithAi } = require("../services/llm/templateGenerate.service");
@@ -123,14 +115,9 @@ describe("templateGenerate.service", () => {
       targetUserId: "user-1",
     });
 
-    expect(resolveFeatureAiRuntimeConfig).toHaveBeenCalledWith({
-      targetUserId: "user-1",
-      feature: "ai_chat",
-    });
     expect(tryGetChatReply).toHaveBeenCalledWith(
       expect.objectContaining({
         temperature: 0.2,
-        runtimeConfig: expect.objectContaining({ useCustom: false }),
       }),
     );
     expect(result.name).toBe("AI Classic");

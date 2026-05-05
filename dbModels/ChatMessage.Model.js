@@ -16,15 +16,28 @@ const chatMessageSchema = new mongoose.Schema(
       type: String,
       required: true,
       default: ''
+    },
+    turnId: {
+      type: String,
+      required: false,
+      default: null,
+      index: true
+    },
+    structuredAssistantPayload: {
+      type: mongoose.Schema.Types.Mixed,
+      required: false,
+      default: null
     }
-  ,
-  structuredAssistantPayload: {
-    type: mongoose.Schema.Types.Mixed,
-    required: false,
-    default: null
-  }
   },
   { timestamps: true }
+)
+
+chatMessageSchema.index(
+  { sessionId: 1, turnId: 1, role: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { turnId: { $type: 'string' } }
+  }
 )
 
 module.exports = mongoose.model('ChatMessage', chatMessageSchema)

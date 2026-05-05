@@ -36,6 +36,13 @@ function toIdString(value) {
   return String(value)
 }
 
+function buildApplicationChatTitle(application) {
+  const jobTitle = typeof application?.jobTitle === 'string' ? application.jobTitle.trim() : ''
+  const companyName = typeof application?.companyName === 'string' ? application.companyName.trim() : ''
+  const title = [jobTitle, companyName ? `at ${companyName}` : ''].filter(Boolean).join(' ')
+  return title || 'New Chat'
+}
+
 function toSafePage(value, fallback = 1) {
   const parsed = Number.parseInt(value, 10)
   if (!Number.isFinite(parsed) || parsed < 1) return fallback
@@ -573,10 +580,24 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
       _id: chatSessionId,
       userId: ownerUserId,
     })
-      .select('_id')
+      .select('_id title')
       .lean()
     if (!existingSession) {
       chatSessionId = null
+    } else {
+      const sessionUpdates = {
+        applicationId: app._id,
+        profileId: app.profileId || null,
+        jobDescriptionId: app.jobDescriptionId || null,
+        resumeId: app.resumeId || null,
+      }
+      if (!existingSession.title || existingSession.title === 'New Chat') {
+        sessionUpdates.title = buildApplicationChatTitle(app)
+      }
+      await ChatSessionModel.updateOne(
+        { _id: chatSessionId, userId: ownerUserId },
+        { $set: sessionUpdates }
+      )
     }
   }
 
@@ -585,8 +606,10 @@ exports.resolveApplicationChat = asyncErrorHandler(async (req, res) => {
       userId: ownerUserId,
       profileId: app.profileId || null,
       jobDescriptionId: app.jobDescriptionId || null,
+      applicationId: app._id,
+      resumeId: app.resumeId || null,
       chatType: 'jd',
-      title: 'New Chat',
+      title: buildApplicationChatTitle(app),
     })
     await created.save()
     chatSessionId = created._id.toString()

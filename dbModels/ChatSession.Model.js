@@ -27,6 +27,18 @@ const chatSessionSchema = new mongoose.Schema(
       required: false,
       default: null
     },
+    applicationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Application',
+      required: false,
+      default: null
+    },
+    resumeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Resume',
+      required: false,
+      default: null
+    },
     chatType: {
       type: String,
       enum: CHAT_TYPES,

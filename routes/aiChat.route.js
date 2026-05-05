@@ -8,7 +8,8 @@ const {
   getSession,
   renameSession,
   deleteSession,
-  sendMessage
+  handleMessageTurn,
+  streamMessage
 } = require('../controllers/aiChat.controller')
 
 const router = express.Router()
@@ -21,6 +22,7 @@ router.post('/', createSession)
 router.get('/:sessionId', getSession)
 router.patch('/:sessionId', renameSession)
 router.delete('/:sessionId', deleteSession)
-router.post('/:sessionId/messages', sendMessage)
+router.post('/:sessionId/messages/turn', handleMessageTurn)
+router.post('/:sessionId/messages/stream', streamMessage)
 
 module.exports = router

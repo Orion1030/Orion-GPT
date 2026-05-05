@@ -1,5 +1,6 @@
 module.exports = {
   CHAT_MODEL:     process.env.LLM_CHAT_MODEL     || 'gpt-4o-mini',
+  AI_CHAT_MODEL:  'gpt-4.1',
   CHAT_MAX_TOKENS: parseInt(process.env.LLM_CHAT_MAX_TOKENS || '1200', 10),
   CHAT_TIMEOUT_MS: parseInt(process.env.LLM_CHAT_TIMEOUT_MS || '30000', 10),
   // Default to a Responses-capable model; override with LLM_GENERATE_MODEL if needed.
