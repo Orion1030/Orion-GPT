@@ -1,13 +1,3 @@
-function sectionBlock(sectionId, label, inner) {
-    return `
-    {{#section ${sectionId}}}
-    <section class="section section-${sectionId}">
-      <h2>{{label:${sectionId}:${label}}}</h2>
-      ${inner}
-    </section>
-    {{/section}}`;
-}
-
 const SEED_TEMPLATES = [
     {
         name: 'Classic',
@@ -54,7 +44,10 @@ const SEED_TEMPLATES = [
   .edu-item { margin-bottom: 6px; }
   .edu-item h3 { font-size: var(--font-size); }
   .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
-  .skills-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .skill-groups { display: grid; gap: 5px; }
+  .skill-group { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: start; }
+  .skill-group-title { font-weight: 700; color: #111827; }
+  .skill-items { display: flex; flex-wrap: wrap; gap: 5px; }
   .skill-tag { background: #f3f4f6; color: #374151; padding: 2px 8px; border-radius: 3px; font-size: calc(var(--font-size) - 0.5pt); border: 1px solid #e5e7eb; }
 </style></head><body>
 <div class="resume">
@@ -68,8 +61,18 @@ const SEED_TEMPLATES = [
       <span>{{address}}</span>
     </div>
   </header>
-  ${sectionBlock('summary', 'Professional Summary', '<div class="summary">{{summary}}</div>')}
-  ${sectionBlock('experience', 'Experience', `
+
+  {{#section summary}}
+  <section class="section section-summary">
+    <h2>{{label:summary:Professional Summary}}</h2>
+    <div class="summary">{{summary}}</div>
+  </section>
+  {{/section}}
+
+  {{#section experience}}
+  <section class="section section-experience">
+    <h2>{{label:experience:Experience}}</h2>
+
     {{#each experiences}}
     <div class="exp-item">
       <div class="exp-header">
@@ -79,18 +82,37 @@ const SEED_TEMPLATES = [
       <div class="exp-company">{{companyName}}</div>
       <div class="description"><ul>{{description}}</ul></div>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('education', 'Education', `
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section education}}
+  <section class="section section-education">
+    <h2>{{label:education:Education}}</h2>
+
     {{#each education}}
     <div class="edu-item">
       <h3>{{degreeLevel}} in {{major}}</h3>
       <div class="edu-meta">{{universityName}} | {{startDate}} – {{endDate}}</div>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('skills', 'Skills', `
-    <div class="skills-list">
-      {{#each skills}}<span class="skill-tag">{{this}}</span>{{/each}}
-    </div>`)}
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section skills}}
+  <section class="section section-skills">
+    <h2>{{label:skills:Skills}}</h2>
+
+    <div class="skill-groups">
+      {{#each skillGroups}}
+      <div class="skill-group">
+        <div class="skill-group-title">{{title}}</div>
+        <div class="skill-items">{{#each items}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+      </div>
+      {{/each}}
+    </div>
+  </section>
+  {{/section}}
 </div>
 </body></html>`,
     },
@@ -140,7 +162,10 @@ const SEED_TEMPLATES = [
   .edu-item { margin-bottom: 6px; padding-left: 12px; border-left: 3px solid var(--accent); }
   .edu-item h3 { font-size: var(--font-size); }
   .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
-  .skills-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .skill-groups { display: grid; gap: 7px; }
+  .skill-group { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: start; }
+  .skill-group-title { color: #111827; font-weight: 700; }
+  .skill-items { display: flex; flex-wrap: wrap; gap: 5px; }
   .skill-tag { background: var(--accent); color: white; padding: 3px 10px; border-radius: 12px; font-size: calc(var(--font-size) - 1pt); }
 </style></head><body>
 <div class="resume">
@@ -155,8 +180,17 @@ const SEED_TEMPLATES = [
     </div>
   </header>
   <div class="content">
-  ${sectionBlock('summary', 'Professional Summary', '<div class="summary">{{summary}}</div>')}
-  ${sectionBlock('experience', 'Experience', `
+  {{#section summary}}
+  <section class="section section-summary">
+    <h2>{{label:summary:Professional Summary}}</h2>
+    <div class="summary">{{summary}}</div>
+  </section>
+  {{/section}}
+
+  {{#section experience}}
+  <section class="section section-experience">
+    <h2>{{label:experience:Experience}}</h2>
+
     {{#each experiences}}
     <div class="exp-item">
       <h3>{{roleTitle}}</h3>
@@ -164,18 +198,37 @@ const SEED_TEMPLATES = [
       <div class="exp-date">{{startDate}} – {{endDate}}</div>
       <div class="description"><ul>{{description}}</ul></div>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('education', 'Education', `
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section education}}
+  <section class="section section-education">
+    <h2>{{label:education:Education}}</h2>
+
     {{#each education}}
     <div class="edu-item">
       <h3>{{degreeLevel}} in {{major}}</h3>
       <div class="edu-meta">{{universityName}} | {{startDate}} – {{endDate}}</div>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('skills', 'Skills', `
-    <div class="skills-list">
-      {{#each skills}}<span class="skill-tag">{{this}}</span>{{/each}}
-    </div>`)}
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section skills}}
+  <section class="section section-skills">
+    <h2>{{label:skills:Skills}}</h2>
+
+    <div class="skill-groups">
+      {{#each skillGroups}}
+      <div class="skill-group">
+        <div class="skill-group-title">{{title}}</div>
+        <div class="skill-items">{{#each items}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+      </div>
+      {{/each}}
+    </div>
+  </section>
+  {{/section}}
   </div>
 </div>
 </body></html>`,
@@ -228,7 +281,10 @@ const SEED_TEMPLATES = [
   .edu-row { display: flex; justify-content: space-between; align-items: baseline; }
   .edu-item h3 { font-size: var(--font-size); font-weight: 600; }
   .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
-  .skills-list { display: flex; flex-wrap: wrap; gap: 4px 12px; color: #374151; font-size: var(--font-size); }
+  .skill-groups { display: grid; gap: 4px; color: #374151; font-size: var(--font-size); }
+  .skill-group { display: grid; grid-template-columns: 118px 1fr; gap: 8px; }
+  .skill-group-title { font-weight: 700; color: #111827; }
+  .skill-items { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -242,8 +298,18 @@ const SEED_TEMPLATES = [
     </div>
   </header>
   <hr class="divider"/>
-  ${sectionBlock('summary', 'Summary', '<div class="summary">{{summary}}</div>')}
-  ${sectionBlock('experience', 'Experience', `
+
+  {{#section summary}}
+  <section class="section section-summary">
+    <h2>{{label:summary:Summary}}</h2>
+    <div class="summary">{{summary}}</div>
+  </section>
+  {{/section}}
+
+  {{#section experience}}
+  <section class="section section-experience">
+    <h2>{{label:experience:Experience}}</h2>
+
     {{#each experiences}}
     <div class="exp-item">
       <div class="exp-row">
@@ -252,8 +318,14 @@ const SEED_TEMPLATES = [
       </div>
       <div class="description"><ul>{{description}}</ul></div>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('education', 'Education', `
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section education}}
+  <section class="section section-education">
+    <h2>{{label:education:Education}}</h2>
+
     {{#each education}}
     <div class="edu-item">
       <div class="edu-row">
@@ -261,11 +333,24 @@ const SEED_TEMPLATES = [
         <span class="edu-meta">{{startDate}} – {{endDate}}</span>
       </div>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('skills', 'Skills', `
-    <div class="skills-list">
-      {{#each skills}}<span>{{this}}</span>{{/each}}
-    </div>`)}
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section skills}}
+  <section class="section section-skills">
+    <h2>{{label:skills:Skills}}</h2>
+
+    <div class="skill-groups">
+      {{#each skillGroups}}
+      <div class="skill-group">
+        <div class="skill-group-title">{{title}}</div>
+        <div class="skill-items">{{#each items}}<span>{{this}}</span>{{/each}}</div>
+      </div>
+      {{/each}}
+    </div>
+  </section>
+  {{/section}}
 </div>
 </body></html>`,
     },
@@ -314,7 +399,10 @@ const SEED_TEMPLATES = [
   .edu-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
   .edu-row h3 { font-size: calc(var(--font-size) - 0.5pt); font-weight: 600; }
   .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 1pt); }
-  .skills-inline { color: #374151; font-size: calc(var(--font-size) - 0.5pt); }
+  .skills-inline { display: grid; gap: 3px; color: #374151; font-size: calc(var(--font-size) - 0.5pt); }
+  .skill-group { display: grid; grid-template-columns: 112px 1fr; gap: 8px; }
+  .skill-group-title { font-weight: 700; color: #111827; }
+  .skill-items { display: flex; flex-wrap: wrap; gap: 3px 10px; }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -329,8 +417,18 @@ const SEED_TEMPLATES = [
       <div>{{address}}</div>
     </div>
   </header>
-  ${sectionBlock('summary', 'Summary', '<div class="summary">{{summary}}</div>')}
-  ${sectionBlock('experience', 'Experience', `
+
+  {{#section summary}}
+  <section class="section section-summary">
+    <h2>{{label:summary:Summary}}</h2>
+    <div class="summary">{{summary}}</div>
+  </section>
+  {{/section}}
+
+  {{#section experience}}
+  <section class="section section-experience">
+    <h2>{{label:experience:Experience}}</h2>
+
     {{#each experiences}}
     <div class="exp-item">
       <div class="exp-top">
@@ -339,18 +437,37 @@ const SEED_TEMPLATES = [
       </div>
       <div class="description"><ul>{{description}}</ul></div>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('education', 'Education', `
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section education}}
+  <section class="section section-education">
+    <h2>{{label:education:Education}}</h2>
+
     {{#each education}}
     <div class="edu-row">
       <h3>{{degreeLevel}} in {{major}} — {{universityName}}</h3>
       <span class="edu-meta">{{startDate}} – {{endDate}}</span>
     </div>
-    {{/each}}`)}
-  ${sectionBlock('skills', 'Technical Skills', `
+    {{/each}}
+  </section>
+  {{/section}}
+
+  {{#section skills}}
+  <section class="section section-skills">
+    <h2>{{label:skills:Technical Skills}}</h2>
+
     <div class="skills-inline">
-      {{#each skills}}<span>{{this}}</span>{{/each}}
-    </div>`)}
+      {{#each skillGroups}}
+      <div class="skill-group">
+        <div class="skill-group-title">{{title}}</div>
+        <div class="skill-items">{{#each items}}<span>{{this}}</span>{{/each}}</div>
+      </div>
+      {{/each}}
+    </div>
+  </section>
+  {{/section}}
 </div>
 </body></html>`,
     },
@@ -402,6 +519,8 @@ const SEED_TEMPLATES = [
   .edu-item { margin-bottom: 4px; }
   .edu-item h3 { font-size: var(--font-size); font-weight: 600; }
   .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
+  .skill-groups { display: grid; gap: 8px; }
+  .skill-group-title { color: #111827; font-weight: 700; font-size: calc(var(--font-size) - 0.5pt); margin-bottom: 2px; }
   .skill-list { list-style: none; }
   .skill-list li { font-size: calc(var(--font-size) - 0.5pt); color: #374151; padding: 2px 0; border-bottom: 1px solid #f3f4f6; }
 </style></head><body>
@@ -421,7 +540,11 @@ const SEED_TEMPLATES = [
           <li>{{address}}</li>
         </ul>
       </section>
-      ${sectionBlock('education', 'Education', `
+
+      {{#section education}}
+      <section class="section section-education">
+        <h2>{{label:education:Education}}</h2>
+
         {{#each education}}
         <div class="edu-item">
           <h3>{{degreeLevel}}</h3>
@@ -429,15 +552,39 @@ const SEED_TEMPLATES = [
           <div class="edu-meta">{{universityName}}</div>
           <div class="edu-meta">{{startDate}} – {{endDate}}</div>
         </div>
-        {{/each}}`)}
-      ${sectionBlock('skills', 'Skills', `
-        <ul class="skill-list">
-          {{#each skills}}<li>{{this}}</li>{{/each}}
-        </ul>`)}
+        {{/each}}
+      </section>
+      {{/section}}
+
+      {{#section skills}}
+      <section class="section section-skills">
+        <h2>{{label:skills:Skills}}</h2>
+
+        <div class="skill-groups">
+          {{#each skillGroups}}
+          <div class="skill-group">
+            <div class="skill-group-title">{{title}}</div>
+            <ul class="skill-list">
+              {{#each items}}<li>{{this}}</li>{{/each}}
+            </ul>
+          </div>
+          {{/each}}
+        </div>
+      </section>
+      {{/section}}
     </aside>
     <div class="main">
-      ${sectionBlock('summary', 'Professional Summary', '<div class="summary">{{summary}}</div>')}
-      ${sectionBlock('experience', 'Experience', `
+      {{#section summary}}
+      <section class="section section-summary">
+        <h2>{{label:summary:Professional Summary}}</h2>
+        <div class="summary">{{summary}}</div>
+      </section>
+      {{/section}}
+
+      {{#section experience}}
+      <section class="section section-experience">
+        <h2>{{label:experience:Experience}}</h2>
+
         {{#each experiences}}
         <div class="exp-item">
           <h3>{{roleTitle}}</h3>
@@ -445,7 +592,9 @@ const SEED_TEMPLATES = [
           <div class="exp-date">{{startDate}} – {{endDate}}</div>
           <div class="description"><ul>{{description}}</ul></div>
         </div>
-        {{/each}}`)}
+        {{/each}}
+      </section>
+      {{/section}}
     </div>
   </div>
 </div>

@@ -23,6 +23,7 @@ const EXPERIENCE_BREAK_GUARD_STYLE = `<style id="jobsy-exp-break-guards">
   }
   .section-skills > h2 + .skills-list,
   .section-skills > h2 + .skill-list,
+  .section-skills > h2 + .skill-groups,
   .section-skills > h2 + .skills-inline{
     break-before: avoid-page;
     page-break-before: avoid;
@@ -63,6 +64,7 @@ const EXPERIENCE_BREAK_GUARD_STYLE = `<style id="jobsy-exp-break-guards">
     }
     .section-skills > h2 + .skills-list,
     .section-skills > h2 + .skill-list,
+    .section-skills > h2 + .skill-groups,
     .section-skills > h2 + .skills-inline{
       break-before: avoid-page !important;
       page-break-before: avoid !important;

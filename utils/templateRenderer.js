@@ -64,7 +64,10 @@ const FALLBACK_TEMPLATE = `<!DOCTYPE html>
   .exp-date { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
   .edu-item { margin-bottom: 6px; }
   .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
-  .skills-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .skill-groups { display: grid; gap: 5px; }
+  .skill-group { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: start; }
+  .skill-group-title { font-weight: 700; color: #111827; }
+  .skill-items { display: flex; flex-wrap: wrap; gap: 5px; }
   .skill-tag { background: #f3f4f6; color: #374151; padding: 2px 8px; border-radius: 3px; font-size: calc(var(--font-size) - 0.5pt); border: 1px solid #e5e7eb; }
 </style></head><body>
 <div class="resume">
@@ -90,7 +93,14 @@ const FALLBACK_TEMPLATE = `<!DOCTYPE html>
   {{/section}}
   {{#section skills}}
   <section class="section section-skills"><h2>{{label:skills:Skills}}</h2>
-    <div class="skills-list">{{#each skills}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+    <div class="skill-groups">
+      {{#each skillGroups}}
+      <div class="skill-group">
+        <div class="skill-group-title">{{title}}</div>
+        <div class="skill-items">{{#each items}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+      </div>
+      {{/each}}
+    </div>
   </section>
   {{/section}}
 </div>
@@ -143,6 +153,69 @@ function parseSkillsList(content) {
         .split('\n')
         .map(line => line.replace(/^[\s\-*•]+/, '').replace(/^\*\*.*?\*\*\s*/, '').trim())
         .filter(Boolean);
+}
+
+function pushSkillGroup(target, byTitle, title, items) {
+    const cleanTitle = String(title || '').trim() || 'Skills';
+    const cleanItems = (Array.isArray(items) ? items : [])
+        .map(item => String(item || '').trim())
+        .filter(Boolean);
+    if (!cleanItems.length) return;
+
+    const key = cleanTitle.toLowerCase();
+    const existingIndex = byTitle.get(key);
+    if (existingIndex == null) {
+        byTitle.set(key, target.length);
+        target.push({ title: cleanTitle, items: [...new Set(cleanItems)] });
+        return;
+    }
+
+    const existing = target[existingIndex];
+    for (const item of cleanItems) {
+        if (!existing.items.includes(item)) existing.items.push(item);
+    }
+}
+
+function buildSkillGroups(skills) {
+    if (!Array.isArray(skills)) return [];
+
+    const groups = [];
+    const byTitle = new Map();
+
+    for (const section of skills) {
+        if (typeof section === 'string') {
+            pushSkillGroup(groups, byTitle, 'Skills', [section]);
+            continue;
+        }
+        if (!section || typeof section !== 'object') continue;
+
+        const sectionTitle = String(section.title || '').trim() || 'Skills';
+        const rawItems = Array.isArray(section.items) ? section.items : [];
+        const flatItems = [];
+
+        for (const item of rawItems) {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+                const nestedItems = Array.isArray(item.items) ? item.items : [];
+                pushSkillGroup(groups, byTitle, item.title || sectionTitle, nestedItems);
+                continue;
+            }
+            flatItems.push(item);
+        }
+
+        pushSkillGroup(groups, byTitle, sectionTitle, flatItems);
+    }
+
+    return groups;
+}
+
+function flattenSkillGroups(skillGroups) {
+    const out = [];
+    for (const group of skillGroups || []) {
+        for (const item of group.items || []) {
+            if (!out.includes(item)) out.push(item);
+        }
+    }
+    return out;
 }
 
 function getConfig(resume) {
@@ -252,16 +325,8 @@ function buildRenderData(resume) {
         endDate: formatDate(edu.endDate),
     }));
 
-    let skills = [];
-    if (Array.isArray(resume.skills) && resume.skills.length) {
-        for (const s of resume.skills) {
-            if (Array.isArray(s.items) && s.items.length) {
-                skills = skills.concat(s.items.map(i => String(i).trim()).filter(Boolean));
-            } else if (typeof s === 'string' && s.trim()) {
-                skills.push(s.trim());
-            }
-        }
-    }
+    const skillGroups = buildSkillGroups(resume.skills);
+    const skills = flattenSkillGroups(skillGroups);
 
     return {
         fullName: profile.fullName || resume.name || 'Resume',
@@ -276,11 +341,61 @@ function buildRenderData(resume) {
         experiences,
         education,
         skills,
+        skillGroups,
     };
+}
+
+function replaceEachBlock(html, collectionName, renderBlock) {
+    const openRe = new RegExp(`\\{\\{#each\\s+${collectionName}\\s*\\}\\}`, 'g');
+    let result = '';
+    let cursor = 0;
+    let openMatch;
+
+    while ((openMatch = openRe.exec(html)) !== null) {
+        result += html.slice(cursor, openMatch.index);
+        const blockStart = openRe.lastIndex;
+        const tagRe = /\{\{#each\s+([A-Za-z0-9_]+)\s*\}\}|\{\{\/each\}\}/g;
+        tagRe.lastIndex = blockStart;
+
+        let depth = 1;
+        let blockEnd = -1;
+        let closeEnd = -1;
+        let tagMatch;
+
+        while ((tagMatch = tagRe.exec(html)) !== null) {
+            if (tagMatch[0].startsWith('{{#each')) depth += 1;
+            else depth -= 1;
+
+            if (depth === 0) {
+                blockEnd = tagMatch.index;
+                closeEnd = tagRe.lastIndex;
+                break;
+            }
+        }
+
+        if (blockEnd < 0 || closeEnd < 0) {
+            result += html.slice(openMatch.index);
+            return result;
+        }
+
+        result += renderBlock(html.slice(blockStart, blockEnd));
+        cursor = closeEnd;
+        openRe.lastIndex = closeEnd;
+    }
+
+    return result + html.slice(cursor);
 }
 
 function renderTemplate(templateHtml, data, config) {
     let html = templateHtml;
+
+    html = replaceEachBlock(html, 'skillGroups', (groupBlock) => (data.skillGroups || []).map((group) => {
+        let renderedGroup = groupBlock.replace(/\{\{title\}\}/g, escapeHtml(group.title || 'Skills'));
+        renderedGroup = replaceEachBlock(renderedGroup, 'items', (itemBlock) => (group.items || [])
+            .map((item) => itemBlock.replace(/\{\{this\}\}/g, escapeHtml(item)))
+            .join(''));
+        return renderedGroup;
+    }).join(''));
 
     html = html.replace(/\{\{fullName\}\}/g, data.fullName);
     html = html.replace(/\{\{title\}\}/g, data.title);
@@ -321,12 +436,9 @@ function renderTemplate(templateHtml, data, config) {
         html = html.replace(/\{\{#each education\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
     }
 
-    const skillMatch = html.match(/\{\{#each skills\}\}([\s\S]*?)\{\{\/each\}\}/);
-    if (skillMatch) {
-        const block = skillMatch[1];
-        const rendered = data.skills.map(skill => block.replace(/\{\{this\}\}/g, escapeHtml(skill))).join('');
-        html = html.replace(/\{\{#each skills\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
-    }
+    html = replaceEachBlock(html, 'skills', (skillBlock) => (data.skills || [])
+        .map((skill) => skillBlock.replace(/\{\{this\}\}/g, escapeHtml(skill)))
+        .join(''));
 
     if (config) {
         html = applySectionConfig(html, config);
@@ -386,6 +498,8 @@ module.exports = {
     sanitizeSummaryForTemplate,
     descriptionPointToLi,
     parseSkillsList,
+    buildSkillGroups,
+    flattenSkillGroups,
     getConfig,
     getMargins,
     cssVarsBlock,
