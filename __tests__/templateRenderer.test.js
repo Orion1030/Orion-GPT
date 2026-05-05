@@ -9,6 +9,8 @@ const {
   getMargins,
   MARGIN_PRESETS,
   DEFAULT_CONFIG,
+  buildRenderData,
+  renderTemplate,
 } = require('../utils/templateRenderer');
 
 describe('escapeHtml', () => {
@@ -81,5 +83,102 @@ describe('getMargins', () => {
   test('falls back to standard for unknown preset', () => {
     const m = getMargins({ marginPreset: 'bogus' });
     expect(m).toEqual(MARGIN_PRESETS.standard);
+  });
+});
+
+describe('skill rendering', () => {
+  test('buildRenderData preserves grouped resume skills and flat legacy skills', () => {
+    const data = buildRenderData({
+      name: 'Resume',
+      profileId: { fullName: 'Jane Doe', contactInfo: {} },
+      experiences: [],
+      skills: [
+        { title: 'Frontend', items: ['React', 'TypeScript'] },
+        { title: 'Backend', items: ['Node.js'] },
+      ],
+    });
+
+    expect(data.skillGroups).toEqual([
+      { title: 'Frontend', items: ['React', 'TypeScript'] },
+      { title: 'Backend', items: ['Node.js'] },
+    ]);
+    expect(data.skills).toEqual(['React', 'TypeScript', 'Node.js']);
+  });
+
+  test('renderTemplate supports EJS skillGroups with nested items', () => {
+    const html = renderTemplate(
+      '<% skillGroups.forEach((skillGroup) => { %><p><%= skillGroup.title %>: <% skillGroup.items.forEach((item) => { %><span><%= item %></span><% }) %></p><% }) %>',
+      {
+        skillGroups: [
+          { title: 'Frontend', items: ['React', 'TypeScript'] },
+          { title: 'Backend', items: ['Node.js'] },
+        ],
+        skills: [],
+        experiences: [],
+        education: [],
+      }
+    );
+
+    expect(html).toContain('Frontend');
+    expect(html).toContain('<span>React</span>');
+    expect(html).toContain('<span>TypeScript</span>');
+    expect(html).toContain('Backend');
+    expect(html).toContain('<span>Node.js</span>');
+    expect(html).not.toContain('<%');
+  });
+
+  test('renderTemplate supports flat legacy skills data through EJS templates', () => {
+    const html = renderTemplate(
+      '<% skills.forEach((skill) => { %><span><%= skill %></span><% }) %>',
+      {
+        skills: ['React', 'Node.js'],
+        skillGroups: [{ title: 'Skills', items: ['React', 'Node.js'] }],
+        experiences: [],
+        education: [],
+      }
+    );
+
+    expect(html).toBe('<span>React</span><span>Node.js</span>');
+  });
+
+  test('renderTemplate hides sections and renders custom labels through helpers', () => {
+    const html = renderTemplate(
+      '<% if (showSection("summary")) { %><!--section:summary--><section class="section-summary"><h2><%= sectionLabel("summary", "Summary") %></h2><%- summary %></section><!--/section:summary--><% } %><% if (showSection("skills")) { %><!--section:skills--><section class="section-skills">Skills</section><!--/section:skills--><% } %>',
+      {
+        summary: '<p>Already sanitized</p>',
+        skills: [],
+        skillGroups: [],
+        experiences: [],
+        education: [],
+      },
+      {
+        ...DEFAULT_CONFIG,
+        hiddenSections: ['skills'],
+        sectionLabels: { summary: 'Profile' },
+      },
+    );
+
+    expect(html).toContain('<h2>Profile</h2>');
+    expect(html).toContain('<p>Already sanitized</p>');
+    expect(html).not.toContain('section-skills');
+  });
+
+  test('renderTemplate reorders marked sections after EJS rendering', () => {
+    const html = renderTemplate(
+      '<% if (showSection("summary")) { %><!--section:summary--><section class="section-summary">Summary</section><!--/section:summary--><% } %><% if (showSection("skills")) { %><!--section:skills--><section class="section-skills">Skills</section><!--/section:skills--><% } %>',
+      {
+        summary: '',
+        skills: [],
+        skillGroups: [],
+        experiences: [],
+        education: [],
+      },
+      {
+        ...DEFAULT_CONFIG,
+        sectionOrder: ['skills', 'summary'],
+      },
+    );
+
+    expect(html.indexOf('section-skills')).toBeLessThan(html.indexOf('section-summary'));
   });
 });

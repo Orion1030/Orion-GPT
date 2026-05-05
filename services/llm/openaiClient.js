@@ -6,8 +6,8 @@ const LLM_RESPONSES_TIMEOUT_MS = parseInt(process.env.LLM_RESPONSES_TIMEOUT_MS |
 const LLM_EMBED_TIMEOUT_MS = parseInt(process.env.LLM_EMBED_TIMEOUT_MS || String(LLM_TIMEOUT_MS), 10);
 const LLM_RETRY_ATTEMPTS = parseInt(process.env.LLM_RETRY_ATTEMPTS || '3', 10);
 
-function getOpenAIKey() {
-  const key = process.env.OPENAI_API_KEY;
+function getOpenAIKey(overrideKey = null) {
+  const key = overrideKey || process.env.OPENAI_API_KEY;
   if (!key || !String(key).trim()) throw new Error("LLM provider not configured");
   return key;
 }
@@ -45,6 +45,7 @@ async function withRetry(fn, attempts = LLM_RETRY_ATTEMPTS) {
 }
 
 async function chatCompletions({
+  apiKey,
   model,
   messages,
   temperature,
@@ -55,7 +56,7 @@ async function chatCompletions({
   function_call,
   timeout_ms, // optional per-request timeout override
 }) {
-  const key = getOpenAIKey();
+  const key = getOpenAIKey(apiKey);
   const start = Date.now();
   const effectiveChatTimeoutMs = Number(timeout_ms) > 0 ? Number(timeout_ms) : LLM_CHAT_TIMEOUT_MS;
 
@@ -185,43 +186,49 @@ async function createEmbedding({ model, input }) {
 }
 
 async function responsesCreate({
+  apiKey,
   model,
   input,
-  temperature = 0,
+  temperature,
   max_output_tokens = 2000,
   response_format,
+  text,
   reasoning, // { effort: "low" | "medium" | "high" }
   store,
   previous_response_id,
+  timeout_ms,
 }) {
-  const key = getOpenAIKey();
+  const key = getOpenAIKey(apiKey);
   const start = Date.now();
+  const effectiveResponsesTimeoutMs =
+    Number(timeout_ms) > 0 ? Number(timeout_ms) : LLM_RESPONSES_TIMEOUT_MS;
 
   const body = {
     model,
     input,
-    temperature,
     max_output_tokens,
   };
+  if (temperature !== undefined && temperature !== null) body.temperature = temperature;
   if (response_format) body.response_format = response_format;
+  if (text) body.text = text;
   if (reasoning && typeof reasoning === "object") body.reasoning = reasoning;
   if (typeof store === "boolean") body.store = store;
   if (previous_response_id) body.previous_response_id = previous_response_id;
 
-  const options = {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  };
+  async function send(requestBody) {
+    const options = {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    };
 
-  const result = await withRetry(async () => {
     const resp = await fetchWithTimeout(
       "https://api.openai.com/v1/responses",
       options,
-      LLM_RESPONSES_TIMEOUT_MS
+      effectiveResponsesTimeoutMs
     );
 
     const text = await resp.text();
@@ -249,7 +256,26 @@ async function responsesCreate({
       err.body = text;
       throw err;
     }
-  });
+  }
+
+  let result;
+  try {
+    result = await withRetry(() => send(body));
+  } catch (err) {
+    const unsupportedTemp =
+      err?.status === 400 &&
+      err?.body?.error?.param === "temperature" &&
+      body.temperature !== undefined;
+    if (unsupportedTemp) {
+      console.warn(
+        `[LLM] responses temperature not supported for model=${model}; retrying without temperature`
+      );
+      const { temperature: _discard, ...bodyWithoutTemp } = body;
+      result = await withRetry(() => send(bodyWithoutTemp));
+    } else {
+      throw err;
+    }
+  }
 
   const latencyMs = Date.now() - start;
   const usage = result.usage;

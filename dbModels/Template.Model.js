@@ -32,6 +32,18 @@ const templateSchema = new mongoose.Schema(
       type: String,
       enum: ['single', 'hybrid'],
       default: 'single'
+    },
+    templateEngine: {
+      type: String,
+      enum: ['ejs', 'legacy'],
+      default: 'ejs',
+      index: true
+    },
+    migrationStatus: {
+      type: String,
+      enum: ['ready', 'converted', 'needs_admin_review'],
+      default: 'ready',
+      index: true
     }
   },
   { timestamps: true }

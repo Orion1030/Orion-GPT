@@ -8,7 +8,9 @@
  * '@jobsy/resume-renderer' instead of duplicating them here.
  */
 const sanitizeHtml = require('sanitize-html');
+const ejs = require('ejs');
 const { profileExperienceToResumeExperience } = require('./experienceAdapter');
+const { convertLegacyTemplateToEjs } = require('./templateSyntaxMigration');
 
 const RESUME_RICH_SUMMARY = {
     allowedTags: ['b', 'i', 'em', 'strong', 'u', 'a', 'br', 'p', 'ul', 'ol', 'li'],
@@ -43,7 +45,7 @@ const DEFAULT_CONFIG = {
     hiddenSections: [],
 };
 
-const FALLBACK_TEMPLATE = `<!DOCTYPE html>
+const FALLBACK_TEMPLATE = convertLegacyTemplateToEjs(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -64,8 +66,10 @@ const FALLBACK_TEMPLATE = `<!DOCTYPE html>
   .exp-date { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
   .edu-item { margin-bottom: 6px; }
   .edu-meta { color: #6b7280; font-size: calc(var(--font-size) - 0.5pt); }
-  .skills-list { display: flex; flex-wrap: wrap; gap: 6px; }
-  .skill-tag { background: #f3f4f6; color: #374151; padding: 2px 8px; border-radius: 3px; font-size: calc(var(--font-size) - 0.5pt); border: 1px solid #e5e7eb; }
+  .skill-groups { display: grid; gap: 5px; }
+  .skill-group { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: start; }
+  .skill-group-title { font-weight: 700; color: #111827; }
+  .skill-items { color: #374151; font-size: calc(var(--font-size) - 0.5pt); }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -80,21 +84,42 @@ const FALLBACK_TEMPLATE = `<!DOCTYPE html>
   {{/section}}
   {{#section experience}}
   <section class="section section-experience"><h2>{{label:experience:Experience}}</h2>
-    {{#each experiences}}<div class="exp-item"><div class="exp-header"><h3>{{roleTitle}}</h3><span class="exp-date">{{startDate}} – {{endDate}}</span></div><div class="exp-company">{{companyName}}</div><div class="description"><ul>{{description}}</ul></div></div>{{/each}}
+    {{#each experiences}}<div class="exp-item"><div class="exp-header"><h3>{{roleTitle}}</h3><span class="exp-date">{{startDate}} - {{endDate}}</span></div><div class="exp-company">{{companyName}}</div><div class="description"><ul>{{description}}</ul></div></div>{{/each}}
   </section>
   {{/section}}
   {{#section education}}
   <section class="section section-education"><h2>{{label:education:Education}}</h2>
-    {{#each education}}<div class="edu-item"><h3>{{degreeLevel}} in {{major}}</h3><div class="edu-meta">{{universityName}} | {{startDate}} – {{endDate}}</div></div>{{/each}}
+    {{#each education}}<div class="edu-item"><h3>{{degreeLevel}} in {{major}}</h3><div class="edu-meta">{{universityName}} | {{startDate}} - {{endDate}}</div></div>{{/each}}
   </section>
   {{/section}}
   {{#section skills}}
   <section class="section section-skills"><h2>{{label:skills:Skills}}</h2>
-    <div class="skills-list">{{#each skills}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+    <div class="skill-groups">
+      <% const visibleSkillGroups = (skillGroups || []).filter((skillGroup) => skillGroup && (skillGroup.items || []).filter(Boolean).length); %>
+      <% const visibleSkills = (skills || []).filter(Boolean); %>
+      <% if (visibleSkillGroups.length) { %>
+      <% visibleSkillGroups.forEach((skillGroup) => { %>
+      <div class="skill-group">
+        <div class="skill-group-title"><%= skillGroup.title %>:</div>
+        <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
+      </div>
+      <% }) %>
+      <% } else if (visibleSkills.length) { %>
+      <div class="skill-items"><%= visibleSkills.join(", ") %></div>
+      <% } %>
+    </div>
   </section>
   {{/section}}
 </div>
-</body></html>`;
+</body></html>`);
+
+const EJS_RENDER_OPTIONS = {
+    async: false,
+    cache: false,
+    compileDebug: false,
+};
+
+const DISALLOWED_EJS_IDENTIFIER_RE = /<%[\s\S]*?\b(?:require|process|global|globalThis|Function|eval|module|exports|__dirname|__filename)\b[\s\S]*?%>/;
 
 function escapeHtml(text) {
     return String(text)
@@ -145,6 +170,69 @@ function parseSkillsList(content) {
         .filter(Boolean);
 }
 
+function pushSkillGroup(target, byTitle, title, items) {
+    const cleanTitle = String(title || '').trim() || 'Skills';
+    const cleanItems = (Array.isArray(items) ? items : [])
+        .map(item => String(item || '').trim())
+        .filter(Boolean);
+    if (!cleanItems.length) return;
+
+    const key = cleanTitle.toLowerCase();
+    const existingIndex = byTitle.get(key);
+    if (existingIndex == null) {
+        byTitle.set(key, target.length);
+        target.push({ title: cleanTitle, items: [...new Set(cleanItems)] });
+        return;
+    }
+
+    const existing = target[existingIndex];
+    for (const item of cleanItems) {
+        if (!existing.items.includes(item)) existing.items.push(item);
+    }
+}
+
+function buildSkillGroups(skills) {
+    if (!Array.isArray(skills)) return [];
+
+    const groups = [];
+    const byTitle = new Map();
+
+    for (const section of skills) {
+        if (typeof section === 'string') {
+            pushSkillGroup(groups, byTitle, 'Skills', [section]);
+            continue;
+        }
+        if (!section || typeof section !== 'object') continue;
+
+        const sectionTitle = String(section.title || '').trim() || 'Skills';
+        const rawItems = Array.isArray(section.items) ? section.items : [];
+        const flatItems = [];
+
+        for (const item of rawItems) {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+                const nestedItems = Array.isArray(item.items) ? item.items : [];
+                pushSkillGroup(groups, byTitle, item.title || sectionTitle, nestedItems);
+                continue;
+            }
+            flatItems.push(item);
+        }
+
+        pushSkillGroup(groups, byTitle, sectionTitle, flatItems);
+    }
+
+    return groups;
+}
+
+function flattenSkillGroups(skillGroups) {
+    const out = [];
+    for (const group of skillGroups || []) {
+        for (const item of group.items || []) {
+            if (!out.includes(item)) out.push(item);
+        }
+    }
+    return out;
+}
+
 function getConfig(resume) {
     if (resume.pageFrameConfig && typeof resume.pageFrameConfig === 'object') {
         return { ...DEFAULT_CONFIG, ...resume.pageFrameConfig };
@@ -192,6 +280,11 @@ function applySectionConfig(html, config) {
     );
 
     result = result.replace(
+        /<!--section:(\w+)-->([\s\S]*?)<!--\/section:\1-->/g,
+        (match, sectionId) => hidden.has(sectionId) ? '' : match,
+    );
+
+    result = result.replace(
         /\{\{label:(\w+):([^}]*)\}\}/g,
         (_match, sectionId, defaultLabel) => labels[sectionId] || defaultLabel,
     );
@@ -220,6 +313,47 @@ function applySectionConfig(html, config) {
 
     result = result.replace(/<!--\/?section:\w+-->/g, '');
     return result;
+}
+
+function showSectionForConfig(config, sectionId) {
+    const hidden = new Set(config.hiddenSections || []);
+    return !hidden.has(sectionId);
+}
+
+function sectionLabelForConfig(config, sectionId, defaultLabel) {
+    const labels = config.sectionLabels || {};
+    return labels[sectionId] || defaultLabel;
+}
+
+function safeHtml(value) {
+    return String(value ?? '');
+}
+
+function buildEjsLocals(data, config = DEFAULT_CONFIG) {
+    return {
+        fullName: data.fullName || '',
+        title: data.title || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        linkedin: data.linkedin || '',
+        github: data.github || '',
+        website: data.website || '',
+        address: data.address || '',
+        summary: data.summary || '',
+        experiences: Array.isArray(data.experiences) ? data.experiences : [],
+        education: Array.isArray(data.education) ? data.education : [],
+        skills: Array.isArray(data.skills) ? data.skills : [],
+        skillGroups: Array.isArray(data.skillGroups) ? data.skillGroups : [],
+        showSection: (sectionId) => showSectionForConfig(config, sectionId),
+        sectionLabel: (sectionId, defaultLabel) => sectionLabelForConfig(config, sectionId, defaultLabel),
+        safeHtml,
+    };
+}
+
+function assertEjsTemplateIsAllowed(templateHtml) {
+    if (DISALLOWED_EJS_IDENTIFIER_RE.test(String(templateHtml || ''))) {
+        throw new Error('Template uses a blocked EJS identifier');
+    }
 }
 
 function buildRenderData(resume) {
@@ -252,16 +386,8 @@ function buildRenderData(resume) {
         endDate: formatDate(edu.endDate),
     }));
 
-    let skills = [];
-    if (Array.isArray(resume.skills) && resume.skills.length) {
-        for (const s of resume.skills) {
-            if (Array.isArray(s.items) && s.items.length) {
-                skills = skills.concat(s.items.map(i => String(i).trim()).filter(Boolean));
-            } else if (typeof s === 'string' && s.trim()) {
-                skills.push(s.trim());
-            }
-        }
-    }
+    const skillGroups = buildSkillGroups(resume.skills);
+    const skills = flattenSkillGroups(skillGroups);
 
     return {
         fullName: profile.fullName || resume.name || 'Resume',
@@ -276,57 +402,58 @@ function buildRenderData(resume) {
         experiences,
         education,
         skills,
+        skillGroups,
     };
 }
 
+function replaceEachBlock(html, collectionName, renderBlock) {
+    const openRe = new RegExp(`\\{\\{#each\\s+${collectionName}\\s*\\}\\}`, 'g');
+    let result = '';
+    let cursor = 0;
+    let openMatch;
+
+    while ((openMatch = openRe.exec(html)) !== null) {
+        result += html.slice(cursor, openMatch.index);
+        const blockStart = openRe.lastIndex;
+        const tagRe = /\{\{#each\s+([A-Za-z0-9_]+)\s*\}\}|\{\{\/each\}\}/g;
+        tagRe.lastIndex = blockStart;
+
+        let depth = 1;
+        let blockEnd = -1;
+        let closeEnd = -1;
+        let tagMatch;
+
+        while ((tagMatch = tagRe.exec(html)) !== null) {
+            if (tagMatch[0].startsWith('{{#each')) depth += 1;
+            else depth -= 1;
+
+            if (depth === 0) {
+                blockEnd = tagMatch.index;
+                closeEnd = tagRe.lastIndex;
+                break;
+            }
+        }
+
+        if (blockEnd < 0 || closeEnd < 0) {
+            result += html.slice(openMatch.index);
+            return result;
+        }
+
+        result += renderBlock(html.slice(blockStart, blockEnd));
+        cursor = closeEnd;
+        openRe.lastIndex = closeEnd;
+    }
+
+    return result + html.slice(cursor);
+}
+
 function renderTemplate(templateHtml, data, config) {
-    let html = templateHtml;
-
-    html = html.replace(/\{\{fullName\}\}/g, data.fullName);
-    html = html.replace(/\{\{title\}\}/g, data.title);
-    html = html.replace(/\{\{email\}\}/g, data.email);
-    html = html.replace(/\{\{phone\}\}/g, data.phone);
-    html = html.replace(/\{\{linkedin\}\}/g, data.linkedin);
-    html = html.replace(/\{\{github\}\}/g, data.github);
-    html = html.replace(/\{\{website\}\}/g, data.website);
-    html = html.replace(/\{\{address\}\}/g, data.address);
-    html = html.replace(/\{\{summary\}\}/g, data.summary);
-
-    const expMatch = html.match(/\{\{#each experiences\}\}([\s\S]*?)\{\{\/each\}\}/);
-    if (expMatch) {
-        const block = expMatch[1];
-        const rendered = data.experiences.map(exp =>
-            block
-                .replace(/\{\{roleTitle\}\}/g, exp.roleTitle)
-                .replace(/\{\{companyName\}\}/g, exp.companyName)
-                .replace(/\{\{startDate\}\}/g, exp.startDate)
-                .replace(/\{\{endDate\}\}/g, exp.endDate)
-                .replace(/\{\{location\}\}/g, exp.location)
-                .replace(/\{\{description\}\}/g, exp.description)
-        ).join('');
-        html = html.replace(/\{\{#each experiences\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
-    }
-
-    const eduMatch = html.match(/\{\{#each education\}\}([\s\S]*?)\{\{\/each\}\}/);
-    if (eduMatch) {
-        const block = eduMatch[1];
-        const rendered = data.education.map(edu =>
-            block
-                .replace(/\{\{degreeLevel\}\}/g, edu.degreeLevel)
-                .replace(/\{\{major\}\}/g, edu.major)
-                .replace(/\{\{universityName\}\}/g, edu.universityName)
-                .replace(/\{\{startDate\}\}/g, edu.startDate)
-                .replace(/\{\{endDate\}\}/g, edu.endDate)
-        ).join('');
-        html = html.replace(/\{\{#each education\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
-    }
-
-    const skillMatch = html.match(/\{\{#each skills\}\}([\s\S]*?)\{\{\/each\}\}/);
-    if (skillMatch) {
-        const block = skillMatch[1];
-        const rendered = data.skills.map(skill => block.replace(/\{\{this\}\}/g, escapeHtml(skill))).join('');
-        html = html.replace(/\{\{#each skills\}\}[\s\S]*?\{\{\/each\}\}/g, rendered);
-    }
+    assertEjsTemplateIsAllowed(templateHtml);
+    let html = ejs.render(
+        String(templateHtml || ''),
+        buildEjsLocals(data || {}, config || DEFAULT_CONFIG),
+        EJS_RENDER_OPTIONS,
+    );
 
     if (config) {
         html = applySectionConfig(html, config);
@@ -386,11 +513,15 @@ module.exports = {
     sanitizeSummaryForTemplate,
     descriptionPointToLi,
     parseSkillsList,
+    buildSkillGroups,
+    flattenSkillGroups,
     getConfig,
     getMargins,
     cssVarsBlock,
     injectCssVars,
     applySectionConfig,
+    buildEjsLocals,
+    assertEjsTemplateIsAllowed,
     buildRenderData,
     renderTemplate,
     resolveTemplateHtml,

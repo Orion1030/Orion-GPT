@@ -23,6 +23,7 @@ function buildExperienceBreakGuardStyles() {
   }
   .section-skills > h2 + .skills-list,
   .section-skills > h2 + .skill-list,
+  .section-skills > h2 + .skill-groups,
   .section-skills > h2 + .skills-inline{
     break-before: avoid-page;
     page-break-before: avoid;
@@ -577,6 +578,41 @@ async function inlineDocxSupportedStyles(html) {
             };
 
             const normalizeSkillsForDocx = () => {
+                const normalizeText = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+                const stripTrailingTitleColon = (value) => normalizeText(value).replace(/\s*[:：]+\s*$/, '');
+
+                const groupedSkillNodes = Array.from(document.querySelectorAll('.skill-group'));
+                for (const group of groupedSkillNodes) {
+                    if (!group || !group.isConnected) continue;
+                    const title = stripTrailingTitleColon(group.querySelector('.skill-group-title')?.textContent || '');
+                    const itemNodes = Array.from(group.querySelectorAll('.skill-items > *, .skill-list > li'));
+                    let items = itemNodes
+                        .map((node) => normalizeText(node.textContent || ''))
+                        .filter(Boolean);
+
+                    if (!items.length) {
+                        items = Array.from(group.querySelectorAll('.skill-items, .skill-list'))
+                            .map((node) => normalizeText(node.textContent || ''))
+                            .filter(Boolean);
+                    }
+
+                    if (!title && !items.length) continue;
+
+                    const p = document.createElement('p');
+                    p.setAttribute('style', 'margin: 0 0 3px 0;');
+
+                    if (title) {
+                        const strong = document.createElement('strong');
+                        strong.textContent = `${title}: `;
+                        p.appendChild(strong);
+                    }
+
+                    const span = document.createElement('span');
+                    span.textContent = items.join(', ');
+                    p.appendChild(span);
+                    group.replaceWith(p);
+                }
+
                 const candidates = Array.from(
                     document.querySelectorAll(
                         ".skills-list, .skill-list, .skill-tags, .skills-tags, [class*='skills-list'], [class*='skill-list'], [class*='skill-tag']",

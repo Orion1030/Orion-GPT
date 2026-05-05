@@ -1,6 +1,36 @@
 const mongoose = require('mongoose')
 
 const PROVIDER_KEYS = ['openai', 'claude', 'gemini']
+const REASONING_CONTROL_TYPES = ['none', 'effort', 'adaptive_effort', 'budget', 'level']
+
+const aiProviderModelCapabilitiesSchema = new mongoose.Schema(
+  {
+    supportsReasoning: {
+      type: Boolean,
+      default: false,
+    },
+    reasoningControl: {
+      type: String,
+      enum: REASONING_CONTROL_TYPES,
+      default: 'none',
+      trim: true,
+      lowercase: true,
+    },
+    supportsStructuredOutputs: {
+      type: Boolean,
+      default: false,
+    },
+    supportsContinuationState: {
+      type: Boolean,
+      default: false,
+    },
+    supportsReasoningSummary: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  { _id: false }
+)
 
 const aiProviderModelSchema = new mongoose.Schema(
   {
@@ -31,6 +61,10 @@ const aiProviderModelSchema = new mongoose.Schema(
     deprecatedAt: {
       type: Date,
       default: null,
+    },
+    capabilities: {
+      type: aiProviderModelCapabilitiesSchema,
+      default: () => ({}),
     },
   },
   { _id: false }

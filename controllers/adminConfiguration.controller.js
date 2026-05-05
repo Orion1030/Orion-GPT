@@ -2,6 +2,7 @@ const asyncErrorHandler = require('../middlewares/asyncErrorHandler')
 const { sendJsonResult } = require('../utils')
 const {
   getAiConfigurationForOwner,
+  resolveEffectiveResumeGenerationStatus,
   upsertAiConfigurationForOwner,
 } = require('../services/adminConfiguration.service')
 const {
@@ -9,11 +10,23 @@ const {
   toProviderCatalogDto,
   upsertAiProviderCatalogEntry,
 } = require('../services/aiProviderCatalog.service')
+const { isAdminUser } = require('../utils/access')
 const { RoleLevels } = require('../utils/constants')
 
 exports.getMyAiConfiguration = asyncErrorHandler(async (req, res) => {
   const ownerUserId = req.user?._id
   const data = await getAiConfigurationForOwner(ownerUserId)
+  return sendJsonResult(res, true, data)
+})
+
+exports.getMyEffectiveResumeGenerationMode = asyncErrorHandler(async (req, res) => {
+  const requestedTargetUserId =
+    typeof req.query?.targetUserId === 'string' ? req.query.targetUserId.trim() : ''
+  const targetUserId =
+    requestedTargetUserId && isAdminUser(req.user)
+      ? requestedTargetUserId
+      : req.user?._id
+  const data = await resolveEffectiveResumeGenerationStatus({ targetUserId })
   return sendJsonResult(res, true, data)
 })
 

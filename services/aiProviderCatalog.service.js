@@ -1,6 +1,29 @@
 const DEFAULT_CACHE_TTL_MS = 60 * 1000
 
 const PROVIDER_KEYS = ['openai', 'claude', 'gemini']
+const REASONING_CONTROL_TYPES = ['none', 'effort', 'adaptive_effort', 'budget', 'level']
+const DEFAULT_MODEL_CAPABILITIES = Object.freeze({
+  supportsReasoning: false,
+  reasoningControl: 'none',
+  supportsStructuredOutputs: false,
+  supportsContinuationState: false,
+  supportsReasoningSummary: false,
+})
+
+function withCapabilities(modelId, label, sortOrder, extras = {}) {
+  return {
+    modelId,
+    label,
+    isActive: true,
+    isDefault: false,
+    sortOrder,
+    deprecatedAt: null,
+    capabilities: {
+      ...DEFAULT_MODEL_CAPABILITIES,
+      ...extras,
+    },
+  }
+}
 
 const FALLBACK_CATALOG = [
   {
@@ -9,11 +32,37 @@ const FALLBACK_CATALOG = [
     isActive: true,
     sortOrder: 10,
     models: [
-      { modelId: 'gpt-4o-mini', label: 'gpt-4o-mini', isActive: true, isDefault: true, sortOrder: 10, deprecatedAt: null },
-      { modelId: 'gpt-4o', label: 'gpt-4o', isActive: true, isDefault: false, sortOrder: 20, deprecatedAt: null },
-      { modelId: 'gpt-4.1', label: 'gpt-4.1', isActive: true, isDefault: false, sortOrder: 30, deprecatedAt: null },
-      { modelId: 'gpt-5.4-mini', label: 'gpt-5.4-mini', isActive: true, isDefault: false, sortOrder: 40, deprecatedAt: null },
-    ],
+      withCapabilities('gpt-5.2-mini', 'gpt-5.2-mini', 10, {
+        supportsReasoning: true,
+        reasoningControl: 'effort',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+      withCapabilities('gpt-5.2', 'gpt-5.2', 20, {
+        supportsReasoning: true,
+        reasoningControl: 'effort',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+      withCapabilities('gpt-5.4-mini', 'gpt-5.4-mini', 30, {
+        supportsReasoning: true,
+        reasoningControl: 'effort',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+      withCapabilities('gpt-4.1', 'gpt-4.1', 40, {
+        supportsStructuredOutputs: true,
+      }),
+      withCapabilities('gpt-4o', 'gpt-4o', 50, {
+        supportsStructuredOutputs: true,
+      }),
+    ].map((model, index) => ({
+      ...model,
+      isDefault: index === 0,
+    })),
   },
   {
     providerKey: 'claude',
@@ -21,31 +70,31 @@ const FALLBACK_CATALOG = [
     isActive: true,
     sortOrder: 20,
     models: [
-      {
-        modelId: 'claude-3-7-sonnet-latest',
-        label: 'claude-3-7-sonnet-latest',
-        isActive: true,
-        isDefault: true,
-        sortOrder: 10,
-        deprecatedAt: null,
-      },
-      {
-        modelId: 'claude-3-5-sonnet-latest',
-        label: 'claude-3-5-sonnet-latest',
-        isActive: true,
-        isDefault: false,
-        sortOrder: 20,
-        deprecatedAt: null,
-      },
-      {
-        modelId: 'claude-3-5-haiku-latest',
-        label: 'claude-3-5-haiku-latest',
-        isActive: true,
-        isDefault: false,
-        sortOrder: 30,
-        deprecatedAt: null,
-      },
-    ],
+      withCapabilities('claude-sonnet-4-0', 'claude-sonnet-4-0', 10, {
+        supportsReasoning: true,
+        reasoningControl: 'adaptive_effort',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+      withCapabilities('claude-opus-4-0', 'claude-opus-4-0', 20, {
+        supportsReasoning: true,
+        reasoningControl: 'adaptive_effort',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+      withCapabilities('claude-3-7-sonnet-latest', 'claude-3-7-sonnet-latest', 30, {
+        supportsReasoning: true,
+        reasoningControl: 'budget',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+    ].map((model, index) => ({
+      ...model,
+      isDefault: index === 0,
+    })),
   },
   {
     providerKey: 'gemini',
@@ -53,10 +102,27 @@ const FALLBACK_CATALOG = [
     isActive: true,
     sortOrder: 30,
     models: [
-      { modelId: 'gemini-2.5-pro', label: 'gemini-2.5-pro', isActive: true, isDefault: true, sortOrder: 10, deprecatedAt: null },
-      { modelId: 'gemini-2.5-flash', label: 'gemini-2.5-flash', isActive: true, isDefault: false, sortOrder: 20, deprecatedAt: null },
-      { modelId: 'gemini-2.0-flash', label: 'gemini-2.0-flash', isActive: true, isDefault: false, sortOrder: 30, deprecatedAt: null },
-    ],
+      withCapabilities('gemini-2.5-pro', 'gemini-2.5-pro', 10, {
+        supportsReasoning: true,
+        reasoningControl: 'budget',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+      withCapabilities('gemini-2.5-flash', 'gemini-2.5-flash', 20, {
+        supportsReasoning: true,
+        reasoningControl: 'budget',
+        supportsStructuredOutputs: true,
+        supportsContinuationState: true,
+        supportsReasoningSummary: true,
+      }),
+      withCapabilities('gemini-2.0-flash', 'gemini-2.0-flash', 30, {
+        supportsStructuredOutputs: true,
+      }),
+    ].map((model, index) => ({
+      ...model,
+      isDefault: index === 0,
+    })),
   },
 ]
 
@@ -107,7 +173,73 @@ function toDateOrNull(value) {
   return parsed
 }
 
-function normalizeModelEntry(input, index = 0) {
+function getFallbackCatalog() {
+  return normalizeCatalogItems(FALLBACK_CATALOG)
+}
+
+function findProviderEntry(catalog, providerKey) {
+  const key = sanitizeProviderKey(providerKey)
+  if (!key) return null
+  return (Array.isArray(catalog) ? catalog : []).find((provider) => provider.providerKey === key) || null
+}
+
+function findFallbackModelEntry(providerKey, modelId) {
+  const normalizedProviderKey = sanitizeProviderKey(providerKey)
+  const normalizedModelId = sanitizeText(modelId, 120)
+  if (!normalizedProviderKey || !normalizedModelId) return null
+
+  const provider = FALLBACK_CATALOG.find((item) => item.providerKey === normalizedProviderKey)
+  if (!provider) return null
+  const model = (Array.isArray(provider.models) ? provider.models : []).find(
+    (item) => item.modelId === normalizedModelId
+  )
+  if (!model) return null
+
+  return {
+    ...model,
+    capabilities: {
+      ...DEFAULT_MODEL_CAPABILITIES,
+      ...(model.capabilities || {}),
+    },
+  }
+}
+
+function normalizeReasoningControl(value, fallback = DEFAULT_MODEL_CAPABILITIES.reasoningControl) {
+  const normalized = sanitizeText(value, 40).toLowerCase()
+  return REASONING_CONTROL_TYPES.includes(normalized) ? normalized : fallback
+}
+
+function normalizeModelCapabilities(input = {}, providerKey = '', modelId = '') {
+  const fallbackCapabilities =
+    findFallbackModelEntry(providerKey, modelId)?.capabilities || DEFAULT_MODEL_CAPABILITIES
+
+  const supportsReasoning = toBoolean(
+    input?.supportsReasoning,
+    Boolean(fallbackCapabilities.supportsReasoning)
+  )
+  const reasoningControl = supportsReasoning
+    ? normalizeReasoningControl(input?.reasoningControl, fallbackCapabilities.reasoningControl)
+    : 'none'
+
+  return {
+    supportsReasoning,
+    reasoningControl,
+    supportsStructuredOutputs: toBoolean(
+      input?.supportsStructuredOutputs,
+      Boolean(fallbackCapabilities.supportsStructuredOutputs)
+    ),
+    supportsContinuationState: toBoolean(
+      input?.supportsContinuationState,
+      Boolean(fallbackCapabilities.supportsContinuationState)
+    ),
+    supportsReasoningSummary: toBoolean(
+      input?.supportsReasoningSummary,
+      Boolean(fallbackCapabilities.supportsReasoningSummary)
+    ),
+  }
+}
+
+function normalizeModelEntry(input, index = 0, providerKey = '') {
   const modelId = sanitizeText(input?.modelId, 120)
   if (!modelId) return null
   return {
@@ -117,6 +249,7 @@ function normalizeModelEntry(input, index = 0) {
     isDefault: toBoolean(input?.isDefault, false),
     sortOrder: toNumber(input?.sortOrder, (index + 1) * 10),
     deprecatedAt: toDateOrNull(input?.deprecatedAt),
+    capabilities: normalizeModelCapabilities(input?.capabilities, providerKey, modelId),
   }
 }
 
@@ -125,7 +258,7 @@ function ensureProviderModelConsistency(provider) {
   const seenModelIds = new Set()
 
   for (let index = 0; index < (Array.isArray(provider?.models) ? provider.models.length : 0); index += 1) {
-    const model = normalizeModelEntry(provider.models[index], index)
+    const model = normalizeModelEntry(provider.models[index], index, provider?.providerKey)
     if (!model) continue
     const key = model.modelId.toLowerCase()
     if (seenModelIds.has(key)) continue
@@ -157,6 +290,7 @@ function normalizeProviderEntry(input, index = 0) {
   if (!providerKey) return null
   const label = sanitizeText(input?.label, 80) || providerKey.toUpperCase()
   const models = ensureProviderModelConsistency({
+    providerKey,
     models: Array.isArray(input?.models) ? input.models : [],
   })
   return {
@@ -180,10 +314,6 @@ function normalizeCatalogItems(items) {
   }
   normalized.sort((a, b) => a.sortOrder - b.sortOrder || a.providerKey.localeCompare(b.providerKey))
   return normalized
-}
-
-function getFallbackCatalog() {
-  return normalizeCatalogItems(FALLBACK_CATALOG)
 }
 
 function clearAiProviderCatalogCache() {
@@ -248,10 +378,12 @@ function filterActiveCatalog(items) {
     .filter((provider) => provider.models.length > 0)
 }
 
-function findProviderEntry(catalog, providerKey) {
-  const key = sanitizeProviderKey(providerKey)
-  if (!key) return null
-  return (Array.isArray(catalog) ? catalog : []).find((provider) => provider.providerKey === key) || null
+function findProviderModelEntry(catalog, providerKey, modelId) {
+  const provider = findProviderEntry(catalog, providerKey)
+  if (!provider) return null
+  const normalizedModel = sanitizeText(modelId, 120)
+  if (!normalizedModel) return null
+  return provider.models.find((model) => model.modelId === normalizedModel) || null
 }
 
 function getDefaultProviderKey(catalog) {
@@ -268,11 +400,15 @@ function getDefaultModelId(catalog, providerKey) {
 }
 
 function isSupportedProviderModel(catalog, providerKey, modelId) {
-  const provider = findProviderEntry(catalog, providerKey)
-  if (!provider) return false
-  const normalizedModel = sanitizeText(modelId, 120)
-  if (!normalizedModel) return false
-  return provider.models.some((model) => model.modelId === normalizedModel)
+  return Boolean(findProviderModelEntry(catalog, providerKey, modelId))
+}
+
+function getModelCapabilities(catalog, providerKey, modelId) {
+  const model =
+    findProviderModelEntry(catalog, providerKey, modelId) ||
+    findFallbackModelEntry(providerKey, modelId)
+
+  return normalizeModelCapabilities(model?.capabilities, providerKey, modelId)
 }
 
 function toProviderCatalogDto(provider) {
@@ -288,6 +424,7 @@ function toProviderCatalogDto(provider) {
       isDefault: Boolean(model.isDefault),
       sortOrder: toNumber(model.sortOrder, 0),
       deprecatedAt: model.deprecatedAt || null,
+      capabilities: normalizeModelCapabilities(model.capabilities, provider.providerKey, model.modelId),
     })),
   }
 }
@@ -371,20 +508,25 @@ async function upsertAiProviderCatalogEntry({
     { upsert: true, returnDocument: 'after' }
   )
 
+  clearAiProviderCatalogCache()
   const fullCatalog = await listAiProviderCatalog({ includeInactive: true, forceRefresh: true })
-
   const saved = findProviderEntry(fullCatalog, normalizedProviderKey)
   return { ok: true, status: 200, message: 'AI provider catalog updated', data: toProviderCatalogDto(saved) }
 }
 
 module.exports = {
+  DEFAULT_MODEL_CAPABILITIES,
   PROVIDER_KEYS,
+  REASONING_CONTROL_TYPES,
   clearAiProviderCatalogCache,
   findProviderEntry,
+  findProviderModelEntry,
   getDefaultModelId,
   getDefaultProviderKey,
+  getModelCapabilities,
   isSupportedProviderModel,
   listAiProviderCatalog,
+  normalizeModelCapabilities,
   toProviderCatalogDto,
   upsertAiProviderCatalogEntry,
 }
