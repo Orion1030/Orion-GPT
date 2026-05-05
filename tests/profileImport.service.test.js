@@ -297,4 +297,63 @@ describe("profileImport.service parseProfileImportText", () => {
       })
     );
   });
+
+  it("builds a profile import draft from JSON without calling the LLM parser", async () => {
+    buildReadableProfileFilterForUserMock.mockResolvedValue({ userId: "user-4" });
+    profileFindMock.mockReturnValue(buildLeanQuery([]));
+    stackFindMock.mockReturnValue(
+      buildSelectLeanQuery([
+        {
+          _id: "stack-json",
+          title: "Backend",
+          primarySkills: ["Node.js", "MongoDB"],
+          SecondarySkills: [],
+        },
+      ])
+    );
+
+    const { result, error } = await parseProfileImportText({
+      actor: { _id: "user-4", role: 3 },
+      text: JSON.stringify({
+        name: "Jordan JSON",
+        summary: "Backend engineer",
+        skills: ["Node.js", "MongoDB"],
+        profile: {
+          fullName: "Jordan JSON",
+          title: "Backend Engineer",
+          contactInfo: {
+            email: "jordan@example.com",
+            linkedin: "https://linkedin.com/in/jordan-json",
+          },
+        },
+        experiences: [
+          {
+            title: "Backend Engineer",
+            companyName: "SchemaCo",
+            descriptions: ["Built APIs"],
+            startDate: "2020",
+            endDate: "Present",
+          },
+        ],
+      }),
+    });
+
+    expect(error).toBeNull();
+    expect(tryParseResumeTextWithLLMMock).not.toHaveBeenCalled();
+    expect(result.draft).toEqual(
+      expect.objectContaining({
+        fullName: "Jordan JSON",
+        title: "Backend Engineer",
+        stackId: "stack-json",
+        mainStack: "Backend",
+        isReadyForCreate: true,
+      })
+    );
+    expect(result.draft.contactInfo).toEqual(
+      expect.objectContaining({
+        email: "jordan@example.com",
+        linkedin: "https://linkedin.com/in/jordan-json",
+      })
+    );
+  });
 });

@@ -189,4 +189,85 @@ describe("resumeAI.parseTextResume controller", () => {
     );
     expect(payload.data.createNewProfileSuggested).toBe(true);
   });
+
+  it("parses resume JSON directly without calling the LLM parser", async () => {
+    profileFindMock.mockReturnValue(buildLeanQuery([]));
+
+    const req = {
+      user: { _id: "user-json" },
+      body: {
+        text: JSON.stringify({
+          name: "Direct JSON Resume",
+          summary: "Imported from structured JSON.",
+          experiences: [
+            {
+              roleTitle: "Platform Engineer",
+              company: "SchemaCo",
+              bullets: ["Built reliable services"],
+              start: "2022-01",
+              end: "Present",
+            },
+          ],
+          skills: ["Node.js", "MongoDB"],
+          education: [
+            {
+              degree: "BS",
+              school: "State University",
+              field: "Computer Science",
+            },
+          ],
+          unexpectedField: "ignored",
+        }),
+      },
+    };
+    const res = makeResponse();
+
+    await invokeController(req, res);
+
+    expect(tryParseResumeTextWithLLMMock).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.success).toBe(true);
+    expect(payload.data.parseSource).toBe("json");
+    expect(payload.data.parsed).toEqual(
+      expect.objectContaining({
+        name: "Direct JSON Resume",
+        summary: "Imported from structured JSON.",
+      })
+    );
+    expect(payload.data.parsed.experiences[0]).toEqual(
+      expect.objectContaining({
+        title: "Platform Engineer",
+        companyName: "SchemaCo",
+        descriptions: ["Built reliable services"],
+        startDate: "2022-01",
+        endDate: "Present",
+      })
+    );
+    expect(payload.data.parsed.skills).toEqual([
+      { title: "Skills", items: ["Node.js", "MongoDB"] },
+    ]);
+    expect(payload.data.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("unexpectedField"),
+      ])
+    );
+  });
+
+  it("returns a schema error for malformed JSON instead of falling back to LLM", async () => {
+    const req = {
+      user: { _id: "user-json" },
+      body: { text: '{ "name": "Broken Resume", "experiences": [' },
+    };
+    const res = makeResponse();
+
+    await invokeController(req, res);
+
+    expect(tryParseResumeTextWithLLMMock).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.success).toBe(false);
+    expect(payload.message).toMatch(/Invalid JSON/);
+    expect(payload.data.schema).toBeTruthy();
+  });
 });

@@ -8,6 +8,7 @@ const { RoleLevels } = require("../utils/constants");
 const { tryGenerateResumeJsonFromJD } = require("../utils/resumeGeneration");
 const { tryRefineResumeWithFeedback } = require("../services/llm/resumeRefine.service");
 const { tryParseResumeTextWithLLM } = require("../utils/parseResume");
+const { parseResumeJsonText } = require("../services/resumeJsonImport.service");
 const { buildReadableProfileFilterForUser } = require("../services/profileAccess.service");
 const {
   resolveJdContext,
@@ -244,12 +245,28 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Input too large. Please trim the file.", 413);
   }
 
-  const { result: parseResult, error: parseError } = await tryParseResumeTextWithLLM(text);
-  if (parseError) {
-    return sendJsonResult(res, false, null, parseError.message, parseError.statusCode || 500);
+  const jsonParseResult = parseResumeJsonText(text);
+  if (jsonParseResult.error) {
+    return sendJsonResult(
+      res,
+      false,
+      { schema: jsonParseResult.error.schema },
+      jsonParseResult.error.message,
+      jsonParseResult.error.statusCode || 400
+    );
+  }
+  const parseSource = jsonParseResult.result ? "json" : "llm";
+  const parseWarnings = jsonParseResult.result?.warnings || [];
+  const parseSchema = jsonParseResult.result?.schema || null;
+  const llmParseResult = jsonParseResult.result
+    ? { result: { parsed: jsonParseResult.result.parsed }, error: null }
+    : await tryParseResumeTextWithLLM(text);
+
+  if (llmParseResult.error) {
+    return sendJsonResult(res, false, null, llmParseResult.error.message, llmParseResult.error.statusCode || 500);
   }
 
-  let parsed = parseResult.parsed || {};
+  let parsed = llmParseResult.result.parsed || {};
   parsed.name = parsed.name || "Parsed Resume";
   parsed.summary = parsed.summary || "";
   parsed.experiences = normalizeParsedExperiences(parsed.experiences);
@@ -325,7 +342,15 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
     .sort((a, b) => b.score - a.score);
 
   if (!scoredMatches.length) {
-    return sendJsonResult(res, true, { parsed, bestMatch: null, matches: [], createNewProfileSuggested: true });
+    return sendJsonResult(res, true, {
+      parsed,
+      bestMatch: null,
+      matches: [],
+      createNewProfileSuggested: true,
+      parseSource,
+      warnings: parseWarnings,
+      schema: parseSchema,
+    });
   }
 
   const bestMatch = scoredMatches[0]
@@ -343,7 +368,15 @@ exports.parseTextResume = asyncErrorHandler(async (req, res) => {
     );
   }
 
-  return sendJsonResult(res, true, { parsed, bestMatch, matches, createNewProfileSuggested: false });
+  return sendJsonResult(res, true, {
+    parsed,
+    bestMatch,
+    matches,
+    createNewProfileSuggested: false,
+    parseSource,
+    warnings: parseWarnings,
+    schema: parseSchema,
+  });
 });
 
 /** Generate resume from JD + profile (LLM -> normalized JSON). */

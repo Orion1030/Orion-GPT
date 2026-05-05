@@ -1,5 +1,6 @@
 const { ProfileModel, StackModel } = require("../dbModels");
 const { tryParseResumeTextWithLLM } = require("../utils/parseResume");
+const { parseResumeJsonText } = require("./resumeJsonImport.service");
 const { buildReadableProfileFilterForUser } = require("./profileAccess.service");
 const { normalizeSkill, normalizeSkills } = require("../utils/skillNormalizer");
 const { areEmploymentsEquivalent, normalizeEmploymentText } = require("../utils/employmentKey");
@@ -334,16 +335,21 @@ function normalizeParsedCareerHistory(experiences) {
   return sortCareerHistoryMostRecentFirst(
     experiences
       .map((entry) => {
-      const descriptions = Array.isArray(entry?.descriptions)
-        ? entry.descriptions.map((line) => toCleanString(line)).filter(Boolean)
+      const rawDescriptions = Array.isArray(entry?.descriptions)
+        ? entry.descriptions
+        : Array.isArray(entry?.keyPoints)
+          ? entry.keyPoints
+          : [];
+      const descriptions = rawDescriptions
+        ? rawDescriptions.map((line) => toCleanString(line)).filter(Boolean)
         : [];
 
       const normalizedEntry = {
         companyName: toCleanString(entry?.companyName),
-        roleTitle: toCleanString(entry?.title),
+        roleTitle: toCleanString(entry?.title) || toCleanString(entry?.roleTitle),
         startDate: toCleanString(entry?.startDate),
         endDate: toCleanString(entry?.endDate),
-        companySummary: toCleanString(entry?.summary),
+        companySummary: toCleanString(entry?.summary) || toCleanString(entry?.companySummary),
         keyPoints: toListHtml(descriptions),
       };
       const normalizedDates = normalizeImportedDateRange(
@@ -748,32 +754,60 @@ function buildWarnings({ contactInfo, careerHistory, educations, inferredSkills,
 }
 
 async function parseProfileImportText({ actor, text, targetUserId = null }) {
-  const { result: parseResult, error: parseError } = await tryParseResumeTextWithLLM(text);
+  const jsonParseResult = parseResumeJsonText(text);
+  if (jsonParseResult.error) {
+    return { result: null, error: jsonParseResult.error };
+  }
+  const { result: parseResult, error: parseError } = jsonParseResult.result
+    ? { result: { parsed: jsonParseResult.result.parsed }, error: null }
+    : await tryParseResumeTextWithLLM(text);
   if (parseError) {
     return { result: null, error: parseError };
   }
 
   const parsed = parseResult?.parsed || {};
+  const parsedProfile =
+    parsed?.profile && typeof parsed.profile === "object" ? parsed.profile : {};
+  const parsedContactInfo =
+    parsedProfile?.contactInfo && typeof parsedProfile.contactInfo === "object"
+      ? parsedProfile.contactInfo
+      : {};
   const fullName =
-    toCleanString(parsed?.name) || extractLikelyNameFromText(text);
+    toCleanString(parsedProfile?.fullName) ||
+    toCleanString(parsed?.name) ||
+    extractLikelyNameFromText(text);
   const titleCandidates = buildTitleCandidates(parsed, text, fullName);
-  const title = titleCandidates[0] || "";
+  const title = toCleanString(parsedProfile?.title) || titleCandidates[0] || "";
   const contactInfo = {
     ...extractContactInfoFromText(text),
+    ...parsedContactInfo,
     address: extractAddressFromText(text, fullName),
   };
-  const careerHistory = normalizeParsedCareerHistory(parsed?.experiences);
-  const educations = normalizeParsedEducations(parsed?.education);
+  if (toCleanString(parsedContactInfo.address)) {
+    contactInfo.address = toCleanString(parsedContactInfo.address);
+  }
+  const careerHistory =
+    Array.isArray(parsedProfile?.careerHistory) && parsedProfile.careerHistory.length
+      ? normalizeParsedCareerHistory(parsedProfile.careerHistory)
+      : normalizeParsedCareerHistory(parsed?.experiences);
+  const educations =
+    Array.isArray(parsedProfile?.educations) && parsedProfile.educations.length
+      ? normalizeParsedEducations(parsedProfile.educations)
+      : normalizeParsedEducations(parsed?.education);
   const inferredSkills = flattenParsedSkillItems(parsed?.skills);
 
   const draft = {
     fullName,
     title,
     titleCandidates,
-    mainStack: "",
-    stackId: null,
-    defaultTemplateId: null,
-    link: contactInfo.linkedin || contactInfo.website || "",
+    mainStack: toCleanString(parsedProfile?.mainStack),
+    stackId: parsedProfile?.stackId || null,
+    defaultTemplateId: parsedProfile?.defaultTemplateId || null,
+    link:
+      toCleanString(parsedProfile?.link) ||
+      contactInfo.linkedin ||
+      contactInfo.website ||
+      "",
     contactInfo,
     careerHistory,
     educations,
@@ -798,7 +832,7 @@ async function parseProfileImportText({ actor, text, targetUserId = null }) {
     educations,
     inferredSkills,
     stackSuggestions,
-  });
+  }).concat(jsonParseResult.result?.warnings || []);
 
   const missingRequiredFields = [];
   if (!draft.fullName) missingRequiredFields.push("fullName");
