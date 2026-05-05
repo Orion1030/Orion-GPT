@@ -243,7 +243,7 @@ describe("profileImport.service parseProfileImportText", () => {
               endDate: "07/2025",
             },
             {
-              title: "Senior Data Platform Engineer | Aug. 2025 – Present",
+              title: "Senior Data Platform Engineer | Aug. 2025 - Present",
               companyName: "Axos Bank",
               descriptions: ["Built data pipelines"],
               startDate: "",

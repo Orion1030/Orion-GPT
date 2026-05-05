@@ -61,7 +61,7 @@ const MONTH_NAME_YEAR_PATTERN = new RegExp(
   "i"
 );
 const DATE_TOKEN_PATTERN = new RegExp(`\\b(?:${DATE_VALUE_SOURCE})\\b`, "gi");
-const DATE_RANGE_SEPARATOR_SOURCE = "(?:-|–|—|to)";
+const DATE_RANGE_SEPARATOR_SOURCE = "(?:-|-|—|to)";
 const DATE_RANGE_TAIL_PATTERNS = [
   new RegExp(
     String.raw`\s*\|\s*(?:${DATE_VALUE_SOURCE})\s*${DATE_RANGE_SEPARATOR_SOURCE}\s*(?:${DATE_VALUE_SOURCE})\s*$`,
@@ -234,7 +234,7 @@ function normalizeDetectedDateToken(value) {
 
 function extractNormalizedDateTokens(value) {
   const raw = toText(value)
-    .replace(/[–—]/g, " ")
+    .replace(/[-—]/g, " ")
     .replace(/\s+/g, " ");
   if (!raw) return [];
 
@@ -334,7 +334,7 @@ function stripTrailingImportedDateRange(value) {
     (current, pattern) => current.replace(pattern, ""),
     raw
   )
-    .replace(/\s*(?:\||,|-|–|—)\s*$/, "")
+    .replace(/\s*(?:\||,|-|-|—)\s*$/, "")
     .trim();
 
   return cleaned || raw;

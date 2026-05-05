@@ -84,12 +84,12 @@ const FALLBACK_TEMPLATE = convertLegacyTemplateToEjs(`<!DOCTYPE html>
   {{/section}}
   {{#section experience}}
   <section class="section section-experience"><h2>{{label:experience:Experience}}</h2>
-    {{#each experiences}}<div class="exp-item"><div class="exp-header"><h3>{{roleTitle}}</h3><span class="exp-date">{{startDate}} – {{endDate}}</span></div><div class="exp-company">{{companyName}}</div><div class="description"><ul>{{description}}</ul></div></div>{{/each}}
+    {{#each experiences}}<div class="exp-item"><div class="exp-header"><h3>{{roleTitle}}</h3><span class="exp-date">{{startDate}} - {{endDate}}</span></div><div class="exp-company">{{companyName}}</div><div class="description"><ul>{{description}}</ul></div></div>{{/each}}
   </section>
   {{/section}}
   {{#section education}}
   <section class="section section-education"><h2>{{label:education:Education}}</h2>
-    {{#each education}}<div class="edu-item"><h3>{{degreeLevel}} in {{major}}</h3><div class="edu-meta">{{universityName}} | {{startDate}} – {{endDate}}</div></div>{{/each}}
+    {{#each education}}<div class="edu-item"><h3>{{degreeLevel}} in {{major}}</h3><div class="edu-meta">{{universityName}} | {{startDate}} - {{endDate}}</div></div>{{/each}}
   </section>
   {{/section}}
   {{#section skills}}

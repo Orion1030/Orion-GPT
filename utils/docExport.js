@@ -578,14 +578,24 @@ async function inlineDocxSupportedStyles(html) {
             };
 
             const normalizeSkillsForDocx = () => {
+                const normalizeText = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+                const stripTrailingTitleColon = (value) => normalizeText(value).replace(/\s*[:：]+\s*$/, '');
+
                 const groupedSkillNodes = Array.from(document.querySelectorAll('.skill-group'));
                 for (const group of groupedSkillNodes) {
                     if (!group || !group.isConnected) continue;
-                    const title = String(group.querySelector('.skill-group-title')?.textContent || '').replace(/\s+/g, ' ').trim();
+                    const title = stripTrailingTitleColon(group.querySelector('.skill-group-title')?.textContent || '');
                     const itemNodes = Array.from(group.querySelectorAll('.skill-items > *, .skill-list > li'));
-                    const items = itemNodes
-                        .map((node) => String(node.textContent || '').replace(/\s+/g, ' ').trim())
+                    let items = itemNodes
+                        .map((node) => normalizeText(node.textContent || ''))
                         .filter(Boolean);
+
+                    if (!items.length) {
+                        items = Array.from(group.querySelectorAll('.skill-items, .skill-list'))
+                            .map((node) => normalizeText(node.textContent || ''))
+                            .filter(Boolean);
+                    }
+
                     if (!title && !items.length) continue;
 
                     const p = document.createElement('p');

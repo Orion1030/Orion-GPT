@@ -36,7 +36,7 @@ Generate a tailored resume JSON that is ATS-friendly, fact-grounded, role-target
 ---
 
 ### \`summary\`
-- 3–5 sentences, senior-level tone.
+- 3-5 sentences, senior-level tone.
 - Strong alignment to the job description.
 - Include (when supported by input):
   - years of experience
@@ -65,12 +65,12 @@ Generate a tailored resume JSON that is ATS-friendly, fact-grounded, role-target
   - product or platform focus
 
 #### Bullet count by seniority:
-- Senior / Lead / Principal / Manager: 8–12 bullets
-- Mid-level: 6–9 bullets
-- Junior: 4–7 bullets
+- Senior / Lead / Principal / Manager: 8-12 bullets
+- Mid-level: 6-9 bullets
+- Junior: 4-7 bullets
 
 #### Bullet construction rules:
-- Each bullet: should be a single sentence, ~150–250 characters when practical.
+- Each bullet: should be a single sentence, ~150-250 characters when practical.
 - Structure:
   Action + Technology + System/Project Scope + Business/Engineering Impact
 - Each bullet should include at least TWO of:
@@ -101,7 +101,7 @@ Generate a tailored resume JSON that is ATS-friendly, fact-grounded, role-target
 - Prioritize overlap between job description and candidate data.
 - Include recruiter-relevant keywords and adjacent technologies when grounded.
 - Avoid duplicates across categories.
-- Keep total skills roughly within 30–45 or more items across all categories.
+- Keep total skills roughly within 30-45 or more items across all categories.
 - Maintain ATS optimization without keyword stuffing.
 
 ---

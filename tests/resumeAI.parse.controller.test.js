@@ -124,7 +124,7 @@ describe("resumeAI.parseTextResume controller", () => {
           summary: "Imported summary",
           experiences: [
             {
-              title: "Senior Data Platform Engineer | Aug 2025 – Present",
+              title: "Senior Data Platform Engineer | Aug 2025 - Present",
               companyName: "Axos Bank",
               descriptions: ["Built data platforms"],
               startDate: "",
@@ -142,7 +142,7 @@ describe("resumeAI.parseTextResume controller", () => {
           education: [
             {
               degreeLevel: "Bachelor of Science",
-              universityName: "The University of Texas at Austin | 2013–2017",
+              universityName: "The University of Texas at Austin | 2013-2017",
               major: "Computer Science",
               startDate: "",
               endDate: "",
