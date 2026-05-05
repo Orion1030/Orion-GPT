@@ -49,8 +49,7 @@ const SEED_TEMPLATES = [
   .skill-groups { display: grid; gap: 5px; }
   .skill-group { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: start; }
   .skill-group-title { font-weight: 700; color: #111827; }
-  .skill-items { display: flex; flex-wrap: wrap; gap: 5px; }
-  .skill-tag { background: #f3f4f6; color: #374151; padding: 2px 8px; border-radius: 3px; font-size: calc(var(--font-size) - 0.5pt); border: 1px solid #e5e7eb; }
+  .skill-items { color: #374151; font-size: calc(var(--font-size) - 0.5pt); }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -109,7 +108,7 @@ const SEED_TEMPLATES = [
       <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
         <div class="skill-group-title"><%= skillGroup.title %></div>
-        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span class="skill-tag"><%= item %></span><% }) %></div>
+        <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
     </div>
@@ -167,8 +166,7 @@ const SEED_TEMPLATES = [
   .skill-groups { display: grid; gap: 7px; }
   .skill-group { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: start; }
   .skill-group-title { color: #111827; font-weight: 700; }
-  .skill-items { display: flex; flex-wrap: wrap; gap: 5px; }
-  .skill-tag { background: var(--accent); color: white; padding: 3px 10px; border-radius: 12px; font-size: calc(var(--font-size) - 1pt); }
+  .skill-items { color: #374151; font-size: calc(var(--font-size) - 0.5pt); }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -225,7 +223,7 @@ const SEED_TEMPLATES = [
       <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
         <div class="skill-group-title"><%= skillGroup.title %></div>
-        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span class="skill-tag"><%= item %></span><% }) %></div>
+        <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
     </div>
@@ -286,7 +284,7 @@ const SEED_TEMPLATES = [
   .skill-groups { display: grid; gap: 4px; color: #374151; font-size: var(--font-size); }
   .skill-group { display: grid; grid-template-columns: 118px 1fr; gap: 8px; }
   .skill-group-title { font-weight: 700; color: #111827; }
-  .skill-items { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .skill-items { color: #374151; }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -347,7 +345,7 @@ const SEED_TEMPLATES = [
       <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
         <div class="skill-group-title"><%= skillGroup.title %></div>
-        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span><%= item %></span><% }) %></div>
+        <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
     </div>
@@ -404,7 +402,7 @@ const SEED_TEMPLATES = [
   .skills-inline { display: grid; gap: 3px; color: #374151; font-size: calc(var(--font-size) - 0.5pt); }
   .skill-group { display: grid; grid-template-columns: 112px 1fr; gap: 8px; }
   .skill-group-title { font-weight: 700; color: #111827; }
-  .skill-items { display: flex; flex-wrap: wrap; gap: 3px 10px; }
+  .skill-items { color: #374151; }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -464,7 +462,7 @@ const SEED_TEMPLATES = [
       <% (skillGroups || []).forEach((skillGroup) => { %>
       <div class="skill-group">
         <div class="skill-group-title"><%= skillGroup.title %></div>
-        <div class="skill-items"><% (skillGroup.items || []).forEach((item) => { %><span><%= item %></span><% }) %></div>
+        <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
     </div>
@@ -566,9 +564,7 @@ const SEED_TEMPLATES = [
           <% (skillGroups || []).forEach((skillGroup) => { %>
           <div class="skill-group">
             <div class="skill-group-title"><%= skillGroup.title %></div>
-            <ul class="skill-list">
-              <% (skillGroup.items || []).forEach((item) => { %><li><%= item %></li><% }) %>
-            </ul>
+            <div class="skill-list"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
           </div>
           <% }) %>
         </div>

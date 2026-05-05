@@ -69,8 +69,7 @@ const FALLBACK_TEMPLATE = convertLegacyTemplateToEjs(`<!DOCTYPE html>
   .skill-groups { display: grid; gap: 5px; }
   .skill-group { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: start; }
   .skill-group-title { font-weight: 700; color: #111827; }
-  .skill-items { display: flex; flex-wrap: wrap; gap: 5px; }
-  .skill-tag { background: #f3f4f6; color: #374151; padding: 2px 8px; border-radius: 3px; font-size: calc(var(--font-size) - 0.5pt); border: 1px solid #e5e7eb; }
+  .skill-items { color: #374151; font-size: calc(var(--font-size) - 0.5pt); }
 </style></head><body>
 <div class="resume">
   <header class="header">
@@ -99,7 +98,7 @@ const FALLBACK_TEMPLATE = convertLegacyTemplateToEjs(`<!DOCTYPE html>
       {{#each skillGroups}}
       <div class="skill-group">
         <div class="skill-group-title">{{title}}</div>
-        <div class="skill-items">{{#each items}}<span class="skill-tag">{{this}}</span>{{/each}}</div>
+        <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       {{/each}}
     </div>
