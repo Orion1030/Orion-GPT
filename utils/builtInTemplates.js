@@ -105,12 +105,18 @@ const SEED_TEMPLATES = [
     <h2><%= sectionLabel("skills", "Skills") %></h2>
 
     <div class="skill-groups">
-      <% (skillGroups || []).forEach((skillGroup) => { %>
+      <% const visibleSkillGroups = (skillGroups || []).filter((skillGroup) => skillGroup && (skillGroup.items || []).filter(Boolean).length); %>
+      <% const visibleSkills = (skills || []).filter(Boolean); %>
+      <% if (visibleSkillGroups.length) { %>
+      <% visibleSkillGroups.forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-group-title"><%= skillGroup.title %>:</div>
         <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
+      <% } else if (visibleSkills.length) { %>
+      <div class="skill-items"><%= visibleSkills.join(", ") %></div>
+      <% } %>
     </div>
   </section>
   <!--/section:skills--><% } %>
@@ -220,12 +226,18 @@ const SEED_TEMPLATES = [
     <h2><%= sectionLabel("skills", "Skills") %></h2>
 
     <div class="skill-groups">
-      <% (skillGroups || []).forEach((skillGroup) => { %>
+      <% const visibleSkillGroups = (skillGroups || []).filter((skillGroup) => skillGroup && (skillGroup.items || []).filter(Boolean).length); %>
+      <% const visibleSkills = (skills || []).filter(Boolean); %>
+      <% if (visibleSkillGroups.length) { %>
+      <% visibleSkillGroups.forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-group-title"><%= skillGroup.title %>:</div>
         <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
+      <% } else if (visibleSkills.length) { %>
+      <div class="skill-items"><%= visibleSkills.join(", ") %></div>
+      <% } %>
     </div>
   </section>
   <!--/section:skills--><% } %>
@@ -342,12 +354,18 @@ const SEED_TEMPLATES = [
     <h2><%= sectionLabel("skills", "Skills") %></h2>
 
     <div class="skill-groups">
-      <% (skillGroups || []).forEach((skillGroup) => { %>
+      <% const visibleSkillGroups = (skillGroups || []).filter((skillGroup) => skillGroup && (skillGroup.items || []).filter(Boolean).length); %>
+      <% const visibleSkills = (skills || []).filter(Boolean); %>
+      <% if (visibleSkillGroups.length) { %>
+      <% visibleSkillGroups.forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-group-title"><%= skillGroup.title %>:</div>
         <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
+      <% } else if (visibleSkills.length) { %>
+      <div class="skill-items"><%= visibleSkills.join(", ") %></div>
+      <% } %>
     </div>
   </section>
   <!--/section:skills--><% } %>
@@ -459,12 +477,18 @@ const SEED_TEMPLATES = [
     <h2><%= sectionLabel("skills", "Technical Skills") %></h2>
 
     <div class="skills-inline">
-      <% (skillGroups || []).forEach((skillGroup) => { %>
+      <% const visibleSkillGroups = (skillGroups || []).filter((skillGroup) => skillGroup && (skillGroup.items || []).filter(Boolean).length); %>
+      <% const visibleSkills = (skills || []).filter(Boolean); %>
+      <% if (visibleSkillGroups.length) { %>
+      <% visibleSkillGroups.forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title"><%= skillGroup.title %></div>
+        <div class="skill-group-title"><%= skillGroup.title %>:</div>
         <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
       <% }) %>
+      <% } else if (visibleSkills.length) { %>
+      <div class="skill-items"><%= visibleSkills.join(", ") %></div>
+      <% } %>
     </div>
   </section>
   <!--/section:skills--><% } %>
@@ -561,12 +585,18 @@ const SEED_TEMPLATES = [
         <h2><%= sectionLabel("skills", "Skills") %></h2>
 
         <div class="skill-groups">
-          <% (skillGroups || []).forEach((skillGroup) => { %>
+          <% const visibleSkillGroups = (skillGroups || []).filter((skillGroup) => skillGroup && (skillGroup.items || []).filter(Boolean).length); %>
+          <% const visibleSkills = (skills || []).filter(Boolean); %>
+          <% if (visibleSkillGroups.length) { %>
+          <% visibleSkillGroups.forEach((skillGroup) => { %>
           <div class="skill-group">
-            <div class="skill-group-title"><%= skillGroup.title %></div>
+            <div class="skill-group-title"><%= skillGroup.title %>:</div>
             <div class="skill-list"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
           </div>
           <% }) %>
+          <% } else if (visibleSkills.length) { %>
+          <div class="skill-list"><%= visibleSkills.join(", ") %></div>
+          <% } %>
         </div>
       </section>
       <!--/section:skills--><% } %>

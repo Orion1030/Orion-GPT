@@ -95,12 +95,18 @@ const FALLBACK_TEMPLATE = convertLegacyTemplateToEjs(`<!DOCTYPE html>
   {{#section skills}}
   <section class="section section-skills"><h2>{{label:skills:Skills}}</h2>
     <div class="skill-groups">
-      {{#each skillGroups}}
+      <% const visibleSkillGroups = (skillGroups || []).filter((skillGroup) => skillGroup && (skillGroup.items || []).filter(Boolean).length); %>
+      <% const visibleSkills = (skills || []).filter(Boolean); %>
+      <% if (visibleSkillGroups.length) { %>
+      <% visibleSkillGroups.forEach((skillGroup) => { %>
       <div class="skill-group">
-        <div class="skill-group-title">{{title}}</div>
+        <div class="skill-group-title"><%= skillGroup.title %>:</div>
         <div class="skill-items"><%= (skillGroup.items || []).filter(Boolean).join(", ") %></div>
       </div>
-      {{/each}}
+      <% }) %>
+      <% } else if (visibleSkills.length) { %>
+      <div class="skill-items"><%= visibleSkills.join(", ") %></div>
+      <% } %>
     </div>
   </section>
   {{/section}}
