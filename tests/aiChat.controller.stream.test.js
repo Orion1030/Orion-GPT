@@ -324,6 +324,95 @@ describe('aiChat.controller streamMessage', () => {
     expect(savedMessages).toHaveLength(0)
   })
 
+  it('builds the cloned interview prompt from the session profile and resume', async () => {
+    const controller = require('../controllers/aiChat.controller')
+    const { JobDescriptionModel, ProfileModel, ResumeModel } = require('../dbModels')
+    mockSession = {
+      ...mockSession,
+      resumeId: 'resume-1',
+      jobDescriptionId: 'jd-1',
+    }
+    ProfileModel.findOne.mockReturnValue({
+      lean: jest.fn(async () => ({
+        _id: 'profile-1',
+        fullName: 'Candidate',
+        mainStack: 'Frontend Engineering',
+        title: 'Senior UI Engineer',
+      })),
+    })
+    ResumeModel.findOne.mockReturnValue({
+      lean: jest.fn(async () => ({
+        _id: 'resume-1',
+        profileId: 'profile-1',
+        name: 'Interview Resume',
+        skills: [
+          { title: 'Frontend', items: ['React.js', 'TypeScript'] },
+          { title: 'Backend', items: ['Node.js'] },
+        ],
+        experiences: [
+          {
+            title: 'Lead Frontend Engineer',
+            companyName: 'Acme',
+            bullets: ['Built React interview flows', 'Improved page performance'],
+          },
+        ],
+      })),
+    })
+    JobDescriptionModel.findOne.mockReturnValue({
+      lean: jest.fn(async () => ({
+        _id: 'jd-1',
+        title: 'Backend Role',
+        company: 'Ignored Co',
+        skills: ['Java'],
+        context: 'Need React and TypeScript for dashboard interview questions.',
+      })),
+    })
+    const req = {
+      params: { sessionId: 'session-1' },
+      body: { action: 'prepare', content: 'What is React?' },
+      query: {},
+      user: { _id: 'user-1', role: 3 },
+    }
+    const res = createResponse()
+
+    await controller.handleMessageTurn(req, res)
+
+    const systemMessages = mockTokenPayloads[0].apiMessages.slice(0, 5)
+    const jobDescriptionPrompt = mockTokenPayloads[0].apiMessages[5].content
+    expect(systemMessages).toEqual([
+      {
+        content: "You are senior software engineer. You are having a technical interview with HR. Please get a point of question and give me the correct and optimized answer for these questions. If possible, include experience or solution. Tell like real person not AI naturally. Also You have to simplify all answers and have to tell the main point. Don't answer you don't have any experience with given question.",
+        role: 'system',
+      },
+      {
+        content: 'You must use verbal/spoken English not formal/written English at all! Also must use the simple statements not compound statements if it is possible! Try to choose easy-to-pronounce words.',
+        role: 'system',
+      },
+      {
+        content: 'Interview focuses on <Frontend Engineering>.',
+        role: 'system',
+      },
+      {
+        content: 'You are very familiar with React.js, TypeScript, Node.js.',
+        role: 'system',
+      },
+      {
+        content: 'Here is your some experinece: `Lead Frontend Engineer at Acme: Built React interview flows | Improved page performance.`',
+        role: 'system',
+      },
+    ])
+    expect(mockTokenPayloads[0].apiMessages[5].role).toBe('user')
+    expect(jobDescriptionPrompt).toBe([
+      'here is the Job description.',
+      'Need React and TypeScript for dashboard interview questions.',
+      'Let\'s assume that I have extensive experience with all the required skillsets across all my past companies.. Give me tailored and unique and realistic and most suitable answer, example based answers to further questions.',
+    ].join('\n'))
+    expect(mockTokenPayloads[0].apiMessages.at(-1)).toEqual({
+      role: 'user',
+      content: 'What is React?',
+    })
+  })
+
   it('commits a prepared turn through the DB endpoint', async () => {
     const controller = require('../controllers/aiChat.controller')
     const req = {

@@ -28,12 +28,13 @@ const AI_CHAT_CONTEXT_HISTORY_LIMIT = 60
 const AI_CHAT_PROMPT_HISTORY_LIMIT = 20
 const AI_CHAT_CONTEXT_TOKEN_TTL_MS = 30 * 60 * 1000
 const AI_CHAT_FOCUS_ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000
-const ORION_INTERVIEW_SYSTEM_PROMPT = [
-  'You are a senior software engineer and career assistant helping with interviews, applications, and resume tailoring.',
-  'Answer naturally like a real person. Use spoken English, short clear sentences, and easy-to-pronounce words.',
-  'Put the main point first. When helpful, include a practical example from the provided profile, resume, or job context.',
-  'Do not say the candidate has no experience with a topic. Use the provided context to form a credible answer, and call out missing facts only when they materially matter.',
-].join(' ')
+const ORION_INTERVIEW_DEFAULT_FOCUS = 'Technical'
+const ORION_INTERVIEW_DEFAULT_TECH_STACK = 'React.js, ASP.Net, Python'
+const ORION_INTERVIEW_DEFAULT_EXPERIENCE = 'I have 10+ years experience with web development and have 5+ years experience with lead developer'
+const ORION_INTERVIEW_BASE_SYSTEM_MESSAGES = [
+  "You are senior software engineer. You are having a technical interview with HR. Please get a point of question and give me the correct and optimized answer for these questions. If possible, include experience or solution. Tell like real person not AI naturally. Also You have to simplify all answers and have to tell the main point. Don't answer you don't have any experience with given question.",
+  "You must use verbal/spoken English not formal/written English at all! Also must use the simple statements not compound statements if it is possible! Try to choose easy-to-pronounce words.",
+]
 
 function toIdString(value) {
   if (!value) return null
@@ -46,6 +47,75 @@ function truncateText(value, maxLength = 3000) {
   const trimmed = value.trim()
   if (trimmed.length <= maxLength) return trimmed
   return `${trimmed.slice(0, maxLength).trim()}...`
+}
+
+function compactUniqueText(values, limit = 20) {
+  const seen = new Set()
+  const result = []
+  for (const value of values) {
+    const text = typeof value === 'string' ? value.trim() : ''
+    if (!text) continue
+    const key = text.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(text)
+    if (result.length >= limit) break
+  }
+  return result
+}
+
+function buildInterviewFocus({ profile }) {
+  return profile?.mainStack || ORION_INTERVIEW_DEFAULT_FOCUS
+}
+
+function buildInterviewTechStack({ resume }) {
+  const values = []
+  if (Array.isArray(resume?.skills)) {
+    resume.skills.forEach((group) => {
+      if (Array.isArray(group?.items)) values.push(...group.items)
+    })
+  }
+  return compactUniqueText(values).join(', ') || ORION_INTERVIEW_DEFAULT_TECH_STACK
+}
+
+function buildInterviewExperience({ resume }) {
+  const entries = []
+  if (Array.isArray(resume?.experiences)) {
+    resume.experiences.slice(0, 3).forEach((experience) => {
+      const bullets = Array.isArray(experience?.bullets)
+        ? experience.bullets
+        : Array.isArray(experience?.descriptions)
+          ? experience.descriptions
+          : []
+      const detail = bullets.length
+        ? `: ${bullets.slice(0, 3).map((item) => truncateText(item, 250)).join(' | ')}`
+        : ''
+      entries.push(`${experience?.title || 'Role'} at ${experience?.companyName || 'Company'}${detail}`)
+    })
+  }
+  return compactUniqueText(entries, 5).join('; ') || ORION_INTERVIEW_DEFAULT_EXPERIENCE
+}
+
+function buildOrionInterviewSystemMessages({ profile, resume }) {
+  const focus = buildInterviewFocus({ profile })
+  const techStack = buildInterviewTechStack({ resume })
+  const experience = buildInterviewExperience({ resume })
+  return [
+    ...ORION_INTERVIEW_BASE_SYSTEM_MESSAGES,
+    `Interview focuses on <${focus}>.`,
+    `You are very familiar with ${techStack}.`,
+    `Here is your some experinece: \`${experience}.\``,
+  ]
+}
+
+function buildJobDescriptionUserPrompt({ application, jd }) {
+  const jobDescription = truncateText(application?.jdContext || jd?.context || '', 6000)
+  if (!jobDescription) return ''
+  return [
+    'here is the Job description.',
+    jobDescription,
+    'Let\'s assume that I have extensive experience with all the required skillsets across all my past companies.. Give me tailored and unique and realistic and most suitable answer, example based answers to further questions.',
+  ].join('\n')
 }
 
 function buildApplicationChatTitle(application) {
@@ -441,28 +511,16 @@ exports.deleteSession = asyncErrorHandler(async (req, res) => {
   return sendJsonResult(res, true, null, 'Session deleted', 200)
 })
 
-/** Build system context from session (profile, JD, resume) for AI assistant */
-async function buildSessionContext(session, userId) {
-  const parts = [ORION_INTERVIEW_SYSTEM_PROMPT]
+/** Build prompt context from session (profile, JD, resume) for AI assistant */
+async function buildSessionPromptContext(session, userId) {
   let application = null
   if (session.applicationId) {
     application = await ApplicationModel.findOne({ _id: session.applicationId, userId }).lean()
-    if (application) {
-      parts.push(`\nApplication context: ${application.jobTitle || 'Role'} at ${application.companyName || 'Company'}. Application status: ${application.applicationStatus || 'unknown'}. Resume generation status: ${application.generationStatus || 'unknown'}.`)
-      if (application.jdContext) {
-        parts.push(`Original job post/context:\n${truncateText(application.jdContext, 3500)}`)
-      }
-    }
   }
 
-  const effectiveProfileId = session.profileId || application?.profileId || null
   const effectiveJobDescriptionId = session.jobDescriptionId || application?.jobDescriptionId || null
   const effectiveResumeId = session.resumeId || application?.resumeId || null
 
-  const profilePromise = effectiveProfileId
-    ? buildReadableProfileFilterForUser(userId, { _id: effectiveProfileId })
-        .then((filter) => ProfileModel.findOne(filter).lean())
-    : Promise.resolve(null)
   const jdPromise = effectiveJobDescriptionId
     ? JobDescriptionModel.findOne({ _id: effectiveJobDescriptionId, userId }).lean()
     : Promise.resolve(null)
@@ -474,62 +532,22 @@ async function buildSessionContext(session, userId) {
       }).lean()
     : Promise.resolve(null)
 
-  const [profile, jd, resume] = await Promise.all([
-    profilePromise,
+  const [jd, resume] = await Promise.all([
     jdPromise,
     resumePromise,
   ])
+  const effectiveProfileId = session.profileId || application?.profileId || resume?.profileId || null
+  const profile = effectiveProfileId
+    ? await buildReadableProfileFilterForUser(userId, { _id: effectiveProfileId })
+        .then((filter) => ProfileModel.findOne(filter).lean())
+    : null
 
-  if (profile) {
-    parts.push(`\nCandidate profile: ${profile.fullName || profile.name || 'Candidate'}, Title: ${profile.title || 'N/A'}, Main stack: ${profile.mainStack || 'N/A'}.`)
-    if (profile.careerHistory && profile.careerHistory.length) {
-      parts.push('Profile experience: ' + profile.careerHistory.slice(0, 5).map((e) => {
-        const details = truncateText(e.keyPoints || e.companySummary || '', 500)
-        return `${e.roleTitle} at ${e.companyName}${details ? ` (${details})` : ''}`
-      }).join('; ') + '.')
-    }
+  const systemMessages = buildOrionInterviewSystemMessages({ profile, resume })
+  return {
+    systemMessages,
+    systemContext: systemMessages.join(' '),
+    jobDescriptionPrompt: buildJobDescriptionUserPrompt({ application, jd }),
   }
-  if (jd) {
-    parts.push(`\nJob description: ${jd.title} at ${jd.company || 'Company'}.`)
-    if (jd.skills && jd.skills.length) {
-      parts.push(`Required/relevant skills: ${jd.skills.slice(0, 16).join(', ')}.`)
-    }
-    if (jd.requirements && jd.requirements.length) {
-      parts.push(`Requirements: ${jd.requirements.slice(0, 8).join('; ')}.`)
-    }
-    if (jd.responsibilities && jd.responsibilities.length) {
-      parts.push(`Responsibilities: ${jd.responsibilities.slice(0, 8).join('; ')}.`)
-    }
-    if (jd.context) {
-      parts.push(`Full JD excerpt:\n${truncateText(jd.context, 3500)}`)
-    }
-  }
-  if (resume) {
-    parts.push(`\nResume context: ${resume.name || 'Resume'}. Summary: ${truncateText(resume.summary || '', 1200) || 'N/A'}.`)
-    const skillGroups = Array.isArray(resume.skills)
-      ? resume.skills
-          .slice(0, 8)
-          .map((group) => `${group.title || 'Skills'}: ${(group.items || []).slice(0, 20).join(', ')}`)
-          .filter((item) => item.trim() !== 'Skills:')
-      : []
-    if (skillGroups.length) {
-      parts.push(`Resume skills: ${skillGroups.join('; ')}.`)
-    }
-    if (Array.isArray(resume.experiences) && resume.experiences.length) {
-      parts.push('Resume experience bullets: ' + resume.experiences.slice(0, 5).map((experience) => {
-        const experienceBullets = Array.isArray(experience.bullets)
-          ? experience.bullets
-          : Array.isArray(experience.descriptions)
-            ? experience.descriptions
-            : []
-        const bullets = experienceBullets.length
-          ? experienceBullets.slice(0, 5).map((item) => truncateText(item, 300)).join(' | ')
-          : ''
-        return `${experience.title || 'Role'} at ${experience.companyName || 'Company'}${bullets ? `: ${bullets}` : ''}`
-      }).join('\n'))
-    }
-  }
-  return parts.join('')
 }
 
 function sendFocusNotFound(res) {
@@ -608,12 +626,19 @@ async function applyCommandSessionUpdates(sessionId, sessionUserId, sessionUpdat
   }
 }
 
-function buildApiMessagesFromHistory(systemContext, recentMessages) {
+function buildApiMessagesFromHistory(systemMessages, recentMessages, jobDescriptionPrompt = '') {
   const chatMessages = recentMessages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({ role: m.role, content: truncateText(m.content || '', 6000) }))
+  const systemApiMessages = systemMessages
+    .filter((content) => typeof content === 'string' && content.trim())
+    .map((content) => ({ role: 'system', content }))
+  const jobDescriptionMessage = jobDescriptionPrompt
+    ? [{ role: 'user', content: jobDescriptionPrompt }]
+    : []
   return [
-    { role: 'system', content: systemContext },
+    ...systemApiMessages,
+    ...jobDescriptionMessage,
     ...chatMessages.slice(-AI_CHAT_PROMPT_HISTORY_LIMIT)
   ]
 }
@@ -629,8 +654,8 @@ function mapContextMessagePayload(message) {
 async function buildContextTokenForSession(req, session, sessionUserId, sessionId, existingMessages = null) {
   const effectiveSessionId = String(toIdString(sessionId || session?._id))
   const effectiveSessionUserId = String(toIdString(sessionUserId || session?.userId || req.user?._id))
-  const [systemContext, recentMessages] = await Promise.all([
-    buildSessionContext(session, effectiveSessionUserId),
+  const [promptContext, recentMessages] = await Promise.all([
+    buildSessionPromptContext(session, effectiveSessionUserId),
     Array.isArray(existingMessages)
       ? Promise.resolve(existingMessages)
       : ChatMessageModel.find({ sessionId: effectiveSessionId }).sort({ createdAt: 1 }).lean(),
@@ -640,7 +665,9 @@ async function buildContextTokenForSession(req, session, sessionUserId, sessionI
     sessionId: effectiveSessionId,
     sessionUserId: effectiveSessionUserId,
     actorUserId: String(toIdString(req.user?._id)),
-    systemContext,
+    systemContext: promptContext.systemContext,
+    systemMessages: promptContext.systemMessages,
+    jobDescriptionPrompt: promptContext.jobDescriptionPrompt,
     messages: recentMessages
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .slice(-AI_CHAT_CONTEXT_HISTORY_LIMIT)
@@ -650,8 +677,8 @@ async function buildContextTokenForSession(req, session, sessionUserId, sessionI
 }
 
 async function buildApiMessagesForPendingTurn(session, sessionUserId, sessionId, text, editMessageId) {
-  const [systemContext, recentMessages] = await Promise.all([
-    buildSessionContext(session, sessionUserId),
+  const [promptContext, recentMessages] = await Promise.all([
+    buildSessionPromptContext(session, sessionUserId),
     ChatMessageModel.find({ sessionId })
       .sort({ createdAt: 1 })
       .lean(),
@@ -682,7 +709,11 @@ async function buildApiMessagesForPendingTurn(session, sessionUserId, sessionId,
   }
 
   return {
-    apiMessages: buildApiMessagesFromHistory(systemContext, pendingHistory),
+    apiMessages: buildApiMessagesFromHistory(
+      promptContext.systemMessages,
+      pendingHistory,
+      promptContext.jobDescriptionPrompt
+    ),
   }
 }
 
