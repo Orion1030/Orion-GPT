@@ -30,9 +30,11 @@ const {
 const { isAdminUser, buildUserScopeFilter } = require('../utils/access')
 const { RoleLevels } = require('../utils/constants')
 const { buildReadableProfileFilterForUser } = require('../services/profileAccess.service')
+const { formatProfileDisplayName } = require('../utils/profileDisplay')
 
 function toIdString(value) {
   if (!value) return null
+  if (value._id) return String(value._id)
   return String(value)
 }
 
@@ -75,11 +77,15 @@ function buildApplicationScope(req, extras = {}) {
 }
 
 function mapApplicationListItem(app) {
+  const profileLabel = formatProfileDisplayName(
+    app.profileId,
+    app.profileNameSnapshot || ''
+  )
   return {
     _id: toIdString(app._id),
     userId: toIdString(app.userId),
     profileId: toIdString(app.profileId),
-    profileNameSnapshot: app.profileNameSnapshot || '',
+    profileNameSnapshot: profileLabel || app.profileNameSnapshot || '',
     resumeId: toIdString(app.resumeId),
     resumeName: app.resumeName || '',
     baseResumeId: toIdString(app.baseResumeId),
@@ -209,13 +215,13 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
         )
 
     const profile = await ProfileModel.findOne(profileFilter)
-      .select('_id userId fullName title')
+      .select('_id userId fullName title mainStack')
       .lean()
     if (!profile) {
       return sendJsonResult(res, false, null, 'manualProfileId is invalid', 404)
     }
     profileId = profile._id
-    profileSnapshot = profile.fullName || profile.title || ''
+    profileSnapshot = formatProfileDisplayName(profile, profile.fullName || profile.title || '')
 
     // Allow admin users to run the apply flow for the selected profile owner.
     if (adminActor && profile.userId) {
@@ -368,12 +374,16 @@ exports.listApplications = asyncErrorHandler(async (req, res) => {
   else sortDoc.createdAt = -1
 
   const skip = (page - 1) * pageSize
+  let itemsQuery = ApplicationModel.find(filter)
+    .sort(sortDoc)
+    .skip(skip)
+    .limit(pageSize)
+  if (typeof itemsQuery.populate === 'function') {
+    itemsQuery = itemsQuery.populate('profileId', '_id fullName title mainStack')
+  }
+
   const [items, total] = await Promise.all([
-    ApplicationModel.find(filter)
-      .sort(sortDoc)
-      .skip(skip)
-      .limit(pageSize)
-      .lean(),
+    itemsQuery.lean(),
     ApplicationModel.countDocuments(filter),
   ])
 
@@ -390,7 +400,7 @@ exports.getApplicationDetail = asyncErrorHandler(async (req, res) => {
   const filter = buildApplicationScope(req, { _id: applicationId })
 
   const application = await ApplicationModel.findOne(filter)
-    .populate('profileId', '_id fullName title')
+    .populate('profileId', '_id fullName title mainStack')
     .populate('resumeId', '_id name profileId')
     .populate('baseResumeId', '_id name profileId')
     .populate('jobDescriptionId', '_id title company skills requirements responsibilities niceToHave')

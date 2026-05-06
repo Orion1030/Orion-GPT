@@ -18,6 +18,7 @@ const {
   publishApplicationEvent,
 } = require('./applicationRealtime.service')
 const { queueResumeEmbeddingRefresh } = require('./resumeEmbedding.service')
+const { formatProfileDisplayName } = require('../utils/profileDisplay')
 
 function buildPipelineData(app) {
   return {
@@ -401,12 +402,13 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
 
     currentStep = 'profile_selected'
     const profile = await resolveProfile({ application: app, jdId, userId })
+    const profileDisplayName = formatProfileDisplayName(profile, profile.fullName || profile.title || '')
     await updateAndPublish({
       applicationId,
       userId,
       set: {
         profileId: profile._id,
-        profileNameSnapshot: profile.fullName || profile.title || '',
+        profileNameSnapshot: profileDisplayName,
         pipeline: {
           ...(app.pipeline || {}),
           jobId,
@@ -421,7 +423,7 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
         generationStatus: 'running',
         pipeline: { currentStep: 'profile_selected' },
         profileId: String(profile._id),
-        profileNameSnapshot: profile.fullName || profile.title || '',
+        profileNameSnapshot: profileDisplayName,
       },
       history: {
         payload: {
@@ -592,7 +594,7 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
         resumeId: String(resumeDoc._id),
         profileId: String(profile._id),
         baseResumeId: baseResume?._id ? String(baseResume._id) : null,
-        profileNameSnapshot: profile.fullName || profile.title || '',
+        profileNameSnapshot: profileDisplayName,
       },
       history: {
         payload: {

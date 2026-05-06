@@ -9,6 +9,7 @@
  * A +15 base is added so that profiles with partial data still show a non-zero score.
  */
 const { JobDescriptionModel, ProfileModel } = require('../dbModels');
+const { formatProfileDisplayName } = require('../utils/profileDisplay');
 const { buildReadableProfileFilterForUser } = require('./profileAccess.service');
 
 function tokenize(text) {
@@ -103,6 +104,8 @@ async function findTopProfilesCore(userId, jdId) {
     return {
       profileId: profile._id.toString(),
       profileName: profile.fullName || 'Unnamed',
+      profileMainStack: profile.mainStack || '',
+      profileDisplayName: formatProfileDisplayName(profile, profile.fullName || 'Unnamed'),
       profileTitle: profile.title || '',
       score,
       breakdown: {

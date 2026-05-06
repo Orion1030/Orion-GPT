@@ -5,6 +5,7 @@
 const { JobDescriptionModel, ResumeModel } = require('../dbModels')
 const { cosineSimilarity, similarityToScore } = require('../utils/embedding')
 const { buildResumeTextForEmbedding, refreshResumeEmbedding } = require('./resumeEmbedding.service')
+const { formatProfileDisplayName } = require('../utils/profileDisplay')
 
 function quantifiedImpactScore(r) {
   const text = buildResumeTextForEmbedding(r)
@@ -140,7 +141,7 @@ async function findTopResumesCore(userId, jdId, profileId) {
     return {
       resumeId: r._id.toString(),
       resumeName: r.name || 'Untitled',
-      profileName: r.profileId?.fullName || r.profileId?.title,
+      profileName: formatProfileDisplayName(r.profileId, r.profileId?.fullName || r.profileId?.title || ''),
       atsScore,
       confidence,
       _raw: r,

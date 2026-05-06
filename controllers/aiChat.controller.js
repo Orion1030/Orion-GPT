@@ -16,6 +16,7 @@ const { createContextToken, createTurnToken, readTurnToken } = require('../servi
 const { streamChatReply } = require('../services/llm/chatResponder.service')
 const { isAbortError } = require('../services/llm/streamingUtils')
 const { buildReadableProfileFilterForUser } = require('../services/profileAccess.service')
+const { formatProfileDisplayName } = require('../utils/profileDisplay')
 
 const DEFAULT_TITLE = 'New Chat'
 const AI_CHAT_CONTEXT_HISTORY_LIMIT = 60
@@ -53,6 +54,8 @@ function mapProfilePayload(profileRef) {
   return {
     id: toIdString(profileRef._id),
     fullName: profileRef.fullName || profileRef.name || null,
+    mainStack: profileRef.mainStack || null,
+    displayName: formatProfileDisplayName(profileRef, profileRef.fullName || profileRef.name || ''),
     title: profileRef.title || null,
   }
 }
@@ -110,7 +113,7 @@ async function loadMessagesPayload(sessionId) {
 
 async function loadScopedSessionPayload(req, sessionId) {
   const session = await ChatSessionModel.findOne(buildChatScope(req, { _id: sessionId }))
-    .populate('profileId', 'fullName name title')
+    .populate('profileId', 'fullName name title mainStack')
     .populate('applicationId', 'companyName jobTitle applicationStatus generationStatus')
     .populate('resumeId', 'name')
     .lean()
@@ -156,7 +159,7 @@ function buildChatScope(req, extras = {}) {
 exports.listSessions = asyncErrorHandler(async (req, res) => {
   const sessions = await ChatSessionModel.find(buildChatScope(req))
     .sort({ updatedAt: -1 })
-    .populate('profileId', 'fullName name title')
+    .populate('profileId', 'fullName name title mainStack')
     .populate('applicationId', 'companyName jobTitle applicationStatus generationStatus')
     .populate('resumeId', 'name')
     .lean()
@@ -246,7 +249,7 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
 exports.getSession = asyncErrorHandler(async (req, res) => {
   const { sessionId } = req.params
   const session = await ChatSessionModel.findOne(buildChatScope(req, { _id: sessionId }))
-    .populate('profileId', 'fullName name title')
+    .populate('profileId', 'fullName name title mainStack')
     .populate('applicationId', 'companyName jobTitle applicationStatus generationStatus')
     .populate('resumeId', 'name')
     .lean()
@@ -318,7 +321,7 @@ exports.renameSession = asyncErrorHandler(async (req, res) => {
     { $set: updates },
     { returnDocument: 'after' }
   )
-    .populate('profileId', 'fullName name title')
+    .populate('profileId', 'fullName name title mainStack')
     .populate('applicationId', 'companyName jobTitle applicationStatus generationStatus')
     .populate('resumeId', 'name')
     .lean()
@@ -533,7 +536,7 @@ async function updateSessionTitleFromFirstMessage(session, sessionId, sessionUse
     { $set: { title: firstLine } },
     { returnDocument: 'after' }
   )
-    .populate('profileId', 'fullName name title')
+    .populate('profileId', 'fullName name title mainStack')
     .populate('applicationId', 'companyName jobTitle applicationStatus generationStatus')
     .populate('resumeId', 'name')
     .lean()
