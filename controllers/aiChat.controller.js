@@ -27,6 +27,7 @@ const DEFAULT_TITLE = 'New Chat'
 const AI_CHAT_CONTEXT_HISTORY_LIMIT = 60
 const AI_CHAT_PROMPT_HISTORY_LIMIT = 20
 const AI_CHAT_CONTEXT_TOKEN_TTL_MS = 30 * 60 * 1000
+const AI_CHAT_FOCUS_ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000
 const ORION_INTERVIEW_SYSTEM_PROMPT = [
   'You are a senior software engineer and career assistant helping with interviews, applications, and resume tailoring.',
   'Answer naturally like a real person. Use spoken English, short clear sentences, and easy-to-pronounce words.',
@@ -107,6 +108,7 @@ function mapMessagePayload(message) {
     id: toIdString(message._id),
     role: message.role,
     content: message.content,
+    turnId: message.turnId || null,
     structuredAssistantPayload: message.structuredAssistantPayload || null
   }
 }
@@ -296,6 +298,7 @@ exports.bootstrapFocusChat = asyncErrorHandler(async (req, res) => {
     session: mapSessionPayload(payload.session),
     messages: payload.messages.map(mapMessagePayload),
     contextToken: payload.contextToken,
+    focusAccessToken: createFocusAccessToken(focusLink),
     expiresAt: focusLink.expiresAt ? new Date(focusLink.expiresAt).getTime() : null,
     absoluteExpiresAt: focusLink.absoluteExpiresAt
       ? new Date(focusLink.absoluteExpiresAt).getTime()
@@ -327,6 +330,7 @@ exports.validateFocusStreamAccess = asyncErrorHandler(async (req, res) => {
     sessionId: String(focusLink.sessionId),
     sessionUserId: String(focusLink.sessionUserId),
     actorUserId: String(focusLink.sessionUserId),
+    focusAccessToken: createFocusAccessToken(focusLink),
     expiresAt: focusLink.expiresAt ? new Date(focusLink.expiresAt).getTime() : null,
     absoluteExpiresAt: focusLink.absoluteExpiresAt
       ? new Date(focusLink.absoluteExpiresAt).getTime()
@@ -530,6 +534,21 @@ async function buildSessionContext(session, userId) {
 
 function sendFocusNotFound(res) {
   return sendJsonResult(res, false, null, 'Page not found', 404, { showNotification: false })
+}
+
+function createFocusAccessToken(focusLink) {
+  const expiresAtMs = focusLink?.expiresAt
+    ? new Date(focusLink.expiresAt).getTime()
+    : Date.now()
+  const remainingMs = Math.max(1000, expiresAtMs - Date.now())
+  const ttlMs = Math.min(AI_CHAT_FOCUS_ACCESS_TOKEN_TTL_MS, remainingMs)
+
+  return createTurnToken({
+    tokenType: 'ai-chat-focus-access',
+    sessionId: String(focusLink.sessionId),
+    sessionUserId: String(focusLink.sessionUserId),
+    actorUserId: String(focusLink.sessionUserId),
+  }, { ttlMs })
 }
 
 function buildFocusScopedRequest(req, focusLink) {
@@ -928,6 +947,7 @@ exports.handleFocusMessageTurn = asyncErrorHandler(async (req, res) => {
     }
     return sendJsonResult(res, false, null, committed.error.message, committed.error.status)
   }
+  committed.focusAccessToken = createFocusAccessToken(focusLink)
   return sendJsonResult(res, true, committed, null, 200)
 })
 
