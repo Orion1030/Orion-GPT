@@ -79,6 +79,7 @@ function normalizeApplyConfig(input) {
   let manualProfileId = toObjectIdString(raw.manualProfileId)
   let manualResumeId = toObjectIdString(raw.manualResumeId)
   let selectedTemplateId = toObjectIdString(raw.selectedTemplateId)
+  let selectedCoverLetterTemplateId = toObjectIdString(raw.selectedCoverLetterTemplateId)
 
   if (!resumeReferenceMode || !profileSelectionMode) {
     const legacyResumeRef = raw.resumeReference
@@ -118,6 +119,7 @@ function normalizeApplyConfig(input) {
     manualProfileId,
     manualResumeId,
     selectedTemplateId,
+    selectedCoverLetterTemplateId,
   }
 }
 

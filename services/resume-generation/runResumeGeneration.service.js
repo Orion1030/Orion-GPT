@@ -10,6 +10,10 @@ const {
   buildManagedResumeGenerationSystemPrompt,
   buildResumeGenerationUserPrompt,
 } = require('../llm/prompts/resumeGenerate.prompts')
+const {
+  applicationMaterialsSchema,
+  resumeSchema,
+} = require('../llm/schemas/resumeSchemas')
 const { resolveManagedPromptContext } = require('../promptRuntime.service')
 const { appendPromptAudit } = require('../promptAudit.service')
 const {
@@ -32,6 +36,10 @@ const {
 const RESUME_GENERATION_PROMPT_NAME = 'resume_generation'
 const SYSTEM_PROMPT_TYPE = 'system'
 const PROMPT_RUNTIME_ACTION = 'prompt_runtime_used'
+const OUTPUT_MODES = {
+  RESUME: 'resume',
+  APPLICATION_MATERIALS: 'application_materials',
+}
 
 function toIdString(value, seen = new Set()) {
   if (value == null || value === '') return null
@@ -84,6 +92,10 @@ function buildJsonOnlyPrompt(userPrompt) {
 - Return only a single valid JSON object.
 - Do not wrap JSON in markdown fences.
 - Do not include explanations or extra text.`
+}
+
+function isApplicationMaterialsMode(outputMode) {
+  return outputMode === OUTPUT_MODES.APPLICATION_MATERIALS
 }
 
 function extractJsonObjectFromText(text) {
@@ -209,7 +221,21 @@ function buildFallbackResume({ jd, profile, helperSet }) {
   return helperSet.enforceExperienceBullets(fallback, profile, null)
 }
 
-async function callChatWithSchema(systemPrompt, userPrompt, maxCompletionTokens, model, runtimeConfig = null) {
+function buildFallbackCoverLetter({ jd, profile, helperSet }) {
+  if (!helperSet?.normalizeCoverLetterJson) return null
+  return helperSet.normalizeCoverLetterJson(null, { jd, profile })
+}
+
+async function callChatWithSchema(
+  systemPrompt,
+  userPrompt,
+  maxCompletionTokens,
+  model,
+  runtimeConfig = null,
+  options = {}
+) {
+  const schema = options.schema || resumeSchema
+  const schemaName = options.schemaName || 'generate_resume'
   if (runtimeConfig?.useCustom) {
     const providerResult = await chatCompletionText({
       provider: runtimeConfig.provider,
@@ -249,8 +275,8 @@ async function callChatWithSchema(systemPrompt, userPrompt, maxCompletionTokens,
     response_format: {
       type: 'json_schema',
       json_schema: {
-        name: 'generate_resume',
-        schema: require('../llm/schemas/resumeSchemas').resumeSchema,
+        name: schemaName,
+        schema,
         strict: false,
       },
     },
@@ -265,10 +291,14 @@ async function runLegacyGeneration({
   runtimeConfig,
   effectiveRuntime,
   helperSet,
+  outputMode = OUTPUT_MODES.RESUME,
 }) {
+  const includeCoverLetter = isApplicationMaterialsMode(outputMode)
   const llmInput = helperSet.buildResumeGenerationInput({ jd, profile, baseResume })
   const systemPrompt = buildManagedResumeGenerationSystemPrompt(resolvedPrompt?.context || '')
-  const userPrompt = buildResumeGenerationUserPrompt(llmInput)
+  const userPrompt = buildResumeGenerationUserPrompt(llmInput, { includeCoverLetter })
+  const schema = includeCoverLetter ? applicationMaterialsSchema : resumeSchema
+  const schemaName = includeCoverLetter ? 'generate_application_materials' : 'generate_resume'
 
   let rawJson = null
   const maxAttempts = 3
@@ -283,7 +313,8 @@ async function runLegacyGeneration({
         userPrompt,
         maxTokens,
         model,
-        runtimeConfig
+        runtimeConfig,
+        { schema, schemaName }
       )
 
       rawJson = extractStructuredJsonFromChat(body)
@@ -306,6 +337,9 @@ async function runLegacyGeneration({
     console.error('Response:', error?.body || error?.response?.data || error)
     return {
       resume: buildFallbackResume({ jd, profile, helperSet }),
+      coverLetter: includeCoverLetter
+        ? buildFallbackCoverLetter({ jd, profile, helperSet })
+        : null,
       fallbackReason: 'legacy_generation_failed',
       status: 'fallback',
       usage: null,
@@ -316,18 +350,26 @@ async function runLegacyGeneration({
     console.warn('[Generate] No valid JSON from legacy generator; returning fallback resume')
     return {
       resume: buildFallbackResume({ jd, profile, helperSet }),
+      coverLetter: includeCoverLetter
+        ? buildFallbackCoverLetter({ jd, profile, helperSet })
+        : null,
       fallbackReason: 'legacy_generation_empty',
       status: 'fallback',
       usage: null,
     }
   }
 
+  const rawResume = includeCoverLetter ? rawJson?.resume : rawJson
   const normalized = helperSet.alignResumeWithProfileCareerHistory(
-    helperSet.normalizeResumeJson(rawJson),
+    helperSet.normalizeResumeJson(rawResume),
     profile
   )
+  const coverLetter = includeCoverLetter
+    ? helperSet.normalizeCoverLetterJson(rawJson?.coverLetter, { jd, profile })
+    : null
   return {
     resume: helperSet.enforceExperienceBullets(normalized, profile, baseResume),
+    coverLetter,
     fallbackReason: null,
     status: 'completed',
     usage: null,
@@ -342,6 +384,7 @@ async function runReasoningPipeline({
   effectiveRuntime,
   resolvedPrompt,
   helperSet,
+  outputMode = OUTPUT_MODES.RESUME,
 }) {
   const adapter = getProviderAdapter(effectiveRuntime.provider)
   const pipeline = getResumeGenerationPipeline(effectiveRuntime.pipelineVersion)
@@ -354,6 +397,7 @@ async function runReasoningPipeline({
     runtimeConfig,
     effectiveRuntime,
     helperSet,
+    outputMode,
     adapter,
     reasoningProfile: REASONING_PROFILES.BALANCED,
     lockedInstructions: buildReasoningLockedInstructions(resolvedPrompt?.context || ''),
@@ -371,6 +415,12 @@ async function runReasoningPipeline({
 
   return {
     resume: ctx.artifacts.finalResume,
+    coverLetter: isApplicationMaterialsMode(outputMode)
+      ? (
+          ctx.artifacts.finalCoverLetter ||
+          buildFallbackCoverLetter({ jd, profile, helperSet })
+        )
+      : null,
     fallbackReason: null,
     status: 'completed',
     usage: ctx.usageByStep,
@@ -384,6 +434,7 @@ async function generateResumeFromJD({
   baseResume,
   auditContext = null,
   helperSet,
+  outputMode = OUTPUT_MODES.RESUME,
 }) {
   if (!jd || !profile) throw new Error('JD or profile not found')
   if (!helperSet) throw new Error('Resume generation helperSet is required')
@@ -452,6 +503,7 @@ async function generateResumeFromJD({
           effectiveRuntime,
           resolvedPrompt,
           helperSet,
+          outputMode,
         })
       } catch (error) {
         console.warn(
@@ -472,6 +524,7 @@ async function generateResumeFromJD({
             model: runtimeConfig?.useCustom ? runtimeConfig.model : GENERATE_MODEL,
           },
           helperSet,
+          outputMode,
         })
 
         if (!result.fallbackReason) {
@@ -488,6 +541,7 @@ async function generateResumeFromJD({
         runtimeConfig,
         effectiveRuntime,
         helperSet,
+        outputMode,
       })
     }
 
@@ -503,6 +557,13 @@ async function generateResumeFromJD({
     }).catch((error) => {
       console.warn('[ResumeGenerationRun] failed to finalize run', error?.message || error)
     })
+
+    if (isApplicationMaterialsMode(outputMode)) {
+      return {
+        resume: result.resume,
+        coverLetter: result.coverLetter || buildFallbackCoverLetter({ jd, profile, helperSet }),
+      }
+    }
 
     return result.resume
   } catch (error) {
@@ -521,10 +582,18 @@ async function generateResumeFromJD({
       console.warn('[ResumeGenerationRun] failed to finalize fallback run', finalizeError?.message || finalizeError)
     })
 
+    if (isApplicationMaterialsMode(outputMode)) {
+      return {
+        resume: fallback,
+        coverLetter: buildFallbackCoverLetter({ jd, profile, helperSet }),
+      }
+    }
+
     return fallback
   }
 }
 
 module.exports = {
   generateResumeFromJD,
+  OUTPUT_MODES,
 }

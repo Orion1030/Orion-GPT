@@ -1,4 +1,5 @@
 const { ResumeDraftSchema } = require('../schemas/resumeDraft.schema')
+const { ApplicationMaterialsSchema } = require('../schemas/applicationMaterials.schema')
 const { buildDraftPrompts } = require('../prompts')
 const { assertArray, assertObject } = require('./validation')
 
@@ -12,11 +13,22 @@ function validateInput(ctx) {
   }
 }
 
-function validateOutput(output) {
-  assertObject(output, 'resumeDraft')
-  assertArray(output.experiences, 'resumeDraft.experiences')
-  assertArray(output.skills, 'resumeDraft.skills')
-  assertArray(output.education, 'resumeDraft.education')
+function validateResumeDraft(output, label = 'resumeDraft') {
+  assertObject(output, label)
+  assertArray(output.experiences, `${label}.experiences`)
+  assertArray(output.skills, `${label}.skills`)
+  assertArray(output.education, `${label}.education`)
+}
+
+function validateOutput(output, outputMode = 'resume') {
+  if (outputMode === 'application_materials') {
+    assertObject(output, 'applicationMaterials')
+    validateResumeDraft(output.resume, 'applicationMaterials.resume')
+    assertObject(output.coverLetter, 'applicationMaterials.coverLetter')
+    assertArray(output.coverLetter.bodyParagraphs, 'applicationMaterials.coverLetter.bodyParagraphs')
+    return
+  }
+  validateResumeDraft(output, 'resumeDraft')
 }
 
 async function run(ctx) {
@@ -27,21 +39,25 @@ async function run(ctx) {
     requirements: ctx.artifacts.requirements,
     selectedEvidence: ctx.artifacts.selectedEvidence,
     resumeStrategy: ctx.artifacts.resumeStrategy,
+    outputMode: ctx.outputMode,
   })
+  const isApplicationMaterials = ctx.outputMode === 'application_materials'
 
   const response = await ctx.adapter.generateStructured({
     apiKey: ctx.runtimeConfig?.useCustom ? ctx.runtimeConfig.apiKey : undefined,
     model: ctx.effectiveRuntime.model,
     systemPrompt: prompts.systemPrompt,
     userPrompt: prompts.userPrompt,
-    schemaName: 'resume_draft',
-    schema: ResumeDraftSchema,
+    schemaName: isApplicationMaterials ? 'application_materials' : 'resume_draft',
+    schema: isApplicationMaterials ? ApplicationMaterialsSchema : ResumeDraftSchema,
     maxOutputTokens: 12000,
     reasoningProfile: ctx.reasoningProfile,
     continuationState: ctx.continuationState || null,
   })
 
-  validateOutput(response?.data)
+  validateOutput(response?.data, ctx.outputMode)
+  const resumeDraft = isApplicationMaterials ? response.data.resume : response.data
+  const coverLetterDraft = isApplicationMaterials ? response.data.coverLetter : null
 
   return {
     ...ctx,
@@ -52,7 +68,8 @@ async function run(ctx) {
     },
     artifacts: {
       ...ctx.artifacts,
-      resumeDraft: response.data,
+      resumeDraft,
+      ...(coverLetterDraft ? { coverLetterDraft } : {}),
     },
   }
 }

@@ -144,7 +144,7 @@ function buildManagedResumeGenerationSystemPrompt(managedPrompt) {
   return `You are a resume generation system that must satisfy locked output constraints while applying user-custom instructions.
 
 ## Locked constraints (cannot be overridden):
-- Output must be a single valid JSON object that matches the required resume schema.
+- Output must be a single valid JSON object that matches the required output schema.
 - Do not output markdown, explanations, or any text outside JSON.
 - Ground all claims in the provided candidate/profile/resume/job-description input.
 - Never fabricate employers, titles, dates, education, tools, or measurable outcomes.
@@ -163,15 +163,32 @@ ${customInstructions || 'No custom instructions configured. Optimize for strong 
 - Strict schema-valid JSON output only.`;
 }
 
-function buildResumeGenerationUserPrompt(llmInput) {
-  return `Create a tailored resume from the following JSON input.
+function buildResumeGenerationUserPrompt(llmInput, options = {}) {
+  const includeCoverLetter = Boolean(options.includeCoverLetter);
+  const task = includeCoverLetter
+    ? "Create a tailored resume and matching cover letter from the following JSON input."
+    : "Create a tailored resume from the following JSON input.";
+  const responseShape = includeCoverLetter
+    ? "- Return one structured JSON object with `resume` and `coverLetter`."
+    : "- Return only the structured JSON via function call.";
+  const coverLetterInstructions = includeCoverLetter
+    ? `
+## Cover letter instructions:
+- The cover letter must be tailored to the same job description and evidence as the resume.
+- Use a natural first-person voice and keep it concise.
+- Make it feel paired with the resume: same strengths, same role focus, same facts.
+- Do not invent unsupported facts, employers, titles, dates, tools, metrics, or education.
+- Use specific examples from grounded resume/profile evidence when possible.`
+    : "";
+
+  return `${task}
 
 ## Instructions:
 - Target the provided job description directly.
 - Use \`careerHistory[].candidateExperience\` as the main evidence for candidate claims when present.
 - Use \`careerHistory[].companyContext\` for company-period context only.
 - Keep the final content strong for ATS and human review without sounding stuffed or robotic.
-- Return only the structured JSON via function call.
+${responseShape}${coverLetterInstructions}
 
 ## Input JSON:
 ${JSON.stringify(llmInput, null, 2)}`;

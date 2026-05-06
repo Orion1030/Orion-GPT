@@ -26,6 +26,12 @@ const resumeSchema = new mongoose.Schema(
       ref: 'Template',
       required: false
     },
+    coverLetterTemplateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Template',
+      required: false,
+      default: null
+    },
     note: {
       type: String,
       default: ''
@@ -70,6 +76,16 @@ const resumeSchema = new mongoose.Schema(
         },
       ],
       default: [],
+    },
+    coverLetter: {
+      title: { type: String, default: '' },
+      recipient: { type: String, default: '' },
+      companyName: { type: String, default: '' },
+      jobTitle: { type: String, default: '' },
+      opening: { type: String, default: '' },
+      bodyParagraphs: { type: [String], default: [] },
+      closing: { type: String, default: '' },
+      signature: { type: String, default: '' },
     },
     // Cloud / indexing fields
     cloudPrimary: {

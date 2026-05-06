@@ -5,7 +5,7 @@ const { JobDescriptionModel, ResumeModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const { ProfileModel } = require("../dbModels");
 const { RoleLevels } = require("../utils/constants");
-const { tryGenerateResumeJsonFromJD } = require("../utils/resumeGeneration");
+const { tryGenerateApplicationMaterialsJsonFromJD } = require("../utils/resumeGeneration");
 const { tryRefineResumeWithFeedback } = require("../services/llm/resumeRefine.service");
 const { tryParseResumeTextWithLLM } = require("../utils/parseResume");
 const { parseResumeJsonText } = require("../services/resumeJsonImport.service");
@@ -431,7 +431,7 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
     }
   }
 
-  const { result: genResult, error: genError } = await tryGenerateResumeJsonFromJD({
+  const { result: genResult, error: genError } = await tryGenerateApplicationMaterialsJsonFromJD({
     jd,
     profile,
     baseResume,
@@ -451,7 +451,16 @@ exports.generateResumeFromJD = asyncErrorHandler(async (req, res) => {
   if (genError) {
     return sendJsonResult(res, false, null, genError.message, genError.statusCode || 500);
   }
-  return sendJsonResult(res, true, { resume: genResult.resume }, null, 200);
+  return sendJsonResult(
+    res,
+    true,
+    {
+      resume: genResult.resume,
+      coverLetter: genResult.coverLetter,
+    },
+    null,
+    200
+  );
 });
 
 /** Refine resume with user feedback (delta editor). */

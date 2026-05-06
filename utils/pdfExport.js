@@ -1,6 +1,13 @@
 const fs = require('fs');
 const path = require('path');
-const { buildResumeHtml, getConfig, getMargins } = require('./templateRenderer');
+const {
+    buildContentDisposition,
+    buildCoverLetterFilename,
+    buildCoverLetterHtml,
+    buildResumeHtml,
+    getConfig,
+    getMargins,
+} = require('./templateRenderer');
 const { runInBrowser } = require('./browserPool');
 
 const EXPERIENCE_BREAK_GUARD_STYLE = `<style id="jobsy-exp-break-guards">
@@ -213,14 +220,19 @@ async function sendPdfResume(resume, res) {
 
     res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${(resume.name || 'resume').replace(/"/g, '')}.pdf"`,
+        'Content-Disposition': buildContentDisposition(resume.name || 'resume', 'pdf', 'resume'),
         'Content-Length': pdfBuffer.length,
     });
     res.end(pdfBuffer);
 }
 
 async function sendPdfFromHtml(html, res, options = {}) {
-    const filename = (options.name || 'resume').replace(/"/g, '');
+    const filename = options.name || 'resume';
+    const safeDebugFilename = String(filename || 'resume')
+        .replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180) || 'resume';
     const margin = options.margin || { top: 54, right: 54, bottom: 54, left: 54 };
 
     try {
@@ -252,16 +264,30 @@ async function sendPdfFromHtml(html, res, options = {}) {
         if (!sig.startsWith('%PDF')) {
             const dbgDir = path.resolve(__dirname, '..', 'tmp');
             try { fs.mkdirSync(dbgDir, { recursive: true }); } catch (_) { }
-            try { fs.writeFileSync(path.join(dbgDir, `${filename}_debug.pdf`), pdfBuffer); } catch (_) { }
+            try { fs.writeFileSync(path.join(dbgDir, `${safeDebugFilename}_debug.pdf`), pdfBuffer); } catch (_) { }
         }
     }
 
     res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}.pdf"`,
+        'Content-Disposition': buildContentDisposition(filename, 'pdf', 'resume'),
         'Content-Length': pdfBuffer.length,
     });
     res.end(pdfBuffer);
 }
 
-module.exports = { sendPdfResume, sendPdfFromHtml, sanitizePagedPreviewHtml };
+async function sendPdfCoverLetter(resume, res) {
+    const html = buildCoverLetterHtml(resume);
+    const fullName = resume?.profileId && typeof resume.profileId === 'object'
+        ? String(resume.profileId.fullName || '').trim()
+        : '';
+    const config = getConfig(resume);
+    const margin = getMargins(config);
+    return sendPdfFromHtml(html, res, {
+        name: buildCoverLetterFilename(resume),
+        fullName,
+        margin,
+    });
+}
+
+module.exports = { sendPdfResume, sendPdfCoverLetter, sendPdfFromHtml, sanitizePagedPreviewHtml };

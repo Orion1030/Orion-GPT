@@ -52,16 +52,12 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-function keyPointsToBullets(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeString(item)).filter(Boolean);
-  }
-
+function textToBullets(value) {
   if (typeof value !== "string" || !value.trim()) return [];
   const raw = value.trim();
 
   const htmlListItems = [...raw.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
-    .map((match) => sanitizeString(match[1]))
+    .map((match) => stripHtml(match[1]))
     .filter(Boolean);
   if (htmlListItems.length) return htmlListItems;
 
@@ -75,6 +71,49 @@ function keyPointsToBullets(value) {
 
   const oneLine = stripHtml(raw);
   return oneLine ? [oneLine] : [];
+}
+
+function keyPointsToBullets(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => textToBullets(sanitizeString(item))).filter(Boolean);
+  }
+
+  return textToBullets(value);
+}
+
+function bulletValueToLines(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => bulletValueToLines(item));
+  }
+
+  if (typeof value === "string") {
+    return textToBullets(value);
+  }
+
+  if (!value || typeof value !== "object") return [];
+
+  return [
+    ...bulletValueToLines(value.bullets),
+    ...bulletValueToLines(value.descriptions),
+    ...bulletValueToLines(value.description),
+    ...bulletValueToLines(value.responsibilities),
+    ...bulletValueToLines(value.achievements),
+    ...bulletValueToLines(value.highlights),
+    ...bulletValueToLines(value.keyPoints),
+  ];
+}
+
+function readResumeExperienceBullets(value) {
+  return mergeUniqueStrings([
+    ...bulletValueToLines(value?.bullets),
+    ...bulletValueToLines(value?.descriptions),
+    ...bulletValueToLines(value?.description),
+    ...bulletValueToLines(value?.responsibilities),
+    ...bulletValueToLines(value?.achievements),
+    ...bulletValueToLines(value?.highlights),
+    ...bulletValueToLines(value?.keyPoints),
+    ...bulletValueToLines(value?.candidateExperience),
+  ]);
 }
 
 function bulletsToKeyPoints(value) {
@@ -117,11 +156,7 @@ function mergeUniqueStrings(items) {
  */
 function normalizeResumeExperience(value) {
   const legacySummary = sanitizeString(value?.summary ?? value?.companySummary);
-  const normalizedBullets = Array.isArray(value?.bullets)
-    ? value.bullets.map((item) => sanitizeString(item)).filter(Boolean)
-    : Array.isArray(value?.descriptions)
-      ? value.descriptions.map((item) => sanitizeString(item)).filter(Boolean)
-      : keyPointsToBullets(value?.keyPoints);
+  const normalizedBullets = readResumeExperienceBullets(value);
 
   return {
     title: sanitizeString(value?.title ?? value?.roleTitle),
@@ -248,15 +283,7 @@ function profileExperienceToResumeExperience(profileExp) {
  * @returns {object}
  */
 function resumeExperienceToProfileExperience(resumeExp) {
-  const bullets = Array.isArray(resumeExp.bullets)
-    ? resumeExp.bullets
-    : Array.isArray(resumeExp.descriptions)
-      ? resumeExp.descriptions
-    : Array.isArray(resumeExp.keyPoints)
-      ? resumeExp.keyPoints
-      : typeof resumeExp.keyPoints === "string"
-        ? resumeExp.keyPoints
-        : [];
+  const bullets = readResumeExperienceBullets(resumeExp);
 
   return {
     roleTitle: resumeExp.title || resumeExp.roleTitle || "",
@@ -272,5 +299,6 @@ module.exports = {
   profileExperienceToResumeExperience,
   resumeExperienceToProfileExperience,
   normalizeResumeExperience,
+  readResumeExperienceBullets,
   alignResumeExperiencesToCareerHistory,
 };

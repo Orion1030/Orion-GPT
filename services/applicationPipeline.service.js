@@ -10,7 +10,7 @@ const {
   tryFindTopProfilesForJobDescription,
   tryFindTopResumesForJobDescription,
 } = require('./jdImport.service')
-const { tryGenerateResumeJsonFromJD } = require('../utils/resumeGeneration')
+const { tryGenerateApplicationMaterialsJsonFromJD } = require('../utils/resumeGeneration')
 const { appendApplicationHistory } = require('./applicationHistory.service')
 const { buildReadableProfileFilterForUser } = require('./profileAccess.service')
 const {
@@ -290,16 +290,25 @@ async function resolveBaseResume({ application, jdId, userId, profileId }) {
   }).lean()
 }
 
-async function persistGeneratedResume({ userId, profileId, generatedResume, templateId = null }) {
+async function persistGeneratedResume({
+  userId,
+  profileId,
+  generatedResume,
+  coverLetter = null,
+  templateId = null,
+  coverLetterTemplateId = null,
+}) {
   const resumeDoc = new ResumeModel({
     userId,
     profileId,
     templateId,
+    coverLetterTemplateId,
     name: generatedResume?.name || 'Generated Resume',
     summary: generatedResume?.summary || '',
     experiences: Array.isArray(generatedResume?.experiences) ? generatedResume.experiences : [],
     skills: Array.isArray(generatedResume?.skills) ? generatedResume.skills : [],
     education: Array.isArray(generatedResume?.education) ? generatedResume.education : [],
+    coverLetter: coverLetter || null,
     pageFrameConfig: generatedResume?.pageFrameConfig || null,
   })
   await resumeDoc.save()
@@ -314,6 +323,27 @@ async function resolveResumeTemplateId({ application, profile, userId }) {
 
   const template = await TemplateModel.findOne({
     _id: preferredTemplateId,
+    $and: [
+      { $or: [{ templateType: 'resume' }, { templateType: { $exists: false } }] },
+      { $or: [{ isBuiltIn: true }, { userId }] },
+    ],
+  })
+    .select('_id')
+    .lean()
+
+  return template?._id || null
+}
+
+async function resolveCoverLetterTemplateId({ application, profile, userId }) {
+  const preferredTemplateId =
+    application?.applyConfig?.selectedCoverLetterTemplateId ||
+    profile?.defaultCoverLetterTemplateId ||
+    null
+  if (!preferredTemplateId) return null
+
+  const template = await TemplateModel.findOne({
+    _id: preferredTemplateId,
+    templateType: 'cover_letter',
     $or: [{ isBuiltIn: true }, { userId }],
   })
     .select('_id')
@@ -474,7 +504,7 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
     const jd = await JobDescriptionModel.findOne({ _id: jdId, userId }).lean()
     if (!jd) throw new Error('Parsed JD not found')
 
-    const { result: generateResult, error: generateError } = await tryGenerateResumeJsonFromJD({
+    const { result: generateResult, error: generateError } = await tryGenerateApplicationMaterialsJsonFromJD({
       jd,
       profile,
       baseResume,
@@ -494,6 +524,7 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
       throw new Error(generateError.message || 'Resume generation failed')
     }
     const generatedResume = generateResult.resume
+    const coverLetter = generateResult.coverLetter || null
     await updateAndPublish({
       applicationId,
       userId,
@@ -527,11 +558,18 @@ async function runApplicationPipeline({ applicationId, userId, jobId }) {
       profile,
       userId,
     })
+    const selectedCoverLetterTemplateId = await resolveCoverLetterTemplateId({
+      application: app,
+      profile,
+      userId,
+    })
     const resumeDoc = await persistGeneratedResume({
       userId,
       profileId: profile._id,
       generatedResume,
+      coverLetter,
       templateId: selectedTemplateId,
+      coverLetterTemplateId: selectedCoverLetterTemplateId,
     })
     await updateAndPublish({
       applicationId,

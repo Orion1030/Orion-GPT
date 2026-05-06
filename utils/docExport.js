@@ -1,4 +1,11 @@
-const { buildResumeHtml, getConfig, getMargins } = require('./templateRenderer');
+const {
+    buildContentDisposition,
+    buildCoverLetterFilename,
+    buildCoverLetterHtml,
+    buildResumeHtml,
+    getConfig,
+    getMargins,
+} = require('./templateRenderer');
 const HTMLtoDOCX = require('html-to-docx');
 const puppeteer = require('puppeteer');
 
@@ -701,7 +708,7 @@ async function sendDocxBuffer(docHtml, vars, margin, fullName, filename, res) {
 
     res.set({
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': `attachment; filename="${filename}.docx"`,
+        'Content-Disposition': buildContentDisposition(filename, 'docx', 'resume'),
         'Content-Length': docxBuffer.length,
     });
     return res.end(docxBuffer);
@@ -743,6 +750,20 @@ async function sendDocResume(resume, res) {
     return sendDocxBuffer(inlinedDocHtml, prepared.vars, prepared.margin, prepared.fullName, filename, res);
 }
 
+async function sendDocCoverLetter(resume, res) {
+    const html = buildCoverLetterHtml(resume);
+    const fullName = resume?.profileId && typeof resume.profileId === 'object'
+        ? String(resume.profileId.fullName || '').trim()
+        : '';
+    const config = getConfig(resume);
+    const margin = getMargins(config);
+    const filename = buildCoverLetterFilename(resume);
+
+    const prepared = buildDocxHtml(html, { fullName, margin });
+    const inlinedDocHtml = await inlineDocxSupportedStyles(prepared.docHtml);
+    return sendDocxBuffer(inlinedDocHtml, prepared.vars, prepared.margin, prepared.fullName, filename, res);
+}
+
 module.exports = {
     sanitizePagedPreviewHtmlForDoc,
     extractHeadAndBody,
@@ -760,4 +781,5 @@ module.exports = {
     inlineDocxSupportedStyles,
     sendDocFromHtml,
     sendDocResume,
+    sendDocCoverLetter,
 };

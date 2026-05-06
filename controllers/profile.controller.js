@@ -139,6 +139,8 @@ function toNullableId(value) {
 async function resolveDefaultTemplateAssignment({
   rawDefaultTemplateId,
   ownerUserId,
+  templateType = "resume",
+  errorField = "defaultTemplateId",
 }) {
   const parsedId = toNullableId(rawDefaultTemplateId);
   if (parsedId === undefined) {
@@ -150,7 +152,14 @@ async function resolveDefaultTemplateAssignment({
 
   const template = await TemplateModel.findOne({
     _id: parsedId,
-    $or: [{ isBuiltIn: true }, { userId: ownerUserId }],
+    ...(templateType === "resume"
+      ? {
+          $and: [
+            { $or: [{ templateType: "resume" }, { templateType: { $exists: false } }] },
+            { $or: [{ isBuiltIn: true }, { userId: ownerUserId }] },
+          ],
+        }
+      : { templateType, $or: [{ isBuiltIn: true }, { userId: ownerUserId }] }),
   })
     .select("_id")
     .lean();
@@ -159,7 +168,7 @@ async function resolveDefaultTemplateAssignment({
     return {
       shouldSet: false,
       value: null,
-      error: "defaultTemplateId is invalid",
+      error: `${errorField} is invalid`,
       status: 404,
     };
   }
@@ -267,6 +276,7 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   const {
     stackId,
     defaultTemplateId,
+    defaultCoverLetterTemplateId,
     fullName,
     title,
     link,
@@ -282,6 +292,14 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   const templateAssignment = await resolveDefaultTemplateAssignment({
     rawDefaultTemplateId: defaultTemplateId,
     ownerUserId,
+    templateType: "resume",
+    errorField: "defaultTemplateId",
+  });
+  const coverLetterTemplateAssignment = await resolveDefaultTemplateAssignment({
+    rawDefaultTemplateId: defaultCoverLetterTemplateId,
+    ownerUserId,
+    templateType: "cover_letter",
+    errorField: "defaultCoverLetterTemplateId",
   });
   const stackAssignment = await resolveStackAssignment({
     rawStackId: stackId,
@@ -293,6 +311,15 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
       null,
       templateAssignment.error,
       templateAssignment.status || 400
+    );
+  }
+  if (coverLetterTemplateAssignment.error) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      coverLetterTemplateAssignment.error,
+      coverLetterTemplateAssignment.status || 400
     );
   }
   if (stackAssignment.error) {
@@ -319,6 +346,9 @@ exports.createProfile = asyncErrorHandler(async (req, res, next) => {
   if (templateAssignment.shouldSet) {
     profilePayload.defaultTemplateId = templateAssignment.value;
   }
+  if (coverLetterTemplateAssignment.shouldSet) {
+    profilePayload.defaultCoverLetterTemplateId = coverLetterTemplateAssignment.value;
+  }
   if (stackAssignment.shouldSet) {
     profilePayload.stackId = stackAssignment.stackId;
   }
@@ -334,6 +364,7 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   const {
     stackId,
     defaultTemplateId,
+    defaultCoverLetterTemplateId,
     fullName,
     title,
     link,
@@ -374,6 +405,14 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   const templateAssignment = await resolveDefaultTemplateAssignment({
     rawDefaultTemplateId: defaultTemplateId,
     ownerUserId: profile.userId,
+    templateType: "resume",
+    errorField: "defaultTemplateId",
+  });
+  const coverLetterTemplateAssignment = await resolveDefaultTemplateAssignment({
+    rawDefaultTemplateId: defaultCoverLetterTemplateId,
+    ownerUserId: profile.userId,
+    templateType: "cover_letter",
+    errorField: "defaultCoverLetterTemplateId",
   });
   const stackAssignment = await resolveStackAssignment({
     rawStackId: stackId,
@@ -386,6 +425,15 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
       null,
       templateAssignment.error,
       templateAssignment.status || 400
+    );
+  }
+  if (coverLetterTemplateAssignment.error) {
+    return sendJsonResult(
+      res,
+      false,
+      null,
+      coverLetterTemplateAssignment.error,
+      coverLetterTemplateAssignment.status || 400
     );
   }
   if (stackAssignment.error) {
@@ -407,6 +455,9 @@ exports.updateProfile = asyncErrorHandler(async (req, res, next) => {
   profile.educations = normalizedEducations;
   if (templateAssignment.shouldSet) {
     profile.defaultTemplateId = templateAssignment.value;
+  }
+  if (coverLetterTemplateAssignment.shouldSet) {
+    profile.defaultCoverLetterTemplateId = coverLetterTemplateAssignment.value;
   }
   if (stackAssignment.shouldSet) {
     profile.stackId = stackAssignment.stackId;

@@ -11,6 +11,7 @@ const sanitizeHtml = require('sanitize-html');
 const ejs = require('ejs');
 const { profileExperienceToResumeExperience } = require('./experienceAdapter');
 const { convertLegacyTemplateToEjs } = require('./templateSyntaxMigration');
+const coverLetterClassicTemplate = require('./builtInTemplates/coverLetterClassic');
 
 const RESUME_RICH_SUMMARY = {
     allowedTags: ['b', 'i', 'em', 'strong', 'u', 'a', 'br', 'p', 'ul', 'ol', 'li'],
@@ -112,6 +113,8 @@ const FALLBACK_TEMPLATE = convertLegacyTemplateToEjs(`<!DOCTYPE html>
   {{/section}}
 </div>
 </body></html>`);
+
+const FALLBACK_COVER_LETTER_TEMPLATE = coverLetterClassicTemplate.data;
 
 const EJS_RENDER_OPTIONS = {
     async: false,
@@ -339,6 +342,13 @@ function buildEjsLocals(data, config = DEFAULT_CONFIG) {
         github: data.github || '',
         website: data.website || '',
         address: data.address || '',
+        recipient: data.recipient || '',
+        companyName: data.companyName || '',
+        jobTitle: data.jobTitle || '',
+        opening: data.opening || '',
+        bodyParagraphs: Array.isArray(data.bodyParagraphs) ? data.bodyParagraphs : [],
+        closing: data.closing || '',
+        signature: data.signature || '',
         summary: data.summary || '',
         experiences: Array.isArray(data.experiences) ? data.experiences : [],
         education: Array.isArray(data.education) ? data.education : [],
@@ -406,6 +416,101 @@ function buildRenderData(resume) {
     };
 }
 
+const COVER_LETTER_SALUTATION_TEXT_RE = /^(?:dear|hello|hi)\s+[^,\n:]{1,120}[,:]?$/i;
+const LEADING_COVER_LETTER_SALUTATION_RE = /^\s*(?:dear|hello|hi)\s+[^,\n:]{1,120}[,:]?\s*/i;
+const REPEATED_COVER_LETTER_SALUTATION_RUN_RE =
+    /((?:dear|hello|hi)\s+[^,\n:<]{1,120}[,:]?)(?:(?:\s|&nbsp;|<br\s*\/?>|<\/?span\b[^>]*>)+\1)+/gi;
+
+function stripCoverLetterOpeningSalutation(value) {
+    let text = String(value || '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\u00a0/g, ' ')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>\s*<p\b[^>]*>/gi, '\n')
+        .replace(/<\/?p\b[^>]*>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .trim();
+
+    for (let i = 0; i < 5; i += 1) {
+        const next = text.replace(LEADING_COVER_LETTER_SALUTATION_RE, '').trim();
+        if (next === text) break;
+        text = next;
+    }
+
+    return text;
+}
+
+function collapseRepeatedSalutationRuns(value) {
+    let previous = '';
+    let next = String(value || '');
+    for (let i = 0; i < 5 && next !== previous; i += 1) {
+        previous = next;
+        next = next.replace(REPEATED_COVER_LETTER_SALUTATION_RUN_RE, '$1');
+    }
+    return next;
+}
+
+function stripHtmlTagsForComparison(value) {
+    return String(value || '')
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function collapseDuplicateCoverLetterSalutations(html) {
+    let previousSalutation = '';
+    const collapsedRuns = collapseRepeatedSalutationRuns(html);
+    return collapsedRuns.replace(/<p\b[^>]*>[\s\S]*?<\/p>/gi, (paragraph) => {
+        const cleanedParagraph = collapseRepeatedSalutationRuns(paragraph);
+        const text = stripHtmlTagsForComparison(cleanedParagraph);
+        if (!COVER_LETTER_SALUTATION_TEXT_RE.test(text)) {
+            previousSalutation = '';
+            return cleanedParagraph;
+        }
+
+        const normalized = text.toLowerCase().replace(/\s+/g, ' ').replace(/[,:]\s*$/, '');
+        if (previousSalutation === normalized) return '';
+        previousSalutation = normalized;
+        return cleanedParagraph;
+    });
+}
+
+function templateRendersCoverLetterSalutation(templateHtml) {
+    const html = String(templateHtml || '');
+    return /Dear\s*<%[=-]\s*recipient\b/i.test(html) ||
+        /Dear\s+\{\{\s*recipient\s*\}\}/i.test(html) ||
+        /recipient\s*\|\|\s*["']Hiring Manager["']/i.test(html);
+}
+
+function buildCoverLetterRenderData(resume) {
+    const profile = resume.profileId && typeof resume.profileId === 'object' ? resume.profileId : {};
+    const contactInfo = profile.contactInfo || {};
+    const coverLetter = resume.coverLetter && typeof resume.coverLetter === 'object' ? resume.coverLetter : {};
+    const fullName = profile.fullName || coverLetter.signature || resume.name || 'Candidate';
+
+    return {
+        fullName,
+        title: profile.title || '',
+        email: contactInfo.email || '',
+        phone: contactInfo.phone || '',
+        linkedin: contactInfo.linkedin || profile.link || '',
+        github: contactInfo.github || '',
+        website: contactInfo.website || '',
+        address: contactInfo.address || '',
+        recipient: coverLetter.recipient || 'Hiring Manager',
+        companyName: coverLetter.companyName || '',
+        jobTitle: coverLetter.jobTitle || '',
+        opening: coverLetter.opening || '',
+        bodyParagraphs: Array.isArray(coverLetter.bodyParagraphs)
+            ? coverLetter.bodyParagraphs.map((paragraph) => String(paragraph || '').trim()).filter(Boolean)
+            : [],
+        closing: coverLetter.closing || '',
+        signature: coverLetter.signature || fullName,
+    };
+}
+
 function replaceEachBlock(html, collectionName, renderBlock) {
     const openRe = new RegExp(`\\{\\{#each\\s+${collectionName}\\s*\\}\\}`, 'g');
     let result = '';
@@ -470,12 +575,40 @@ function resolveTemplateHtml(resume) {
     return FALLBACK_TEMPLATE;
 }
 
+function resolveCoverLetterTemplateHtml(resume) {
+    const template = resume.coverLetterTemplateId && typeof resume.coverLetterTemplateId === 'object'
+        ? resume.coverLetterTemplateId
+        : null;
+    if (template?.data && (!template.templateType || template.templateType === 'cover_letter')) return template.data;
+    return FALLBACK_COVER_LETTER_TEMPLATE;
+}
+
 function buildResumeHtml(resume) {
     const config = getConfig(resume);
     let templateHtml = resolveTemplateHtml(resume);
     templateHtml = injectCssVars(templateHtml, config);
     const data = buildRenderData(resume);
     return renderTemplate(templateHtml, data, config);
+}
+
+function buildCoverLetterHtml(resume) {
+    const config = getConfig(resume);
+    const baseData = buildCoverLetterRenderData(resume);
+    const templateHtml = resolveCoverLetterTemplateHtml(resume);
+    const renderCoverLetterTemplate = (html) => {
+        const data = templateRendersCoverLetterSalutation(html)
+            ? { ...baseData, opening: stripCoverLetterOpeningSalutation(baseData.opening) }
+            : baseData;
+        return collapseDuplicateCoverLetterSalutations(renderTemplate(injectCssVars(html, config), data, config));
+    };
+
+    try {
+        return renderCoverLetterTemplate(templateHtml);
+    } catch (error) {
+        if (templateHtml === FALLBACK_COVER_LETTER_TEMPLATE) throw error;
+        console.warn('[buildCoverLetterHtml] failed to render selected cover-letter template, using fallback', error?.message || error);
+        return renderCoverLetterTemplate(FALLBACK_COVER_LETTER_TEMPLATE);
+    }
 }
 
 function injectHtmlDownloadMetadata(html, fullName) {
@@ -492,6 +625,45 @@ function injectHtmlDownloadMetadata(html, fullName) {
     return `<!DOCTYPE html><html><head>${tags}</head><body>${html}</body></html>`;
 }
 
+function normalizeDownloadFilenameBase(value, fallback = 'download') {
+    const normalized = String(value || '')
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180);
+    return normalized || fallback;
+}
+
+function sanitizeDownloadFilenameBase(value, fallback = 'download') {
+    const ascii = normalizeDownloadFilenameBase(value, fallback)
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\x20-\x7E]+/g, ' ')
+        .replace(/[<>:"/\\|?*;=\x00-\x1F\x7F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180);
+    return ascii || fallback;
+}
+
+function encodeContentDispositionFilename(value) {
+    return encodeURIComponent(value)
+        .replace(/['()]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+        .replace(/\*/g, '%2A');
+}
+
+function buildContentDisposition(filenameBase, extension, fallbackBase = 'download') {
+    const cleanExtension = String(extension || '')
+        .replace(/^\.+/, '')
+        .replace(/[^A-Za-z0-9]/g, '') || 'bin';
+    const unicodeBase = normalizeDownloadFilenameBase(filenameBase, fallbackBase);
+    const asciiBase = sanitizeDownloadFilenameBase(unicodeBase, fallbackBase);
+    const asciiFilename = `${asciiBase}.${cleanExtension}`;
+    const encodedFilename = encodeContentDispositionFilename(`${unicodeBase}.${cleanExtension}`);
+    return `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+}
+
 function sendHtmlResume(resume, res) {
     const fullName = resume?.profileId && typeof resume.profileId === 'object'
         ? resume.profileId.fullName || ''
@@ -499,19 +671,47 @@ function sendHtmlResume(resume, res) {
     const html = injectHtmlDownloadMetadata(buildResumeHtml(resume), fullName);
     res.set({
         'Content-Type': 'text/html',
-        'Content-Disposition': `attachment; filename="${(resume.name || 'resume').replace(/"/g, '')}.html"`,
+        'Content-Disposition': buildContentDisposition(resume.name || 'resume', 'html', 'resume'),
+    });
+    res.send(html);
+}
+
+function buildCoverLetterFilename(resume) {
+    const coverLetter = resume.coverLetter && typeof resume.coverLetter === 'object' ? resume.coverLetter : {};
+    const parts = [coverLetter.title, coverLetter.jobTitle, coverLetter.companyName]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    return (parts.length ? parts.join(' - ') : `${resume.name || 'Resume'} - Cover Letter`)
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180) || 'cover-letter';
+}
+
+function sendHtmlCoverLetter(resume, res) {
+    const fullName = resume?.profileId && typeof resume.profileId === 'object'
+        ? resume.profileId.fullName || ''
+        : '';
+    const html = injectHtmlDownloadMetadata(buildCoverLetterHtml(resume), fullName);
+    res.set({
+        'Content-Type': 'text/html',
+        'Content-Disposition': buildContentDisposition(buildCoverLetterFilename(resume), 'html', 'cover-letter'),
     });
     res.send(html);
 }
 
 module.exports = {
     FALLBACK_TEMPLATE,
+    FALLBACK_COVER_LETTER_TEMPLATE,
     DEFAULT_CONFIG,
     MARGIN_PRESETS,
     escapeHtml,
     formatDate,
     sanitizeSummaryForTemplate,
     descriptionPointToLi,
+    stripCoverLetterOpeningSalutation,
+    collapseDuplicateCoverLetterSalutations,
+    templateRendersCoverLetterSalutation,
     parseSkillsList,
     buildSkillGroups,
     flattenSkillGroups,
@@ -523,9 +723,17 @@ module.exports = {
     buildEjsLocals,
     assertEjsTemplateIsAllowed,
     buildRenderData,
+    buildCoverLetterRenderData,
     renderTemplate,
     resolveTemplateHtml,
+    resolveCoverLetterTemplateHtml,
     buildResumeHtml,
+    buildCoverLetterHtml,
     injectHtmlDownloadMetadata,
+    buildCoverLetterFilename,
+    normalizeDownloadFilenameBase,
+    sanitizeDownloadFilenameBase,
+    buildContentDisposition,
     sendHtmlResume,
+    sendHtmlCoverLetter,
 };

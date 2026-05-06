@@ -1,5 +1,5 @@
 const { JobDescriptionModel, ProfileModel, ResumeModel } = require('../dbModels')
-const { generateResumeJsonFromJD } = require('../utils/resumeGeneration')
+const { generateApplicationMaterialsJsonFromJD } = require('../utils/resumeGeneration')
 const { persistGeneratedResume } = require('../services/agentPersistence.service')
 
 module.exports = async function resumeGenerator(job, updateProgress) {
@@ -16,17 +16,20 @@ module.exports = async function resumeGenerator(job, updateProgress) {
   }
 
   updateProgress(10)
-  const resume = await generateResumeJsonFromJD({ jd, profile, baseResume })
-  updateProgress(80, { resume })
+  const materials = await generateApplicationMaterialsJsonFromJD({ jd, profile, baseResume })
+  const resume = materials.resume
+  const coverLetter = materials.coverLetter
+  updateProgress(80, { resume, coverLetter })
 
   await persistGeneratedResume({
     userId: job.userId,
     profileId,
     resume,
+    coverLetter,
     sessionId,
     profileFullName: profile.fullName || null,
   }).catch(() => {})
 
-  updateProgress(100, { resume })
-  return { resume }
+  updateProgress(100, { resume, coverLetter })
+  return { resume, coverLetter }
 }

@@ -102,6 +102,11 @@ const applicationSchema = new mongoose.Schema(
         ref: 'Template',
         default: null,
       },
+      selectedCoverLetterTemplateId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Template',
+        default: null,
+      },
     },
     pipeline: {
       jobId: {

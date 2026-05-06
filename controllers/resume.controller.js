@@ -3,11 +3,15 @@ const { ResumeModel, ProfileModel, ApplicationModel } = require("../dbModels");
 const { sendJsonResult } = require("../utils");
 const {
   sendPdfResume,
+  sendPdfCoverLetter,
   sendHtmlResume,
+  sendHtmlCoverLetter,
   sendDocResume,
+  sendDocCoverLetter,
   sendPdfFromHtml,
   sendDocFromHtml,
   injectHtmlDownloadMetadata,
+  buildContentDisposition,
   getConfig,
   getMargins,
 } = require("../utils/resumeUtils");
@@ -190,6 +194,26 @@ function normalizeEducation(education) {
     .filter((e) => e.universityName || e.degreeLevel || e.major || e.startDate || e.endDate);
 }
 
+function normalizeCoverLetter(coverLetter) {
+  if (!coverLetter || typeof coverLetter !== "object") return null;
+  const bodyParagraphs = Array.isArray(coverLetter.bodyParagraphs)
+    ? coverLetter.bodyParagraphs.map(toCleanString).filter(Boolean)
+    : [];
+  const normalized = {
+    title: toCleanString(coverLetter.title),
+    recipient: toCleanString(coverLetter.recipient),
+    companyName: toCleanString(coverLetter.companyName),
+    jobTitle: toCleanString(coverLetter.jobTitle),
+    opening: toCleanString(coverLetter.opening),
+    bodyParagraphs,
+    closing: toCleanString(coverLetter.closing),
+    signature: toCleanString(coverLetter.signature),
+  };
+  return Object.values(normalized).some((value) => Array.isArray(value) ? value.length : Boolean(value))
+    ? normalized
+    : null;
+}
+
 function extractVisibleTextFromHtml(html) {
   return String(html || "")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -198,6 +222,20 @@ function extractVisibleTextFromHtml(html) {
     .replace(/&nbsp;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function hasCoverLetterContent(resume) {
+  const coverLetter = resume?.coverLetter;
+  if (!coverLetter || typeof coverLetter !== "object") return false;
+  return Boolean(
+    toCleanString(coverLetter.title) ||
+      toCleanString(coverLetter.companyName) ||
+      toCleanString(coverLetter.jobTitle) ||
+      toCleanString(coverLetter.opening) ||
+      (Array.isArray(coverLetter.bodyParagraphs) &&
+        coverLetter.bodyParagraphs.some((paragraph) => toCleanString(paragraph))) ||
+      toCleanString(coverLetter.closing)
+  );
 }
 
 async function appendDownloadHistoryEvent({
@@ -254,6 +292,14 @@ function mapUpdatePayloadToSet(payload) {
     const templateId = toCleanString(payload.template?.id ?? payload.template?._id ?? payload.templateId);
     if (templateId) set.templateId = templateId;
   }
+  if ("coverLetterTemplate" in payload || "coverLetterTemplateId" in payload) {
+    const coverLetterTemplateId = toCleanString(
+      payload.coverLetterTemplate?.id ??
+      payload.coverLetterTemplate?._id ??
+      payload.coverLetterTemplateId
+    );
+    set.coverLetterTemplateId = coverLetterTemplateId || null;
+  }
   if ("stack" in payload || "stackId" in payload) {
     const stackId = toCleanString(payload.stack?.id ?? payload.stack?._id ?? payload.stackId);
     set.stackId = stackId || null;
@@ -272,6 +318,9 @@ function mapUpdatePayloadToSet(payload) {
   }
   if (Object.prototype.hasOwnProperty.call(payload, "education")) {
     set.education = normalizeEducation(payload.education);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "coverLetter")) {
+    set.coverLetter = normalizeCoverLetter(payload.coverLetter);
   }
   if (Object.prototype.hasOwnProperty.call(payload, "pageFrameConfig")) {
     set.pageFrameConfig = payload.pageFrameConfig ?? null;
@@ -298,6 +347,10 @@ function payloadTouchesEmbeddingFields(payload) {
 function mapPayloadToModel(payload, userId) {
   const profileId = payload.profile?.id ?? payload.profile?._id ?? payload.profileId;
   const templateId = payload.template?.id ?? payload.template?._id ?? payload.templateId;
+  const coverLetterTemplateId =
+    payload.coverLetterTemplate?.id ??
+    payload.coverLetterTemplate?._id ??
+    payload.coverLetterTemplateId;
   const stackId = payload.stack?.id ?? payload.stack?._id ?? payload.stackId;
   return {
     userId,
@@ -305,11 +358,13 @@ function mapPayloadToModel(payload, userId) {
     profileId: profileId || null,
     stackId: stackId || null,
     templateId: templateId || null,
+    coverLetterTemplateId: coverLetterTemplateId || null,
     note: payload.note ?? "",
     summary: payload.summary ?? "",
     experiences: Array.isArray(payload.experiences) ? normalizeExperiences(payload.experiences) : undefined,
     skills: Array.isArray(payload.skills) ? normalizeSkills(payload.skills) : undefined,
     education: Array.isArray(payload.education) ? normalizeEducation(payload.education) : undefined,
+    coverLetter: normalizeCoverLetter(payload.coverLetter),
     pageFrameConfig: payload.pageFrameConfig ?? null,
     cloudPrimary: payload.cloudPrimary ?? (payload.cloudPrimary === "" ? "" : undefined),
     cloudSecondary: Array.isArray(payload.cloudSecondary) ? payload.cloudSecondary : undefined,
@@ -372,6 +427,7 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
   const populated = await ResumeModel.findById(newResume._id)
     .populate("profileId")
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("stackId");
   return sendJsonResult(res, true, normalizeResumeForResponse(populated), "Resume created successfully", 201);
 });
@@ -383,6 +439,7 @@ exports.getResume = asyncErrorHandler(async (req, res) => {
   const resumeDoc = await ResumeModel.findOne({ ...scope, _id: resumeId, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("stackId")
     .lean();
 
@@ -400,6 +457,7 @@ exports.getResumeByProfileAndId = asyncErrorHandler(async (req, res) => {
   const resumeDoc = await ResumeModel.findOne({ ...scope, _id: resumeId, profileId, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("stackId")
     .lean();
 
@@ -461,6 +519,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
     const populated = await ResumeModel.findById(resumeId)
       .populate("profileId")
       .populate("templateId")
+      .populate("coverLetterTemplateId")
       .populate("stackId");
     return sendJsonResult(res, true, normalizeResumeForResponse(populated));
   }
@@ -472,6 +531,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   )
     .populate("profileId")
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("stackId");
 
   if (!updatedResume) {
@@ -484,6 +544,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
   const withEmbedding = await ResumeModel.findById(resumeId)
     .populate("profileId")
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("stackId");
   return sendJsonResult(res, true, normalizeResumeForResponse(withEmbedding || updatedResume));
 });
@@ -546,6 +607,7 @@ exports.getAllResumes = asyncErrorHandler(async (req, res) => {
   const resumes = await ResumeModel.find({ ...scope, isDeleted: { $ne: true } })
     .populate("profileId")
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("stackId")
     .sort({ updatedAt: -1 });
   return sendJsonResult(res, true, resumes.map(normalizeResumeForResponse));
@@ -553,13 +615,46 @@ exports.getAllResumes = asyncErrorHandler(async (req, res) => {
 
 exports.downloadResume = asyncErrorHandler(async (req, res) => {
   const { resumeId } = req.params;
-  const { fileType, applicationId } = req.query;
+  const { fileType, applicationId, documentType } = req.query;
   const scope = buildResumeScope(req);
 
   const resume = await ResumeModel.findOne({ ...scope, _id: resumeId, isDeleted: { $ne: true } })
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("profileId");
   if (!resume) return sendJsonResult(res, false, null, "Resume not found", 404);
+
+  if (documentType === "coverLetter") {
+    if (!hasCoverLetterContent(resume)) {
+      return sendJsonResult(res, false, null, "Cover letter not found", 404);
+    }
+
+    switch (fileType) {
+      case "pdf":
+        await appendDownloadHistoryEvent({
+          userId: resume.userId ? String(resume.userId) : null,
+          actorId: req.user._id,
+          applicationId,
+          resumeId,
+          fileType: "pdf",
+        });
+        return sendPdfCoverLetter(resume, res);
+      case "html":
+        return sendHtmlCoverLetter(resume, res);
+      case "docx":
+      case "doc":
+        await appendDownloadHistoryEvent({
+          userId: resume.userId ? String(resume.userId) : null,
+          actorId: req.user._id,
+          applicationId,
+          resumeId,
+          fileType: "docx",
+        });
+        return sendDocCoverLetter(resume, res);
+      default:
+        return sendJsonResult(res, false, null, "Invalid file type", 400);
+    }
+  }
 
   switch (fileType) {
     case "pdf":
@@ -593,6 +688,7 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
 
   const resume = await ResumeModel.findOne({ ...scope, _id: resumeId, isDeleted: { $ne: true } })
     .populate("templateId")
+    .populate("coverLetterTemplateId")
     .populate("profileId");
   if (!resume) return sendJsonResult(res, false, null, "Resume not found", 404);
 
@@ -643,7 +739,7 @@ exports.downloadResumeFromHtml = asyncErrorHandler(async (req, res) => {
         : html;
       res.set({
         "Content-Type": "text/html",
-        "Content-Disposition": `attachment; filename="${(name || "resume").replace(/"/g, "")}.html"`,
+        "Content-Disposition": buildContentDisposition(name || "resume", "html", "resume"),
       });
       return res.send(htmlWithMeta);
     }

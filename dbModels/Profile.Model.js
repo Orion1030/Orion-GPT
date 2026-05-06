@@ -45,6 +45,11 @@ const profileSchema = new mongoose.Schema(
       ref: 'Template',
       default: null
     },
+    defaultCoverLetterTemplateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Template',
+      default: null
+    },
     fullName: {
       type: String,
       required: true

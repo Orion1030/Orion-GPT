@@ -52,8 +52,46 @@ const resumeSchema = {
   required: ["name", "summary", "experiences", "skills", "education"],
 };
 
+const coverLetterSchema = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    recipient: { type: "string" },
+    companyName: { type: "string" },
+    jobTitle: { type: "string" },
+    opening: { type: "string" },
+    bodyParagraphs: {
+      type: "array",
+      items: { type: "string" },
+    },
+    closing: { type: "string" },
+    signature: { type: "string" },
+  },
+  required: [
+    "title",
+    "recipient",
+    "companyName",
+    "jobTitle",
+    "opening",
+    "bodyParagraphs",
+    "closing",
+    "signature",
+  ],
+};
+
+const applicationMaterialsSchema = {
+  type: "object",
+  properties: {
+    resume: resumeSchema,
+    coverLetter: coverLetterSchema,
+  },
+  required: ["resume", "coverLetter"],
+};
+
 module.exports = {
   resumeSchema,
+  coverLetterSchema,
+  applicationMaterialsSchema,
   // Aliases for backward compatibility
   resumeOutputSchema: resumeSchema,
   resumeParseSchema: resumeSchema,

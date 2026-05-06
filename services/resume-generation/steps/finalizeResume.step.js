@@ -17,6 +17,9 @@ async function run(ctx) {
     artifacts: {
       ...ctx.artifacts,
       finalResume,
+      ...(ctx.artifacts.verifiedCoverLetter
+        ? { finalCoverLetter: ctx.artifacts.verifiedCoverLetter }
+        : {}),
     },
   }
 }

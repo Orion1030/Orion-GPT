@@ -45,6 +45,17 @@ function buildApplicationChatTitle(application) {
   return title || 'New Chat'
 }
 
+function hasCoverLetterContent(resume) {
+  const coverLetter = resume?.coverLetter
+  if (!coverLetter || typeof coverLetter !== 'object') return false
+  return Boolean(
+    sanitizeString(coverLetter.opening) ||
+      (Array.isArray(coverLetter.bodyParagraphs) &&
+        coverLetter.bodyParagraphs.some((paragraph) => sanitizeString(paragraph))) ||
+      sanitizeString(coverLetter.closing)
+  )
+}
+
 function toSafePage(value, fallback = 1) {
   const parsed = Number.parseInt(value, 10)
   if (!Number.isFinite(parsed) || parsed < 1) return fallback
@@ -88,6 +99,7 @@ function mapApplicationListItem(app) {
     profileNameSnapshot: profileLabel || app.profileNameSnapshot || '',
     resumeId: toIdString(app.resumeId),
     resumeName: app.resumeName || '',
+    hasCoverLetter: hasCoverLetterContent(app.resumeId),
     baseResumeId: toIdString(app.baseResumeId),
     jobDescriptionId: toIdString(app.jobDescriptionId),
     companyName: app.companyName || '',
@@ -193,6 +205,7 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
     manualProfileId: req.body?.manualProfileId,
     manualResumeId: req.body?.manualResumeId,
     selectedTemplateId: req.body?.selectedTemplateId,
+    selectedCoverLetterTemplateId: req.body?.selectedCoverLetterTemplateId,
   })
 
   if (applyConfig.profileSelectionMode === 'manual' && !applyConfig.manualProfileId) {
@@ -245,12 +258,28 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
   if (applyConfig.selectedTemplateId) {
     const template = await TemplateModel.findOne({
       _id: applyConfig.selectedTemplateId,
-      $or: [{ isBuiltIn: true }, { userId }],
+      $and: [
+        { $or: [{ templateType: 'resume' }, { templateType: { $exists: false } }] },
+        { $or: [{ isBuiltIn: true }, { userId }] },
+      ],
     })
       .select('_id')
       .lean()
     if (!template) {
       return sendJsonResult(res, false, null, 'selectedTemplateId is invalid', 404)
+    }
+  }
+
+  if (applyConfig.selectedCoverLetterTemplateId) {
+    const template = await TemplateModel.findOne({
+      _id: applyConfig.selectedCoverLetterTemplateId,
+      templateType: 'cover_letter',
+      $or: [{ isBuiltIn: true }, { userId }],
+    })
+      .select('_id')
+      .lean()
+    if (!template) {
+      return sendJsonResult(res, false, null, 'selectedCoverLetterTemplateId is invalid', 404)
     }
   }
 
@@ -314,6 +343,7 @@ exports.applyForApplication = asyncErrorHandler(async (req, res) => {
         manualProfileId: applyConfig.manualProfileId || null,
         manualResumeId: applyConfig.manualResumeId || null,
         selectedTemplateId: applyConfig.selectedTemplateId || null,
+        selectedCoverLetterTemplateId: applyConfig.selectedCoverLetterTemplateId || null,
       },
       snapshot: {
         companyName: updated?.companyName || '',
@@ -380,6 +410,7 @@ exports.listApplications = asyncErrorHandler(async (req, res) => {
     .limit(pageSize)
   if (typeof itemsQuery.populate === 'function') {
     itemsQuery = itemsQuery.populate('profileId', '_id fullName title mainStack')
+    itemsQuery = itemsQuery.populate('resumeId', '_id name coverLetter')
   }
 
   const [items, total] = await Promise.all([

@@ -11,6 +11,9 @@ function validateInput(ctx) {
   if (!ctx?.helperSet?.enforceExperienceBullets) {
     throw new Error('verify_resume requires helperSet.enforceExperienceBullets')
   }
+  if (ctx.outputMode === 'application_materials' && !ctx?.helperSet?.normalizeCoverLetterJson) {
+    throw new Error('verify_resume requires helperSet.normalizeCoverLetterJson')
+  }
 }
 
 function validateOutput(output) {
@@ -27,6 +30,12 @@ async function run(ctx) {
     ctx.profile,
     ctx.baseResume
   )
+  const verifiedCoverLetter = ctx.outputMode === 'application_materials'
+    ? ctx.helperSet.normalizeCoverLetterJson(ctx.artifacts.coverLetterDraft, {
+        jd: ctx.jd,
+        profile: ctx.profile,
+      })
+    : null
   validateOutput(verifiedResume)
 
   return {
@@ -34,6 +43,7 @@ async function run(ctx) {
     artifacts: {
       ...ctx.artifacts,
       verifiedResume,
+      ...(verifiedCoverLetter ? { verifiedCoverLetter } : {}),
     },
   }
 }

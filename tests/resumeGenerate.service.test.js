@@ -31,10 +31,12 @@ const { resolveManagedPromptContext } = require('../services/promptRuntime.servi
 const { resolveFeatureAiRuntimeConfig } = require('../services/adminConfiguration.service');
 const {
   generateResumeFromJD,
+  generateApplicationMaterialsFromJD,
   _buildResumeGenerationInput,
   _buildMergedCareerHistoryForPrompt,
   _enforceExperienceBullets,
 } = require('../services/llm/resumeGenerate.service');
+const { normalizeApplicationMaterialsJson } = require('../utils/resumeGeneration');
 
 const jd = { title: 'Data Engineer', company: 'Acme', context: 'Build pipelines' };
 const profile = { fullName: 'Jane Doe', title: 'Engineer', mainStack: 'Data', careerHistory: [], educations: [] };
@@ -70,6 +72,115 @@ describe('generateResumeFromJD', () => {
     const res = await generateResumeFromJD({ jd, profile, baseResume: null });
     expect(res.name).toBe('Fallback');
     expect(chatCompletions).toHaveBeenCalled();
+  });
+
+  it('returns paired resume and cover letter when materials generation succeeds', async () => {
+    chatCompletions.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  resume: {
+                    name: 'Materials Resume',
+                    summary: '',
+                    experiences: [],
+                    skills: [],
+                    education: [],
+                  },
+                  coverLetter: {
+                    title: 'Materials Cover Letter',
+                    recipient: 'Hiring Team',
+                    companyName: 'Acme',
+                    jobTitle: 'Data Engineer',
+                    opening: 'I am interested in the Data Engineer role at Acme.',
+                    bodyParagraphs: ['My data platform work maps to this role.'],
+                    closing: 'Thank you for your consideration.',
+                    signature: 'Jane Doe',
+                  },
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const res = await generateApplicationMaterialsFromJD({
+      jd,
+      profile,
+      baseResume: null,
+    });
+
+    expect(res.resume.name).toBe('Materials Resume');
+    expect(res.coverLetter.title).toBe('Materials Cover Letter');
+    expect(chatCompletions.mock.calls[0]?.[0]?.response_format?.json_schema?.name)
+      .toBe('generate_application_materials');
+  });
+
+  it('keeps generated experience bullets when the model returns common bullet aliases', async () => {
+    chatCompletions.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  resume: {
+                    name: 'Alias Resume',
+                    summary: '',
+                    experiences: [
+                      {
+                        title: 'Data Engineer',
+                        companyName: 'Acme',
+                        description:
+                          '<ul><li>Built Spark ingestion jobs for partner data feeds.</li><li>Improved pipeline monitoring for daily loads.</li></ul>',
+                        responsibilities: ['Owned Airflow orchestration for batch workflows.'],
+                        candidateExperience: {
+                          bullets: ['Migrated SQL jobs into cloud data workflows.'],
+                        },
+                        startDate: '2022-01-01',
+                        endDate: '2023-12-31',
+                      },
+                    ],
+                    skills: [],
+                    education: [],
+                  },
+                  coverLetter: {
+                    title: 'Alias Cover Letter',
+                    recipient: 'Hiring Team',
+                    companyName: 'Acme',
+                    jobTitle: 'Data Engineer',
+                    opening: 'I am interested in the Data Engineer role at Acme.',
+                    bodyParagraphs: ['My data platform work maps to this role.'],
+                    closing: 'Thank you for your consideration.',
+                    signature: 'Jane Doe',
+                  },
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const res = await generateApplicationMaterialsFromJD({
+      jd,
+      profile,
+      baseResume: null,
+    });
+
+    expect(res.resume.experiences[0].bullets).toEqual(
+      expect.arrayContaining([
+        'Built Spark ingestion jobs for partner data feeds.',
+        'Improved pipeline monitoring for daily loads.',
+        'Owned Airflow orchestration for batch workflows.',
+        'Migrated SQL jobs into cloud data workflows.',
+      ])
+    );
   });
 
   it('uses reasoning mode when configured for resume generation', async () => {
@@ -643,5 +754,43 @@ describe('experience evidence scoping', () => {
     const lines = (enriched.experiences[0].bullets || []).join(' ').toLowerCase();
     expect(lines).toContain('event-driven microservices architecture');
     expect(lines).not.toContain('legacy monolith');
+  });
+});
+
+describe('application materials normalization', () => {
+  it('maps generated bullet aliases before persistence', () => {
+    const normalized = normalizeApplicationMaterialsJson(
+      {
+        resume: {
+          name: 'Generated',
+          summary: '',
+          experiences: [
+            {
+              title: 'Data Engineer',
+              companyName: 'Acme',
+              description: '- Built data feeds\n- Improved data quality',
+              achievements: ['Reduced manual QA review through pipeline checks.'],
+              startDate: '2022-01-01',
+              endDate: '2023-12-31',
+            },
+          ],
+          skills: [],
+          education: [],
+        },
+        coverLetter: {
+          title: 'Cover Letter',
+          bodyParagraphs: ['Relevant data work.'],
+        },
+      },
+      { jd, profile }
+    );
+
+    expect(normalized.resume.experiences[0].bullets).toEqual(
+      expect.arrayContaining([
+        'Built data feeds',
+        'Improved data quality',
+        'Reduced manual QA review through pipeline checks.',
+      ])
+    );
   });
 });

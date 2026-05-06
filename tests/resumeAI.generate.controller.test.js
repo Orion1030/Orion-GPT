@@ -3,7 +3,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
   let jobFindOneMock;
   let profileFindOneMock;
   let resumeFindOneMock;
-  let tryGenerateResumeJsonFromJDMock;
+  let tryGenerateApplicationMaterialsJsonFromJDMock;
 
   const makeResponse = () => ({
     status: jest.fn().mockReturnThis(),
@@ -30,7 +30,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     jobFindOneMock = jest.fn();
     profileFindOneMock = jest.fn();
     resumeFindOneMock = jest.fn();
-    tryGenerateResumeJsonFromJDMock = jest.fn();
+    tryGenerateApplicationMaterialsJsonFromJDMock = jest.fn();
 
     jest.doMock("../dbModels", () => ({
       JobDescriptionModel: { findOne: jobFindOneMock },
@@ -39,7 +39,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     }));
 
     jest.doMock("../utils/resumeGeneration", () => ({
-      tryGenerateResumeJsonFromJD: tryGenerateResumeJsonFromJDMock,
+      tryGenerateApplicationMaterialsJsonFromJD: tryGenerateApplicationMaterialsJsonFromJDMock,
     }));
     jest.doMock("../services/llm/resumeRefine.service", () => ({
       tryRefineResumeWithFeedback: jest.fn(),
@@ -61,8 +61,11 @@ describe("resumeAI.generateResumeFromJD controller", () => {
   it("uses scratch mode when baseResumeId is omitted", async () => {
     jobFindOneMock.mockReturnValue(mockLeanQuery({ _id: "jd-1", title: "Data Engineer", context: "JD context" }));
     profileFindOneMock.mockReturnValue(mockLeanQuery({ _id: "profile-1", fullName: "Jane Doe", careerHistory: [] }));
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -72,7 +75,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     await invokeController(req, res);
 
     expect(resumeFindOneMock).not.toHaveBeenCalled();
-    expect(tryGenerateResumeJsonFromJDMock).toHaveBeenCalledWith(
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).toHaveBeenCalledWith(
       expect.objectContaining({
         baseResume: null,
       })
@@ -83,6 +86,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
         success: true,
         data: expect.objectContaining({
           resume: expect.objectContaining({ name: "Generated" }),
+          coverLetter: expect.objectContaining({ title: "Generated Cover Letter" }),
         }),
       })
     );
@@ -116,8 +120,11 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     };
     const resumeQuery = mockPopulateLeanQuery(selectedResume);
     resumeFindOneMock.mockReturnValue({ populate: resumeQuery.populate });
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -134,7 +141,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
       userId: "user-2",
       isDeleted: { $ne: true },
     });
-    expect(tryGenerateResumeJsonFromJDMock).toHaveBeenCalledWith(
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).toHaveBeenCalledWith(
       expect.objectContaining({
         baseResume: selectedResume,
       })
@@ -170,8 +177,11 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     };
     const resumeQuery = mockPopulateLeanQuery(selectedResume);
     resumeFindOneMock.mockReturnValue({ populate: resumeQuery.populate });
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -184,7 +194,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     await invokeController(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(tryGenerateResumeJsonFromJDMock).toHaveBeenCalled();
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).toHaveBeenCalled();
   });
 
   it("treats concrete profile endDate and open-ended resume endDate as equivalent for matching", async () => {
@@ -215,8 +225,11 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     };
     const resumeQuery = mockPopulateLeanQuery(selectedResume);
     resumeFindOneMock.mockReturnValue({ populate: resumeQuery.populate });
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -229,7 +242,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     await invokeController(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(tryGenerateResumeJsonFromJDMock).toHaveBeenCalled();
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).toHaveBeenCalled();
   });
 
   it("rejects selected resume from another profile", async () => {
@@ -247,7 +260,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
 
     await invokeController(req, res);
 
-    expect(tryGenerateResumeJsonFromJDMock).not.toHaveBeenCalled();
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -273,8 +286,11 @@ describe("resumeAI.generateResumeFromJD controller", () => {
     };
     jobFindOneMock.mockReturnValue(mockLeanQuery(jdDoc));
     profileFindOneMock.mockReturnValue(mockLeanQuery(profileDoc));
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -305,8 +321,8 @@ describe("resumeAI.generateResumeFromJD controller", () => {
       selectedRes
     );
 
-    expect(tryGenerateResumeJsonFromJDMock.mock.calls[0][0].baseResume).toBeNull();
-    expect(tryGenerateResumeJsonFromJDMock.mock.calls[1][0].baseResume).toEqual(selectedResume);
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock.mock.calls[0][0].baseResume).toBeNull();
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock.mock.calls[1][0].baseResume).toEqual(selectedResume);
     expect(scratchRes.status).toHaveBeenCalledWith(200);
     expect(selectedRes.status).toHaveBeenCalledWith(200);
   });
@@ -337,7 +353,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
       res
     );
 
-    expect(tryGenerateResumeJsonFromJDMock).not.toHaveBeenCalled();
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -373,7 +389,7 @@ describe("resumeAI.generateResumeFromJD controller", () => {
       res
     );
 
-    expect(tryGenerateResumeJsonFromJDMock).not.toHaveBeenCalled();
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
   });
 });

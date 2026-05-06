@@ -6,7 +6,7 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
   let jobFindOneMock;
   let profileFindOneMock;
   let resumeFindOneMock;
-  let tryGenerateResumeJsonFromJDMock;
+  let tryGenerateApplicationMaterialsJsonFromJDMock;
 
   function mockLeanQuery(value) {
     return { lean: jest.fn().mockResolvedValue(value) };
@@ -24,7 +24,7 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
     jobFindOneMock = jest.fn();
     profileFindOneMock = jest.fn();
     resumeFindOneMock = jest.fn();
-    tryGenerateResumeJsonFromJDMock = jest.fn();
+    tryGenerateApplicationMaterialsJsonFromJDMock = jest.fn();
 
     jest.doMock("../middlewares/auth.middleware", () => ({
       isAuthenticatedUser: (req, _res, next) => {
@@ -37,6 +37,10 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
     jest.doMock("../middlewares/requireNoRunningJob", () => ({
       requireNoRunningJob: (_req, _res, next) => next(),
       requireNoRunningJobOfType: () => (_req, _res, next) => next(),
+    }));
+
+    jest.doMock("../middlewares/pageAccess.middleware", () => ({
+      requirePageAccess: () => (_req, _res, next) => next(),
     }));
 
     jest.doMock("../middlewares/validate", () => ({
@@ -59,7 +63,7 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
     }));
 
     jest.doMock("../utils/resumeGeneration", () => ({
-      tryGenerateResumeJsonFromJD: tryGenerateResumeJsonFromJDMock,
+      tryGenerateApplicationMaterialsJsonFromJD: tryGenerateApplicationMaterialsJsonFromJDMock,
     }));
     jest.doMock("../services/llm/resumeRefine.service", () => ({
       tryRefineResumeWithFeedback: jest.fn(),
@@ -87,8 +91,11 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
     profileFindOneMock.mockReturnValue(
       mockLeanQuery({ _id: "profile-1", fullName: "Jane Doe", careerHistory: [] })
     );
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -99,6 +106,7 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body?.success).toBe(true);
+    expect(res.body?.data?.coverLetter?.title).toBe("Generated Cover Letter");
     expect(resumeFindOneMock).not.toHaveBeenCalled();
   });
 
@@ -120,8 +128,11 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
     };
     const selectedQuery = mockPopulateLeanQuery(selectedResume);
     resumeFindOneMock.mockReturnValue({ populate: selectedQuery.populate });
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -133,6 +144,7 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body?.success).toBe(true);
+    expect(res.body?.data?.coverLetter?.title).toBe("Generated Cover Letter");
   });
 
   it("supports selected-resume generation when only endDate differs as concrete vs open", async () => {
@@ -153,8 +165,11 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
     };
     const selectedQuery = mockPopulateLeanQuery(selectedResume);
     resumeFindOneMock.mockReturnValue({ populate: selectedQuery.populate });
-    tryGenerateResumeJsonFromJDMock.mockResolvedValue({
-      result: { resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] } },
+    tryGenerateApplicationMaterialsJsonFromJDMock.mockResolvedValue({
+      result: {
+        resume: { name: "Generated", summary: "", experiences: [], skills: [], education: [] },
+        coverLetter: { title: "Generated Cover Letter", bodyParagraphs: ["Relevant experience."] },
+      },
       error: null,
     });
 
@@ -166,6 +181,7 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body?.success).toBe(true);
+    expect(res.body?.data?.coverLetter?.title).toBe("Generated Cover Letter");
   });
 
   it("rejects selected resume when profile and resume employments do not match", async () => {
@@ -196,6 +212,6 @@ describe("POST /api/resume/generate-resume (route e2e)", () => {
     expect(res.status).toBe(400);
     expect(res.body?.success).toBe(false);
     expect(String(res.body?.message || "")).toContain("must match the selected profile career history");
-    expect(tryGenerateResumeJsonFromJDMock).not.toHaveBeenCalled();
+    expect(tryGenerateApplicationMaterialsJsonFromJDMock).not.toHaveBeenCalled();
   });
 });

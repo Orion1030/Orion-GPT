@@ -12,6 +12,12 @@ const templateSchema = new mongoose.Schema(
       type: String,
       required: true
     },
+    templateType: {
+      type: String,
+      enum: ['resume', 'cover_letter'],
+      default: 'resume',
+      index: true
+    },
     data: {
       type: String,
       required: true

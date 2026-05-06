@@ -19,17 +19,33 @@ function toTargetUserId(req) {
 }
 
 function buildTemplateReadFilter(req) {
+  const templateType = normalizeTemplateType(req.query?.templateType, null);
+  const typeFilter = templateType ? buildTemplateTypeFilter(templateType) : null;
   if (isAdminUser(req.user)) {
     const targetUserId = toTargetUserId(req);
     if (targetUserId) {
-      return { $or: [{ isBuiltIn: true }, { userId: targetUserId }] };
+      const accessFilter = { $or: [{ isBuiltIn: true }, { userId: targetUserId }] };
+      return typeFilter ? { $and: [typeFilter, accessFilter] } : accessFilter;
     }
-    return {};
+    return typeFilter || {};
   }
 
-  return {
-    $or: [{ isBuiltIn: true }, { userId: req.user._id }],
-  };
+  const accessFilter = { $or: [{ isBuiltIn: true }, { userId: req.user._id }] };
+  return typeFilter ? { $and: [typeFilter, accessFilter] } : accessFilter;
+}
+
+function normalizeTemplateType(value, fallback = "resume") {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text === "cover_letter") return "cover_letter";
+  if (text === "resume") return "resume";
+  return fallback;
+}
+
+function buildTemplateTypeFilter(templateType) {
+  if (templateType === "resume") {
+    return { $or: [{ templateType: "resume" }, { templateType: { $exists: false } }] };
+  }
+  return { templateType };
 }
 
 function isOwnerTemplate(template, userId) {
@@ -71,6 +87,7 @@ exports.generateTemplateWithAi = asyncErrorHandler(async (req, res) => {
     currentName,
     currentDescription,
     layoutMode,
+    templateType,
   } = req.body || {};
   const cleanPrompt = typeof prompt === "string" ? prompt.trim() : "";
   const cleanTemplate = typeof currentTemplateHtml === "string" ? currentTemplateHtml.trim() : "";
@@ -94,6 +111,7 @@ exports.generateTemplateWithAi = asyncErrorHandler(async (req, res) => {
     currentName,
     currentDescription,
     layoutMode,
+    templateType: normalizeTemplateType(templateType),
     targetUserId: req.user?._id,
   });
 
@@ -108,6 +126,7 @@ exports.generateTemplateWithAi = asyncErrorHandler(async (req, res) => {
 
 exports.createTemplate = asyncErrorHandler(async (req, res) => {
   const { name, data, note, description, layoutMode, templateEngine } = req.body;
+  const templateType = normalizeTemplateType(req.body?.templateType);
   if (!name || !data) {
     return sendJsonResult(res, false, null, "Name and data are required", 400);
   }
@@ -123,12 +142,21 @@ exports.createTemplate = asyncErrorHandler(async (req, res) => {
   const targetUserId = toTargetUserId(req);
   const ownerId = userIsAdmin && targetUserId ? targetUserId : req.user._id;
 
-  if (await TemplateModel.exists({ name, isBuiltIn: false, userId: ownerId })) {
+  const duplicateCreateFilter = {
+    name,
+    isBuiltIn: false,
+    userId: ownerId,
+    ...(templateType === "resume"
+      ? { $or: [{ templateType: "resume" }, { templateType: { $exists: false } }] }
+      : { templateType }),
+  };
+  if (await TemplateModel.exists(duplicateCreateFilter)) {
     return sendJsonResult(res, false, null, "Template with this name already exists", 400);
   }
 
   const newTemplate = new TemplateModel({
     name,
+    templateType,
     data,
     note,
     description,
@@ -170,14 +198,31 @@ exports.updateTemplate = asyncErrorHandler(async (req, res) => {
     });
   }
 
+  const templateType = normalizeTemplateType(req.body?.templateType, template.templateType || "resume");
   const duplicateFilter = template.isBuiltIn
-    ? { _id: { $ne: template._id }, name, isBuiltIn: true }
-    : { _id: { $ne: template._id }, name, isBuiltIn: false, userId: template.userId || null };
+    ? {
+        _id: { $ne: template._id },
+        name,
+        isBuiltIn: true,
+        ...(templateType === "resume"
+          ? { $or: [{ templateType: "resume" }, { templateType: { $exists: false } }] }
+          : { templateType }),
+      }
+    : {
+        _id: { $ne: template._id },
+        name,
+        isBuiltIn: false,
+        userId: template.userId || null,
+        ...(templateType === "resume"
+          ? { $or: [{ templateType: "resume" }, { templateType: { $exists: false } }] }
+          : { templateType }),
+      };
   if (await TemplateModel.exists(duplicateFilter)) {
     return sendJsonResult(res, false, null, "Template with this name already exists", 400);
   }
 
   template.name = name;
+  template.templateType = templateType;
   template.data = data;
   template.note = note ?? template.note;
   template.description = description ?? template.description;
@@ -231,8 +276,16 @@ exports.seedTemplates = asyncErrorHandler(async (req, res) => {
   let updated = 0;
 
   for (const seed of seeds) {
+    const seedTemplateType = seed.templateType || "resume";
+    const seedFilter = seedTemplateType === "resume"
+      ? {
+          name: seed.name,
+          isBuiltIn: true,
+          $or: [{ templateType: "resume" }, { templateType: { $exists: false } }],
+        }
+      : { name: seed.name, templateType: seedTemplateType, isBuiltIn: true };
     const result = await TemplateModel.updateOne(
-      { name: seed.name, isBuiltIn: true },
+      seedFilter,
       {
         $set: {
           ...seed,

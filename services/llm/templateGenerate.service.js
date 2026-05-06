@@ -56,6 +56,22 @@ const SAMPLE_RENDER_DATA = {
   ],
 };
 
+const SAMPLE_COVER_LETTER_RENDER_DATA = {
+  ...SAMPLE_RENDER_DATA,
+  recipient: "Hiring Manager",
+  companyName: "Acme Cloud",
+  jobTitle: "Senior Software Engineer",
+  opening:
+    "I am excited to apply for the Senior Software Engineer role because it matches my background in scalable product engineering and cloud-native delivery.",
+  bodyParagraphs: [
+    "In my recent roles, I have led backend platform work, improved delivery practices, and partnered closely with product teams to ship reliable customer-facing systems.",
+    "I would bring a practical engineering style, strong ownership, and clear communication to help your team build dependable software at scale.",
+  ],
+  closing:
+    "Thank you for your time. I would welcome the chance to discuss how my experience can support your engineering goals.",
+  signature: "Alexander Mitchell",
+};
+
 const BLOCKED_TEMPLATE_PATTERNS = [
   { pattern: /<script\b/i, message: "Generated template cannot include script tags" },
   { pattern: /\bon\w+\s*=/i, message: "Generated template cannot include inline event handlers" },
@@ -89,7 +105,7 @@ function extractJsonObject(text) {
   }
 }
 
-function validateGeneratedHtml(html) {
+function validateGeneratedHtml(html, templateType = "resume") {
   const templateHtml = String(html || "");
   if (!templateHtml.trim()) {
     throw new Error("AI response did not include template HTML");
@@ -107,7 +123,11 @@ function validateGeneratedHtml(html) {
     }
   }
 
-  renderTemplate(templateHtml, SAMPLE_RENDER_DATA, DEFAULT_CONFIG);
+  renderTemplate(
+    templateHtml,
+    templateType === "cover_letter" ? SAMPLE_COVER_LETTER_RENDER_DATA : SAMPLE_RENDER_DATA,
+    DEFAULT_CONFIG
+  );
 }
 
 function normalizeGeneratedTemplate(raw, fallback = {}) {
@@ -118,12 +138,14 @@ function normalizeGeneratedTemplate(raw, fallback = {}) {
     "Generated with AI assistance.";
   const requestedLayoutMode = sanitizeString(raw?.layoutMode || fallback.layoutMode, 20).toLowerCase();
   const layoutMode = requestedLayoutMode === "hybrid" ? "hybrid" : "single";
+  const templateType = fallback.templateType === "cover_letter" ? "cover_letter" : "resume";
   const data = String(raw?.data || "").trim();
 
-  validateGeneratedHtml(data);
+  validateGeneratedHtml(data, templateType);
   return {
     name,
     description,
+    templateType,
     layoutMode,
     data,
     templateEngine: "ejs",
@@ -131,7 +153,22 @@ function normalizeGeneratedTemplate(raw, fallback = {}) {
   };
 }
 
-function buildSystemPrompt() {
+function buildSystemPrompt(templateType = "resume") {
+  if (templateType === "cover_letter") {
+    return [
+      "You generate admin-authored cover letter templates for Jobsy.",
+      "Return ONLY a JSON object with keys: name, description, layoutMode, data.",
+      "data must be a complete HTML document with inline CSS and EJS template syntax.",
+      "Use only these locals: fullName, title, email, phone, linkedin, github, website, address, recipient, companyName, jobTitle, opening, bodyParagraphs, closing, signature.",
+      "Use escaped EJS output for plain text, for example <%= fullName %>.",
+      "Loop body paragraphs with (bodyParagraphs || []).forEach((paragraph) => { ... }).",
+      "Never use legacy {{...}} syntax.",
+      "Never include script tags, inline event handlers, require, process, global, eval, Function, imports, module, or exports.",
+      "Use CSS variables var(--font-family), var(--font-size), var(--line-height), and var(--accent).",
+      "Use the root class .resume so Jobsy can paginate the letter.",
+      "Do not include markdown fences, explanation, comments outside the HTML, or extra JSON keys.",
+    ].join("\n");
+  }
   return [
     "You generate admin-authored resume templates for Jobsy.",
     "Return ONLY a JSON object with keys: name, description, layoutMode, data.",
@@ -158,12 +195,14 @@ function buildUserPrompt({
   currentName,
   currentDescription,
   layoutMode,
+  templateType = "resume",
 }) {
   const baseHtml = sanitizeString(currentTemplateHtml, MAX_TEMPLATE_CONTEXT_LENGTH);
   return [
     `Admin request: ${sanitizeString(prompt, MAX_PROMPT_LENGTH)}`,
     `Current template name: ${sanitizeString(currentName, 120) || "Untitled Template"}`,
     `Current description: ${sanitizeString(currentDescription, 300) || "No description"}`,
+    `Template type: ${templateType === "cover_letter" ? "cover_letter" : "resume"}`,
     `Current layoutMode: ${layoutMode === "hybrid" ? "hybrid" : "single"}`,
     "Use this current template as the base and modify it according to the request:",
     baseHtml,
@@ -176,6 +215,7 @@ async function generateTemplateWithAi({
   currentName,
   currentDescription,
   layoutMode,
+  templateType = "resume",
   targetUserId,
 }) {
   const cleanPrompt = sanitizeString(prompt, MAX_PROMPT_LENGTH);
@@ -189,7 +229,7 @@ async function generateTemplateWithAi({
 
   const { result, error } = await tryGetChatReply({
     messages: [
-      { role: "system", content: buildSystemPrompt() },
+      { role: "system", content: buildSystemPrompt(templateType === "cover_letter" ? "cover_letter" : "resume") },
       {
         role: "user",
         content: buildUserPrompt({
@@ -198,6 +238,7 @@ async function generateTemplateWithAi({
           currentName,
           currentDescription,
           layoutMode,
+          templateType,
         }),
       },
     ],
@@ -214,6 +255,7 @@ async function generateTemplateWithAi({
     currentName,
     currentDescription,
     layoutMode,
+    templateType,
   });
 }
 
@@ -236,6 +278,7 @@ module.exports = {
   MAX_PROMPT_LENGTH,
   MAX_TEMPLATE_CONTEXT_LENGTH,
   SAMPLE_RENDER_DATA,
+  SAMPLE_COVER_LETTER_RENDER_DATA,
   buildSystemPrompt,
   buildUserPrompt,
   extractJsonObject,

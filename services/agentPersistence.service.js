@@ -10,7 +10,14 @@ const { queueResumeEmbeddingRefresh } = require('./resumeEmbedding.service')
  * Save a generated resume document and, when a chat session is active,
  * post an assistant message with the structured payload.
  */
-async function persistGeneratedResume({ userId, profileId, resume, sessionId, profileFullName }) {
+async function persistGeneratedResume({
+  userId,
+  profileId,
+  resume,
+  coverLetter = null,
+  sessionId,
+  profileFullName,
+}) {
   const doc = new ResumeModel({
     userId,
     name: resume.name,
@@ -18,6 +25,8 @@ async function persistGeneratedResume({ userId, profileId, resume, sessionId, pr
     summary: resume.summary || '',
     experiences: Array.isArray(resume.experiences) ? resume.experiences : [],
     skills: Array.isArray(resume.skills) ? resume.skills : [],
+    education: Array.isArray(resume.education) ? resume.education : [],
+    coverLetter: coverLetter || resume.coverLetter || null,
     pageFrameConfig: resume.pageFrameConfig || null,
   })
   await doc.save()

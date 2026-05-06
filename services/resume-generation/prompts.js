@@ -48,12 +48,21 @@ function buildDraftPrompts({
   requirements,
   selectedEvidence,
   resumeStrategy,
+  outputMode = 'resume',
 }) {
+  const includesCoverLetter = outputMode === 'application_materials'
+  const task = includesCoverLetter
+    ? 'You are drafting final paired application materials JSON from a grounded resume strategy.'
+    : 'You are drafting the final resume JSON from a grounded resume strategy.'
+  const outputInstructions = includesCoverLetter
+    ? 'Return a single JSON object with `resume` and `coverLetter`. The cover letter must be tailored to the same job description and use the same grounded evidence as the resume.'
+    : 'Return the resume JSON only.'
   return {
-    systemPrompt: `You are drafting the final resume JSON from a grounded resume strategy.
+    systemPrompt: `${task}
 ${lockedInstructions}
 
-Use selected evidence as the primary source for claims. Keep the output ATS-friendly, specific, and natural.`,
+Use selected evidence as the primary source for claims. Keep the output ATS-friendly, specific, and natural.
+${outputInstructions}`,
     userPrompt: `Return JSON only.
 
 Artifacts:

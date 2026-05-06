@@ -4,6 +4,9 @@ const modernTemplate = require('./modern');
 const minimalTemplate = require('./minimal');
 const compactTemplate = require('./compact');
 const hybridTemplate = require('./hybrid');
+const coverLetterClassicTemplate = require('./coverLetterClassic');
+const coverLetterModernTemplate = require('./coverLetterModern');
+const coverLetterCompactTemplate = require('./coverLetterCompact');
 
 const SEED_TEMPLATES = [
   classicTemplate,
@@ -11,12 +14,18 @@ const SEED_TEMPLATES = [
   minimalTemplate,
   compactTemplate,
   hybridTemplate,
+  coverLetterClassicTemplate,
+  coverLetterModernTemplate,
+  coverLetterCompactTemplate,
 ];
 
 function getBuiltInSeedTemplates() {
   return SEED_TEMPLATES.map(template => ({
     ...template,
-    data: convertLegacyTemplateToEjs(template.data),
+    templateType: template.templateType || 'resume',
+    data: (template.templateType || 'resume') === 'resume'
+      ? convertLegacyTemplateToEjs(template.data)
+      : template.data,
     templateEngine: 'ejs',
     migrationStatus: 'ready',
   }));

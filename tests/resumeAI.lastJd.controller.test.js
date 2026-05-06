@@ -14,6 +14,7 @@ describe("resumeAI.getLastUsedJd controller", () => {
 
     jest.doMock("../utils/resumeGeneration", () => ({
       tryGenerateResumeJsonFromJD: jest.fn(),
+      tryGenerateApplicationMaterialsJsonFromJD: jest.fn(),
     }));
     jest.doMock("../services/llm/resumeRefine.service", () => ({
       tryRefineResumeWithFeedback: jest.fn(),

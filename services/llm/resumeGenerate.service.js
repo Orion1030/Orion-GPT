@@ -24,13 +24,17 @@ const {
 } = require("../adminConfiguration.service");
 const {
   generateResumeFromJD: runResumeGeneration,
+  OUTPUT_MODES,
 } = require("../resume-generation/runResumeGeneration.service");
 const {
   buildEmploymentKey,
   buildEmploymentBaseKey,
   normalizeEmploymentDate,
 } = require("../../utils/employmentKey");
-const { alignResumeExperiencesToCareerHistory } = require("../../utils/experienceAdapter");
+const {
+  alignResumeExperiencesToCareerHistory,
+  normalizeResumeExperience,
+} = require("../../utils/experienceAdapter");
 
 const MAX_CAREER_HISTORY_ITEMS = 16;
 const RESUME_GENERATION_PROMPT_NAME = "resume_generation";
@@ -234,20 +238,15 @@ function normalizeProfileEmploymentForPrompt(item) {
 }
 
 function normalizeResumeEmploymentForPrompt(item) {
-  const summaryAsBullet = sanitizePromptStr(item?.summary, 500);
-  const bullets = Array.isArray(item?.bullets)
-    ? item.bullets.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 10)
-    : Array.isArray(item?.descriptions)
-      ? item.descriptions.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 10)
-    : [];
+  const normalized = normalizeResumeExperience(item);
 
   return {
-    companyName: sanitizePromptStr(item?.companyName, 120),
-    roleTitle: sanitizePromptStr(item?.title ?? item?.roleTitle, 120),
-    startDate: formatDate(item?.startDate),
-    endDate: formatDate(item?.endDate),
+    companyName: sanitizePromptStr(normalized.companyName, 120),
+    roleTitle: sanitizePromptStr(normalized.title, 120),
+    startDate: formatDate(normalized.startDate),
+    endDate: formatDate(normalized.endDate),
     candidateExperience: {
-      bullets: mergeUniqueStrings([summaryAsBullet], bullets).slice(0, 10),
+      bullets: mergeUniqueStrings([], normalized.bullets).slice(0, 10),
     },
   };
 }
@@ -488,20 +487,14 @@ function normalizeResumeJson(raw) {
   const summary = sanitizeStr(raw?.summary) || "";
   const experiences = Array.isArray(raw?.experiences)
     ? raw.experiences.slice(0, 20).map((e) => {
-        const legacySummary = sanitizeStr(e?.summary);
-        const bullets = Array.isArray(e?.bullets)
-          ? e.bullets.map(sanitizeStr).filter(Boolean)
-          : Array.isArray(e?.descriptions)
-            ? e.descriptions.map(sanitizeStr).filter(Boolean)
-            : [];
-        const mergedBullets = dedupeStrings([legacySummary, ...bullets]);
+        const normalized = normalizeResumeExperience(e);
         return {
-          title: sanitizeStr(e?.title ?? e?.roleTitle) || "",
-          companyName: sanitizeStr(e?.companyName) || "",
-          companyLocation: sanitizeStr(e?.companyLocation) || "",
-          bullets: mergedBullets,
-          startDate: sanitizeStr(e?.startDate) || "",
-          endDate: sanitizeStr(e?.endDate) || "",
+          title: sanitizeStr(normalized.title) || "",
+          companyName: sanitizeStr(normalized.companyName) || "",
+          companyLocation: sanitizeStr(normalized.companyLocation) || "",
+          bullets: dedupeStrings(normalized.bullets),
+          startDate: sanitizeStr(normalized.startDate) || "",
+          endDate: sanitizeStr(normalized.endDate) || "",
         };
       })
     : [];
@@ -524,6 +517,34 @@ function normalizeResumeJson(raw) {
     : [];
 
   return { name, summary, experiences, skills, education, pageFrameConfig: null };
+}
+
+function normalizeCoverLetterJson(raw, { jd, profile } = {}) {
+  const companyName = sanitizeStr(raw?.companyName) || sanitizeStr(jd?.company) || "";
+  const jobTitle = sanitizeStr(raw?.jobTitle) || sanitizeStr(jd?.title) || "";
+  const candidateName = sanitizeStr(profile?.fullName) || "Candidate";
+  const bodyParagraphs = Array.isArray(raw?.bodyParagraphs)
+    ? raw.bodyParagraphs.map((item) => sanitizeStr(item)).filter(Boolean).slice(0, 5)
+    : [];
+
+  return {
+    title: sanitizeStr(raw?.title) || `${candidateName} - Cover Letter`,
+    recipient: sanitizeStr(raw?.recipient) || "Hiring Manager",
+    companyName,
+    jobTitle,
+    opening:
+      sanitizeStr(raw?.opening) ||
+      `I am excited to apply for the ${jobTitle || "role"}${companyName ? ` at ${companyName}` : ""}.`,
+    bodyParagraphs: bodyParagraphs.length
+      ? bodyParagraphs
+      : [
+          `${candidateName} brings experience aligned with the role requirements and can contribute with practical, grounded delivery from past work.`,
+        ],
+    closing:
+      sanitizeStr(raw?.closing) ||
+      "Thank you for your time and consideration. I would welcome the opportunity to discuss how my background fits this role.",
+    signature: sanitizeStr(raw?.signature) || candidateName,
+  };
 }
 
 function alignResumeWithProfileCareerHistory(resume, profile) {
@@ -611,16 +632,14 @@ function buildEvidenceMaps(profile, baseResume) {
 
   const baseExperiences = Array.isArray(baseResume?.experiences) ? baseResume.experiences : [];
   for (const exp of baseExperiences) {
-    const legacySummary = sanitizeStr(exp?.summary);
-    const expBullets = Array.isArray(exp?.bullets)
-      ? exp.bullets
-      : Array.isArray(exp?.descriptions)
-        ? exp.descriptions
-        : [];
-    addEvidence(exp?.title ?? exp?.roleTitle, exp?.companyName, exp?.startDate, exp?.endDate, [
-      legacySummary,
-      ...expBullets,
-    ]);
+    const normalized = normalizeResumeExperience(exp);
+    addEvidence(
+      normalized.title,
+      normalized.companyName,
+      normalized.startDate,
+      normalized.endDate,
+      normalized.bullets
+    );
   }
 
   const profileHistory = Array.isArray(profile?.careerHistory) ? profile.careerHistory : [];
@@ -641,13 +660,7 @@ function enforceExperienceBullets(resume, profile, baseResume) {
   const evidence = buildEvidenceMaps(profile, baseResume);
 
   const normalizedExperiences = experiences.map((exp) => {
-    const existing = dedupeStrings(
-      Array.isArray(exp?.bullets)
-        ? exp.bullets
-        : Array.isArray(exp?.descriptions)
-          ? exp.descriptions
-          : []
-    );
+    const existing = dedupeStrings(normalizeResumeExperience(exp).bullets);
     const minimum = getRoleBulletMinimum(exp?.title);
     const maxBullets = Math.max(minimum, 12);
 
@@ -1030,6 +1043,25 @@ async function generateResumeFromJD({ jd, profile, baseResume, auditContext = nu
       buildResumeGenerationInput,
       enforceExperienceBullets,
       normalizeResumeJson,
+      normalizeCoverLetterJson,
+      alignResumeWithProfileCareerHistory,
+    },
+  });
+}
+
+async function generateApplicationMaterialsFromJD({ jd, profile, baseResume, auditContext = null }) {
+  return runResumeGeneration({
+    jd,
+    profile,
+    baseResume,
+    auditContext,
+    outputMode: OUTPUT_MODES.APPLICATION_MATERIALS,
+    helperSet: {
+      buildFallbackResume,
+      buildResumeGenerationInput,
+      enforceExperienceBullets,
+      normalizeResumeJson,
+      normalizeCoverLetterJson,
       alignResumeWithProfileCareerHistory,
     },
   });
@@ -1037,8 +1069,10 @@ async function generateResumeFromJD({ jd, profile, baseResume, auditContext = nu
 
 module.exports = {
   generateResumeFromJD,
+  generateApplicationMaterialsFromJD,
   _buildResumeGenerationInput: buildResumeGenerationInput,
   _buildMergedCareerHistoryForPrompt: buildMergedCareerHistoryForPrompt,
   _buildEmploymentKeyForPrompt: buildEmploymentKeyForPrompt,
   _enforceExperienceBullets: enforceExperienceBullets,
+  _normalizeCoverLetterJson: normalizeCoverLetterJson,
 };
