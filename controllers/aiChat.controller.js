@@ -17,6 +17,11 @@ const { streamChatReply } = require('../services/llm/chatResponder.service')
 const { isAbortError } = require('../services/llm/streamingUtils')
 const { buildReadableProfileFilterForUser } = require('../services/profileAccess.service')
 const { formatProfileDisplayName } = require('../utils/profileDisplay')
+const {
+  createFocusLink,
+  revokeFocusLinksForSession,
+  validateFocusLink,
+} = require('../services/aiChatFocusLink.service')
 
 const DEFAULT_TITLE = 'New Chat'
 const AI_CHAT_CONTEXT_HISTORY_LIMIT = 60
@@ -245,6 +250,90 @@ exports.createSession = asyncErrorHandler(async (req, res) => {
   }, 'Chat created', 201)
 })
 
+/** Create a temporary focused-chat link for one existing session. */
+exports.createFocusLinkForSession = asyncErrorHandler(async (req, res) => {
+  const { sessionId } = req.params
+  const session = await ChatSessionModel.findOne(buildChatScope(req, { _id: sessionId }))
+    .select('_id userId')
+    .lean()
+
+  if (!session) {
+    return sendJsonResult(res, false, null, 'Session not found', 404)
+  }
+
+  const focusLink = await createFocusLink({
+    sessionId: session._id,
+    sessionUserId: session.userId,
+    createdByUserId: req.user._id,
+  })
+
+  return sendJsonResult(res, true, {
+    url: focusLink.path,
+    path: focusLink.path,
+    routeKey: focusLink.routeKey,
+    expiresAt: focusLink.expiresAt ? new Date(focusLink.expiresAt).getTime() : null,
+    absoluteExpiresAt: focusLink.absoluteExpiresAt
+      ? new Date(focusLink.absoluteExpiresAt).getTime()
+      : null,
+  }, null, 201)
+})
+
+/** Bootstrap a single-session focused chat page using only the URL key + token pair. */
+exports.bootstrapFocusChat = asyncErrorHandler(async (req, res) => {
+  const { routeKey } = req.params
+  const token = typeof req.body?.token === 'string' ? req.body.token : ''
+  const focusLink = await validateFocusLink(routeKey, token)
+  if (!focusLink) {
+    return sendFocusNotFound(res)
+  }
+
+  const payload = await loadFocusSessionPayload(focusLink)
+  if (!payload) {
+    return sendFocusNotFound(res)
+  }
+
+  return sendJsonResult(res, true, {
+    session: mapSessionPayload(payload.session),
+    messages: payload.messages.map(mapMessagePayload),
+    contextToken: payload.contextToken,
+    expiresAt: focusLink.expiresAt ? new Date(focusLink.expiresAt).getTime() : null,
+    absoluteExpiresAt: focusLink.absoluteExpiresAt
+      ? new Date(focusLink.absoluteExpiresAt).getTime()
+      : null,
+  }, null, 200)
+})
+
+/** Validate a focused chat link before the Edge stream starts. */
+exports.validateFocusStreamAccess = asyncErrorHandler(async (req, res) => {
+  const { routeKey } = req.params
+  const token = typeof req.body?.token === 'string' ? req.body.token : ''
+  const focusLink = await validateFocusLink(routeKey, token)
+  if (!focusLink) {
+    return sendFocusNotFound(res)
+  }
+
+  const session = await ChatSessionModel.findOne({
+    _id: focusLink.sessionId,
+    userId: focusLink.sessionUserId,
+  })
+    .select('_id userId')
+    .lean()
+
+  if (!session) {
+    return sendFocusNotFound(res)
+  }
+
+  return sendJsonResult(res, true, {
+    sessionId: String(focusLink.sessionId),
+    sessionUserId: String(focusLink.sessionUserId),
+    actorUserId: String(focusLink.sessionUserId),
+    expiresAt: focusLink.expiresAt ? new Date(focusLink.expiresAt).getTime() : null,
+    absoluteExpiresAt: focusLink.absoluteExpiresAt
+      ? new Date(focusLink.absoluteExpiresAt).getTime()
+      : null,
+  }, null, 200)
+})
+
 /** Get one session and its messages (ownership checked) */
 exports.getSession = asyncErrorHandler(async (req, res) => {
   const { sessionId } = req.params
@@ -344,6 +433,7 @@ exports.deleteSession = asyncErrorHandler(async (req, res) => {
 
   await ChatSessionModel.deleteOne({ _id: session._id })
   await ChatMessageModel.deleteMany({ sessionId: session._id })
+  await revokeFocusLinksForSession(session._id)
   return sendJsonResult(res, true, null, 'Session deleted', 200)
 })
 
@@ -436,6 +526,55 @@ async function buildSessionContext(session, userId) {
     }
   }
   return parts.join('')
+}
+
+function sendFocusNotFound(res) {
+  return sendJsonResult(res, false, null, 'Page not found', 404, { showNotification: false })
+}
+
+function buildFocusScopedRequest(req, focusLink) {
+  return {
+    ...req,
+    user: {
+      _id: focusLink.sessionUserId,
+      role: RoleLevels.User,
+    },
+    query: {},
+    body: {
+      ...(req.body || {}),
+      userId: undefined,
+      includeOtherUsers: false,
+    },
+  }
+}
+
+async function loadFocusSessionPayload(focusLink) {
+  const session = await ChatSessionModel.findOne({
+    _id: focusLink.sessionId,
+    userId: focusLink.sessionUserId,
+  })
+    .populate('profileId', 'fullName name title mainStack')
+    .populate('applicationId', 'companyName jobTitle applicationStatus generationStatus')
+    .populate('resumeId', 'name')
+    .lean()
+
+  if (!session) return null
+
+  const messages = await ChatMessageModel.find({ sessionId: session._id }).sort({ createdAt: 1 }).lean()
+  const focusReq = buildFocusScopedRequest({ body: {}, query: {} }, focusLink)
+  const contextToken = await buildContextTokenForSession(
+    focusReq,
+    session,
+    focusLink.sessionUserId,
+    session._id,
+    messages
+  )
+
+  return {
+    session,
+    messages,
+    contextToken,
+  }
 }
 
 async function applyCommandSessionUpdates(sessionId, sessionUserId, sessionUpdates) {
@@ -765,6 +904,31 @@ exports.handleMessageTurn = asyncErrorHandler(async (req, res) => {
   }
 
   return sendJsonResult(res, false, null, 'Unsupported chat turn action', 400)
+})
+
+exports.handleFocusMessageTurn = asyncErrorHandler(async (req, res) => {
+  const { routeKey } = req.params
+  const token = typeof req.body?.token === 'string' ? req.body.token : ''
+  const action = typeof req.body?.action === 'string' ? req.body.action.trim() : ''
+
+  if (action !== 'commit') {
+    return sendJsonResult(res, false, null, 'Unsupported chat turn action', 400)
+  }
+
+  const focusLink = await validateFocusLink(routeKey, token)
+  if (!focusLink) {
+    return sendFocusNotFound(res)
+  }
+
+  const focusReq = buildFocusScopedRequest(req, focusLink)
+  const committed = await commitPreparedChatTurn(focusReq, String(focusLink.sessionId))
+  if (committed.error) {
+    if (committed.error.status === 404) {
+      return sendFocusNotFound(res)
+    }
+    return sendJsonResult(res, false, null, committed.error.message, committed.error.status)
+  }
+  return sendJsonResult(res, true, committed, null, 200)
 })
 
 function writeSseEvent(res, payload) {

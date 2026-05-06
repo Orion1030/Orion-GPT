@@ -46,6 +46,7 @@ const AiProviderCatalogModel = require("./AiProviderCatalog.Model");
 const ResumeGenerationRunModel = require("./ResumeGenerationRun.Model");
 const ChatSessionModel = require("./ChatSession.Model");
 const ChatMessageModel = require("./ChatMessage.Model");
+const AiChatFocusLinkModel = require("./AiChatFocusLink.Model");
 const JobDescriptionModel = require("./JobDescription.Model");
 const JobModel = require("./Job.Model");
 const PageAccessModel = require("./PageAccess.Model");
@@ -72,6 +73,7 @@ const AiProviderCatalogModelForApp = DBConnection.model("AiProviderCatalog", AiP
 const ResumeGenerationRunModelForApp = DBConnection.model("ResumeGenerationRun", ResumeGenerationRunModel.schema);
 const ChatSessionModelForApp = DBConnection.model("ChatSession", ChatSessionModel.schema);
 const ChatMessageModelForApp = DBConnection.model("ChatMessage", ChatMessageModel.schema);
+const AiChatFocusLinkModelForApp = DBConnection.model("AiChatFocusLink", AiChatFocusLinkModel.schema);
 const JobDescriptionModelForApp = DBConnection.model("JobDescription", JobDescriptionModel.schema);
 const JobModelForApp = DBConnection.model("Job", JobModel.schema);
 const PageAccessModelForApp = DBConnection.model("PageAccess", PageAccessModel.schema);
@@ -97,6 +99,7 @@ module.exports = {
   ResumeGenerationRunModel: ResumeGenerationRunModelForApp,
   ChatSessionModel: ChatSessionModelForApp,
   ChatMessageModel: ChatMessageModelForApp,
+  AiChatFocusLinkModel: AiChatFocusLinkModelForApp,
   JobDescriptionModel: JobDescriptionModelForApp,
   JobModel: JobModelForApp,
   PageAccessModel: PageAccessModelForApp,
