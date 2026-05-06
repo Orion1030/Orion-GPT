@@ -16,11 +16,11 @@ const resumeSchema = {
           title: { type: "string" },
           companyName: { type: "string" },
           companyLocation: { type: "string" },
-          descriptions: { type: "array", items: { type: "string" } },
+          bullets: { type: "array", items: { type: "string" } },
           startDate: { type: "string" },
           endDate: { type: "string" },
         },
-        required: ["title", "companyName", "descriptions", "startDate", "endDate"],
+        required: ["title", "companyName", "bullets", "startDate", "endDate"],
       },
     },
     skills: {

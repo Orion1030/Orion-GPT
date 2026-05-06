@@ -335,39 +335,41 @@ function normalizeParsedCareerHistory(experiences) {
   return sortCareerHistoryMostRecentFirst(
     experiences
       .map((entry) => {
-      const rawDescriptions = Array.isArray(entry?.descriptions)
-        ? entry.descriptions
-        : Array.isArray(entry?.keyPoints)
-          ? entry.keyPoints
+        const rawBullets = Array.isArray(entry?.bullets)
+          ? entry.bullets
+          : Array.isArray(entry?.descriptions)
+            ? entry.descriptions
+            : Array.isArray(entry?.keyPoints)
+              ? entry.keyPoints
+              : [];
+        const bullets = rawBullets
+          ? rawBullets.map((line) => toCleanString(line)).filter(Boolean)
           : [];
-      const descriptions = rawDescriptions
-        ? rawDescriptions.map((line) => toCleanString(line)).filter(Boolean)
-        : [];
 
-      const normalizedEntry = {
-        companyName: toCleanString(entry?.companyName),
-        roleTitle: toCleanString(entry?.title) || toCleanString(entry?.roleTitle),
-        startDate: toCleanString(entry?.startDate),
-        endDate: toCleanString(entry?.endDate),
-        companySummary: toCleanString(entry?.summary) || toCleanString(entry?.companySummary),
-        keyPoints: toListHtml(descriptions),
-      };
-      const normalizedDates = normalizeImportedDateRange(
-        normalizedEntry.startDate,
-        normalizedEntry.endDate,
-        [
-          normalizedEntry.roleTitle,
-          normalizedEntry.companyName,
-          normalizedEntry.companySummary,
-        ]
-      );
+        const normalizedEntry = {
+          companyName: toCleanString(entry?.companyName),
+          roleTitle: toCleanString(entry?.title) || toCleanString(entry?.roleTitle),
+          startDate: toCleanString(entry?.startDate),
+          endDate: toCleanString(entry?.endDate),
+          companySummary: toCleanString(entry?.summary) || toCleanString(entry?.companySummary),
+          keyPoints: toListHtml(bullets),
+        };
+        const normalizedDates = normalizeImportedDateRange(
+          normalizedEntry.startDate,
+          normalizedEntry.endDate,
+          [
+            normalizedEntry.roleTitle,
+            normalizedEntry.companyName,
+            normalizedEntry.companySummary,
+          ]
+        );
 
-      return {
-        ...normalizedEntry,
-        roleTitle: stripTrailingImportedDateRange(normalizedEntry.roleTitle),
-        startDate: normalizedDates.startDate,
-        endDate: normalizedDates.endDate,
-      };
+        return {
+          ...normalizedEntry,
+          roleTitle: stripTrailingImportedDateRange(normalizedEntry.roleTitle),
+          startDate: normalizedDates.startDate,
+          endDate: normalizedDates.endDate,
+        };
       })
       .filter(
         (entry) =>

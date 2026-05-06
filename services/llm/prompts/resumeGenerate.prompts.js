@@ -54,7 +54,7 @@ Generate a tailored resume JSON that is ATS-friendly, fact-grounded, role-target
   - \`title\`
   - \`companyName\`
   - \`companyLocation\` (if available)
-  - \`descriptions\` (array of bullets)
+  - \`bullets\` (array of bullets)
   - \`startDate\`, \`endDate\`
 
 #### Role-level expectations:

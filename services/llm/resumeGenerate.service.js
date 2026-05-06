@@ -216,8 +216,8 @@ function hasCompanyContextContent(item) {
 
 function hasCandidateExperienceContent(item) {
   if (!item || typeof item !== "object") return false;
-  const hasDescriptions = Array.isArray(item.descriptions) && item.descriptions.length > 0;
-  return hasDescriptions;
+  const hasBullets = Array.isArray(item.bullets) && item.bullets.length > 0;
+  return hasBullets;
 }
 
 function normalizeProfileEmploymentForPrompt(item) {
@@ -235,8 +235,10 @@ function normalizeProfileEmploymentForPrompt(item) {
 
 function normalizeResumeEmploymentForPrompt(item) {
   const summaryAsBullet = sanitizePromptStr(item?.summary, 500);
-  const descriptions = Array.isArray(item?.descriptions)
-    ? item.descriptions.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 10)
+  const bullets = Array.isArray(item?.bullets)
+    ? item.bullets.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 10)
+    : Array.isArray(item?.descriptions)
+      ? item.descriptions.map((v) => sanitizePromptStr(v, 350)).filter(Boolean).slice(0, 10)
     : [];
 
   return {
@@ -245,7 +247,7 @@ function normalizeResumeEmploymentForPrompt(item) {
     startDate: formatDate(item?.startDate),
     endDate: formatDate(item?.endDate),
     candidateExperience: {
-      descriptions: mergeUniqueStrings([summaryAsBullet], descriptions).slice(0, 10),
+      bullets: mergeUniqueStrings([summaryAsBullet], bullets).slice(0, 10),
     },
   };
 }
@@ -384,9 +386,9 @@ function buildMergedCareerHistoryForPrompt(profileCareerHistory, resumeExperienc
     const target = ensureTarget(normalized);
 
     if (hasCandidateExperienceContent(normalized.candidateExperience)) {
-      const existing = target.candidateExperience || { descriptions: [] };
+      const existing = target.candidateExperience || { bullets: [] };
       target.candidateExperience = {
-        descriptions: mergeUniqueStrings(existing.descriptions, normalized.candidateExperience.descriptions),
+        bullets: mergeUniqueStrings(existing.bullets, normalized.candidateExperience.bullets),
       };
     }
     target.sources.resume = true;
@@ -412,7 +414,7 @@ function buildMergedCareerHistoryForPrompt(profileCareerHistory, resumeExperienc
       }
       if (hasCandidateExperienceContent(item.candidateExperience)) {
         out.candidateExperience = {
-          descriptions: mergeUniqueStrings([], item.candidateExperience.descriptions).slice(0, 12),
+          bullets: mergeUniqueStrings([], item.candidateExperience.bullets).slice(0, 12),
         };
       }
       return out;
@@ -487,13 +489,17 @@ function normalizeResumeJson(raw) {
   const experiences = Array.isArray(raw?.experiences)
     ? raw.experiences.slice(0, 20).map((e) => {
         const legacySummary = sanitizeStr(e?.summary);
-        const descriptions = Array.isArray(e?.descriptions) ? e.descriptions.map(sanitizeStr).filter(Boolean) : [];
-        const mergedDescriptions = dedupeStrings([legacySummary, ...descriptions]);
+        const bullets = Array.isArray(e?.bullets)
+          ? e.bullets.map(sanitizeStr).filter(Boolean)
+          : Array.isArray(e?.descriptions)
+            ? e.descriptions.map(sanitizeStr).filter(Boolean)
+            : [];
+        const mergedBullets = dedupeStrings([legacySummary, ...bullets]);
         return {
           title: sanitizeStr(e?.title ?? e?.roleTitle) || "",
           companyName: sanitizeStr(e?.companyName) || "",
           companyLocation: sanitizeStr(e?.companyLocation) || "",
-          descriptions: mergedDescriptions,
+          bullets: mergedBullets,
           startDate: sanitizeStr(e?.startDate) || "",
           endDate: sanitizeStr(e?.endDate) || "",
         };
@@ -606,9 +612,14 @@ function buildEvidenceMaps(profile, baseResume) {
   const baseExperiences = Array.isArray(baseResume?.experiences) ? baseResume.experiences : [];
   for (const exp of baseExperiences) {
     const legacySummary = sanitizeStr(exp?.summary);
+    const expBullets = Array.isArray(exp?.bullets)
+      ? exp.bullets
+      : Array.isArray(exp?.descriptions)
+        ? exp.descriptions
+        : [];
     addEvidence(exp?.title ?? exp?.roleTitle, exp?.companyName, exp?.startDate, exp?.endDate, [
       legacySummary,
-      ...(Array.isArray(exp?.descriptions) ? exp.descriptions : []),
+      ...expBullets,
     ]);
   }
 
@@ -630,12 +641,18 @@ function enforceExperienceBullets(resume, profile, baseResume) {
   const evidence = buildEvidenceMaps(profile, baseResume);
 
   const normalizedExperiences = experiences.map((exp) => {
-    const existing = dedupeStrings(Array.isArray(exp?.descriptions) ? exp.descriptions : []);
+    const existing = dedupeStrings(
+      Array.isArray(exp?.bullets)
+        ? exp.bullets
+        : Array.isArray(exp?.descriptions)
+          ? exp.descriptions
+          : []
+    );
     const minimum = getRoleBulletMinimum(exp?.title);
     const maxBullets = Math.max(minimum, 12);
 
     if (existing.length >= minimum) {
-      return { ...exp, descriptions: existing.slice(0, maxBullets) };
+      return { ...exp, bullets: existing.slice(0, maxBullets) };
     }
 
     const key = makeExperienceKey(exp?.title, exp?.companyName, exp?.startDate, exp?.endDate);
@@ -657,8 +674,8 @@ function enforceExperienceBullets(resume, profile, baseResume) {
       filled = dedupeStrings(existing.concat(evidenceCandidates));
     }
 
-    const finalDescriptions = filled.slice(0, maxBullets);
-    return { ...exp, descriptions: finalDescriptions };
+    const finalBullets = filled.slice(0, maxBullets);
+    return { ...exp, bullets: finalBullets };
   });
 
   return { ...resume, experiences: normalizedExperiences };
@@ -920,7 +937,7 @@ function buildFallbackResume({ jd, profile }) {
         title: e?.roleTitle || "",
         companyName: e?.companyName || "",
         companyLocation: "",
-        descriptions: dedupeStrings([
+        bullets: dedupeStrings([
           sanitizePromptStr(e?.companySummary, 500),
           ...profileKeyPointsToLines(e?.keyPoints),
         ]),

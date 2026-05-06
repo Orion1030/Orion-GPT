@@ -110,7 +110,7 @@ describe("resume.controller createResume import alignment", () => {
             companyName: "Acme",
             startDate: "2023-06-01",
             endDate: "Present",
-            descriptions: ["Imported bullet"],
+            bullets: ["Imported bullet"],
           },
         ],
         skills: [],
@@ -125,7 +125,7 @@ describe("resume.controller createResume import alignment", () => {
     expect(savedPayload.experiences).toHaveLength(1);
     expect(savedPayload.experiences[0].startDate).toBe("2023-01-01");
     expect(savedPayload.experiences[0].endDate).toBe("2024-01-01");
-    expect(savedPayload.experiences[0].descriptions).toEqual(["Imported bullet"]);
+    expect(savedPayload.experiences[0].bullets).toEqual(["Imported bullet"]);
 
     expect(queueResumeEmbeddingRefreshMock).toHaveBeenCalledWith("resume-1", { maxAttempts: 3 });
     expect(res.status).toHaveBeenCalledWith(201);
@@ -158,7 +158,7 @@ describe("resume.controller createResume import alignment", () => {
             companyName: "Acme",
             startDate: "2023-06-01",
             endDate: "Present",
-            descriptions: ["Manual bullet"],
+            bullets: ["Manual bullet"],
           },
         ],
         skills: [],

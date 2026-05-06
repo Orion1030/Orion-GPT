@@ -363,7 +363,7 @@ function buildRenderData(resume) {
 
     const experiences = sourceExperiences.map(exp => {
         const normalized = profileExperienceToResumeExperience(exp);
-        const descriptionHtml = normalized.descriptions
+        const descriptionHtml = normalized.bullets
             .filter(p => String(p).trim())
             .map(descriptionPointToLi)
             .join('');

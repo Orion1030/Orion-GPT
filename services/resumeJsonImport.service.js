@@ -14,7 +14,7 @@ const RESUME_JSON_IMPORT_SCHEMA = {
           companyName: { type: "string" },
           companyLocation: { type: "string" },
           summary: { type: "string" },
-          descriptions: { type: "array", items: { type: "string" } },
+          bullets: { type: "array", items: { type: "string" } },
           startDate: { type: "string" },
           endDate: { type: "string" },
         },
@@ -163,6 +163,7 @@ function toStringList(value) {
 
   if (value && typeof value === "object") {
     if (Array.isArray(value.items)) return toStringList(value.items);
+    if (Array.isArray(value.bullets)) return toStringList(value.bullets);
     if (Array.isArray(value.descriptions)) return toStringList(value.descriptions);
     if (Array.isArray(value.keyPoints)) return toStringList(value.keyPoints);
     return [];
@@ -192,7 +193,7 @@ function normalizeExperience(item) {
       companyName: "",
       companyLocation: "",
       summary: "",
-      descriptions: [],
+      bullets: [],
       startDate: "",
       endDate: "",
     };
@@ -204,9 +205,9 @@ function normalizeExperience(item) {
     companyName: pickString(item, ["companyName", "company", "employer"]),
     companyLocation: pickString(item, ["companyLocation", "location"]),
     summary: pickString(item, ["summary", "companySummary", "overview"]),
-    descriptions: toStringList(
-      item.descriptions ||
-        item.bullets ||
+    bullets: toStringList(
+      item.bullets ||
+        item.descriptions ||
         item.highlights ||
         item.keyPoints ||
         item.responsibilities
@@ -326,7 +327,7 @@ function normalizeProfile(source, candidate) {
     startDate: experience.startDate,
     endDate: experience.endDate,
     companySummary: experience.summary,
-    keyPoints: experience.descriptions,
+    keyPoints: experience.bullets,
   }));
   const educations = normalizeEducation(
     profileSource.educations ||

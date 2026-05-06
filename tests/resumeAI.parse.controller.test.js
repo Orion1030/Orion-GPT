@@ -65,7 +65,7 @@ describe("resumeAI.parseTextResume controller", () => {
               title: "Engineer",
               companyName: "Acme",
               summary: "Imported experience summary",
-              descriptions: ["Imported bullet"],
+              bullets: ["Imported bullet"],
               startDate: "2023-06-01",
               endDate: "2024-10-01",
             },
@@ -111,7 +111,7 @@ describe("resumeAI.parseTextResume controller", () => {
     expect(payload.data.parsed.experiences).toHaveLength(1);
     expect(payload.data.parsed.experiences[0].startDate).toBe("2023-01-01");
     expect(payload.data.parsed.experiences[0].endDate).toBe("2024-01-01");
-    expect(payload.data.parsed.experiences[0].descriptions).toEqual(
+    expect(payload.data.parsed.experiences[0].bullets).toEqual(
       expect.arrayContaining(["Imported bullet"])
     );
   });
@@ -126,14 +126,14 @@ describe("resumeAI.parseTextResume controller", () => {
             {
               title: "Senior Data Platform Engineer | Aug 2025 - Present",
               companyName: "Axos Bank",
-              descriptions: ["Built data platforms"],
+              bullets: ["Built data platforms"],
               startDate: "",
               endDate: "",
             },
             {
               title: "Senior Data Engineer",
               companyName: "Restaurant365",
-              descriptions: ["Modernized ETL"],
+              bullets: ["Modernized ETL"],
               startDate: "01/2025",
               endDate: "07/2025",
             },
@@ -239,7 +239,7 @@ describe("resumeAI.parseTextResume controller", () => {
       expect.objectContaining({
         title: "Platform Engineer",
         companyName: "SchemaCo",
-        descriptions: ["Built reliable services"],
+        bullets: ["Built reliable services"],
         startDate: "2022-01",
         endDate: "Present",
       })

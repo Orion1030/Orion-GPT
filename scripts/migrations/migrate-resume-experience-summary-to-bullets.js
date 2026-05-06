@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * Migration script: normalize Resume.experiences by folding legacy experience
- * summary text into descriptions[] and removing per-experience summary fields.
+ * summary/descriptions/keyPoints into bullets[] and removing legacy fields.
  *
  * Usage:
- *   node scripts/migrations/migrate-resume-experience-summary-to-descriptions.js --dry-run
- *   node scripts/migrations/migrate-resume-experience-summary-to-descriptions.js --commit
- *   node scripts/migrations/migrate-resume-experience-summary-to-descriptions.js --commit --limit=100
- *   node scripts/migrations/migrate-resume-experience-summary-to-descriptions.js --commit --user-id=<mongodb-object-id>
+ *   node scripts/migrations/migrate-resume-experience-summary-to-bullets.js --dry-run
+ *   node scripts/migrations/migrate-resume-experience-summary-to-bullets.js --commit
+ *   node scripts/migrations/migrate-resume-experience-summary-to-bullets.js --commit --limit=100
+ *   node scripts/migrations/migrate-resume-experience-summary-to-bullets.js --commit --user-id=<mongodb-object-id>
  */
 const mongoose = require("mongoose");
 require("dotenv").config();
@@ -70,7 +70,7 @@ function dedupeStrings(items) {
   return out;
 }
 
-function parseLegacyDescriptionList(value) {
+function parseLegacyBulletList(value) {
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeString(item)).filter(Boolean);
   }
@@ -98,16 +98,17 @@ function parseLegacyDescriptionList(value) {
 
 function normalizeExperience(exp) {
   const legacySummary = sanitizeString(exp?.summary || exp?.companySummary);
-  const descriptions = parseLegacyDescriptionList(exp?.descriptions);
-  const keyPoints = parseLegacyDescriptionList(exp?.keyPoints);
+  const bullets = parseLegacyBulletList(exp?.bullets);
+  const descriptions = parseLegacyBulletList(exp?.descriptions);
+  const keyPoints = parseLegacyBulletList(exp?.keyPoints);
 
-  const mergedDescriptions = dedupeStrings([legacySummary, ...descriptions]);
   const next = {
     ...exp,
-    descriptions: dedupeStrings([...mergedDescriptions, ...keyPoints]),
+    bullets: dedupeStrings([legacySummary, ...bullets, ...descriptions, ...keyPoints]),
   };
   delete next.summary;
   delete next.companySummary;
+  delete next.descriptions;
   return next;
 }
 
@@ -115,7 +116,11 @@ function hasLegacySummaryShape(exp) {
   return Boolean(sanitizeString(exp?.summary || exp?.companySummary));
 }
 
-function descriptionsDiffer(before, after) {
+function hasLegacyDescriptionsShape(exp) {
+  return parseLegacyBulletList(exp?.descriptions).length > 0 || Object.prototype.hasOwnProperty.call(exp || {}, "descriptions");
+}
+
+function bulletsDiffer(before, after) {
   const left = Array.isArray(before) ? before.map((v) => sanitizeString(v)).filter(Boolean) : [];
   const right = Array.isArray(after) ? after.map((v) => sanitizeString(v)).filter(Boolean) : [];
   if (left.length !== right.length) return true;
@@ -158,7 +163,8 @@ async function main() {
     const nextExperiences = experiences.map((exp) => {
       const normalized = normalizeExperience(exp);
       if (hasLegacySummaryShape(exp)) resumeChanged = true;
-      if (descriptionsDiffer(exp?.descriptions, normalized.descriptions)) resumeChanged = true;
+      if (hasLegacyDescriptionsShape(exp)) resumeChanged = true;
+      if (bulletsDiffer(exp?.bullets, normalized.bullets)) resumeChanged = true;
       return normalized;
     });
 

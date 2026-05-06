@@ -420,8 +420,13 @@ async function buildSessionContext(session, userId) {
     }
     if (Array.isArray(resume.experiences) && resume.experiences.length) {
       parts.push('Resume experience bullets: ' + resume.experiences.slice(0, 5).map((experience) => {
-        const bullets = Array.isArray(experience.descriptions)
-          ? experience.descriptions.slice(0, 5).map((item) => truncateText(item, 300)).join(' | ')
+        const experienceBullets = Array.isArray(experience.bullets)
+          ? experience.bullets
+          : Array.isArray(experience.descriptions)
+            ? experience.descriptions
+            : []
+        const bullets = experienceBullets.length
+          ? experienceBullets.slice(0, 5).map((item) => truncateText(item, 300)).join(' | ')
           : ''
         return `${experience.title || 'Role'} at ${experience.companyName || 'Company'}${bullets ? `: ${bullets}` : ''}`
       }).join('\n'))

@@ -92,7 +92,11 @@ function normalizeParsedExperiences(experiences) {
       companyName: item?.companyName || "",
       companyLocation: item?.companyLocation || "",
       summary: item?.summary || item?.companySummary || "",
-      descriptions: Array.isArray(item?.descriptions) ? item.descriptions : [],
+      bullets: Array.isArray(item?.bullets)
+        ? item.bullets
+        : Array.isArray(item?.descriptions)
+          ? item.descriptions
+          : [],
       startDate: item?.startDate || "",
       endDate: item?.endDate || "",
     };
@@ -113,7 +117,7 @@ function normalizeParsedExperiences(experiences) {
         companyName: normalizedItem.companyName,
         companyLocation: normalizedItem.companyLocation,
         summary: normalizedItem.summary,
-        descriptions: normalizedItem.descriptions,
+        bullets: normalizedItem.bullets,
         startDate: normalizedDates.startDate,
         endDate: normalizedDates.endDate,
       };
@@ -124,7 +128,7 @@ function normalizeParsedExperiences(experiences) {
       companyName: normalizedItem.companyName,
       companyLocation: normalizedItem.companyLocation,
       summary: normalizedItem.summary,
-      descriptions: normalizedItem.descriptions,
+      bullets: normalizedItem.bullets,
       startDate: normalizedDates.startDate,
       endDate: normalizedDates.endDate,
     };

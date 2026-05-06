@@ -5,7 +5,7 @@
  *   roleTitle, companyName, startDate, endDate, companySummary, keyPoints (rich-text string)
  *
  * Resume experience fields:
- *   title, companyName, companyLocation, descriptions[], startDate, endDate
+ *   title, companyName, companyLocation, bullets[], startDate, endDate
  */
 const {
   buildEmploymentKey,
@@ -52,7 +52,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-function keyPointsToDescriptions(value) {
+function keyPointsToBullets(value) {
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeString(item)).filter(Boolean);
   }
@@ -77,13 +77,13 @@ function keyPointsToDescriptions(value) {
   return oneLine ? [oneLine] : [];
 }
 
-function descriptionsToKeyPoints(value) {
+function bulletsToKeyPoints(value) {
   let lines = [];
 
   if (Array.isArray(value)) {
     lines = value.map((item) => sanitizeString(item)).filter(Boolean);
   } else if (typeof value === "string" && value.trim()) {
-    lines = keyPointsToDescriptions(value);
+    lines = keyPointsToBullets(value);
   }
 
   if (!lines.length) return "";
@@ -117,15 +117,17 @@ function mergeUniqueStrings(items) {
  */
 function normalizeResumeExperience(value) {
   const legacySummary = sanitizeString(value?.summary ?? value?.companySummary);
-  const normalizedDescriptions = Array.isArray(value?.descriptions)
-    ? value.descriptions.map((item) => sanitizeString(item)).filter(Boolean)
-    : keyPointsToDescriptions(value?.keyPoints);
+  const normalizedBullets = Array.isArray(value?.bullets)
+    ? value.bullets.map((item) => sanitizeString(item)).filter(Boolean)
+    : Array.isArray(value?.descriptions)
+      ? value.descriptions.map((item) => sanitizeString(item)).filter(Boolean)
+      : keyPointsToBullets(value?.keyPoints);
 
   return {
     title: sanitizeString(value?.title ?? value?.roleTitle),
     companyName: sanitizeString(value?.companyName),
     companyLocation: sanitizeString(value?.companyLocation),
-    descriptions: mergeUniqueStrings([legacySummary, ...normalizedDescriptions]),
+    bullets: mergeUniqueStrings([legacySummary, ...normalizedBullets]),
     startDate: normalizeDateString(value?.startDate),
     endDate: normalizeDateString(value?.endDate),
   };
@@ -208,9 +210,9 @@ function alignResumeExperiencesToCareerHistory(profileCareerHistory, resumeExper
       title: profileExperience.title || normalizedMatch?.title || "",
       companyName: profileExperience.companyName || normalizedMatch?.companyName || "",
       companyLocation: normalizedMatch?.companyLocation || profileExperience.companyLocation || "",
-      descriptions: (normalizedMatch?.descriptions || []).length
-        ? normalizedMatch.descriptions
-        : profileExperience.descriptions,
+      bullets: (normalizedMatch?.bullets || []).length
+        ? normalizedMatch.bullets
+        : profileExperience.bullets,
       startDate: profileExperience.startDate || normalizedMatch?.startDate || "",
       endDate: profileExperience.endDate || normalizedMatch?.endDate || "",
     });
@@ -230,9 +232,11 @@ function profileExperienceToResumeExperience(profileExp) {
     companyName: profileExp.companyName || "",
     companyLocation: profileExp.companyLocation || "",
     companySummary: profileExp.companySummary || profileExp.summary || "",
-    descriptions: Array.isArray(profileExp.descriptions)
-      ? profileExp.descriptions
-      : keyPointsToDescriptions(profileExp.keyPoints),
+    bullets: Array.isArray(profileExp.bullets)
+      ? profileExp.bullets
+      : Array.isArray(profileExp.descriptions)
+        ? profileExp.descriptions
+        : keyPointsToBullets(profileExp.keyPoints),
     startDate: profileExp.startDate || "",
     endDate: profileExp.endDate || "",
   });
@@ -244,8 +248,10 @@ function profileExperienceToResumeExperience(profileExp) {
  * @returns {object}
  */
 function resumeExperienceToProfileExperience(resumeExp) {
-  const descriptions = Array.isArray(resumeExp.descriptions)
-    ? resumeExp.descriptions
+  const bullets = Array.isArray(resumeExp.bullets)
+    ? resumeExp.bullets
+    : Array.isArray(resumeExp.descriptions)
+      ? resumeExp.descriptions
     : Array.isArray(resumeExp.keyPoints)
       ? resumeExp.keyPoints
       : typeof resumeExp.keyPoints === "string"
@@ -258,7 +264,7 @@ function resumeExperienceToProfileExperience(resumeExp) {
     startDate: resumeExp.startDate || "",
     endDate: resumeExp.endDate || "",
     companySummary: resumeExp.companySummary || resumeExp.summary || "",
-    keyPoints: descriptionsToKeyPoints(descriptions),
+    keyPoints: bulletsToKeyPoints(bullets),
   };
 }
 

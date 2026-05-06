@@ -204,7 +204,7 @@ describe('generateResumeFromJD', () => {
                       title: 'Data Engineer',
                       companyName: 'Acme',
                       summary: 'Generated summary',
-                      descriptions: ['Generated bullet'],
+                      bullets: ['Generated bullet'],
                       startDate: '2022-07-01',
                       endDate: 'Present',
                     },
@@ -374,7 +374,7 @@ describe('resume generation prompt careerHistory merge', () => {
           startDate: new Date('2022-01-01'),
           endDate: '2023-12-31',
           summary: 'Owned distributed data services.',
-          descriptions: ['Reduced ingestion latency by 42%.'],
+          bullets: ['Reduced ingestion latency by 42%.'],
         },
       ]
     );
@@ -391,7 +391,7 @@ describe('resume generation prompt careerHistory merge', () => {
     );
     expect(merged[0].candidateExperience).toEqual(
       expect.objectContaining({
-        descriptions: expect.arrayContaining([
+        bullets: expect.arrayContaining([
           'Owned distributed data services.',
           'Reduced ingestion latency by 42%.',
         ]),
@@ -418,7 +418,7 @@ describe('resume generation prompt careerHistory merge', () => {
           startDate: '2020-01-01',
           endDate: '2021-01-01',
           summary: 'Resume summary.',
-          descriptions: ['Resume point'],
+          bullets: ['Resume point'],
         },
       ]
     );
@@ -448,7 +448,7 @@ describe('resume generation prompt careerHistory merge', () => {
           startDate: '2025-08-01',
           endDate: 'Present',
           summary: 'Resume-side candidate experience.',
-          descriptions: ['Delivered production launch milestones'],
+          bullets: ['Delivered production launch milestones'],
         },
       ]
     );
@@ -487,7 +487,7 @@ describe('resume generation prompt careerHistory merge', () => {
           startDate: '2020-01-01',
           endDate: '2021-01-01',
           summary: 'Built ELT jobs.',
-          descriptions: ['Built ELT jobs in Airflow', 'Owned incident response'],
+          bullets: ['Built ELT jobs in Airflow', 'Owned incident response'],
         },
         {
           companyName: 'Globex',
@@ -495,7 +495,7 @@ describe('resume generation prompt careerHistory merge', () => {
           startDate: '2020-01-01',
           endDate: '2021-01-01',
           summary: 'Built ELT jobs and productionized orchestration.',
-          descriptions: ['Built ELT jobs in Airflow', 'Improved observability'],
+          bullets: ['Built ELT jobs in Airflow', 'Improved observability'],
         },
       ]
     );
@@ -507,7 +507,7 @@ describe('resume generation prompt careerHistory merge', () => {
     expect(merged[0].companyContext.keyPoints).toEqual(
       expect.arrayContaining(['Built shared ETL templates', 'Improved data quality controls'])
     );
-    expect(merged[0].candidateExperience.descriptions).toEqual(
+    expect(merged[0].candidateExperience.bullets).toEqual(
       expect.arrayContaining([
         'Built ELT jobs.',
         'Built ELT jobs and productionized orchestration.',
@@ -516,8 +516,8 @@ describe('resume generation prompt careerHistory merge', () => {
         'Improved observability',
       ])
     );
-    expect(new Set(merged[0].candidateExperience.descriptions).size).toBe(
-      merged[0].candidateExperience.descriptions.length
+    expect(new Set(merged[0].candidateExperience.bullets).size).toBe(
+      merged[0].candidateExperience.bullets.length
     );
   });
 
@@ -562,7 +562,7 @@ describe('resume generation prompt careerHistory merge', () => {
       startDate: `2021-01-${String((idx % 28) + 1).padStart(2, '0')}`,
       endDate: `2021-12-${String((idx % 28) + 1).padStart(2, '0')}`,
       summary: `Resume summary ${idx}`,
-      descriptions: [`Resume bullet ${idx}`],
+      bullets: [`Resume bullet ${idx}`],
     }));
 
     const merged = _buildMergedCareerHistoryForPrompt(profileEntries, resumeEntries);
@@ -591,7 +591,7 @@ describe('resume generation prompt careerHistory merge', () => {
         startDate: entry.startDate,
         endDate: entry.endDate,
         summary: `Resume summary ${entry.companyName}`,
-        descriptions: [`Resume point ${entry.companyName}`],
+        bullets: [`Resume point ${entry.companyName}`],
       }));
 
     const merged = _buildMergedCareerHistoryForPrompt(profileEntries, resumeEntries);
@@ -613,7 +613,7 @@ describe('experience evidence scoping', () => {
             startDate: '2022-01-01',
             endDate: '2022-12-31',
             summary: '',
-            descriptions: [],
+            bullets: [],
           },
         ],
       },
@@ -640,7 +640,7 @@ describe('experience evidence scoping', () => {
       null
     );
 
-    const lines = (enriched.experiences[0].descriptions || []).join(' ').toLowerCase();
+    const lines = (enriched.experiences[0].bullets || []).join(' ').toLowerCase();
     expect(lines).toContain('event-driven microservices architecture');
     expect(lines).not.toContain('legacy monolith');
   });

@@ -29,14 +29,16 @@ function normalizeResumeJson(raw) {
   const experiences = Array.isArray(raw?.experiences)
     ? raw.experiences.slice(0, 20).map((e) => {
         const legacySummary = sanitizeStr(e?.summary);
-        const descriptions = Array.isArray(e?.descriptions)
-          ? e.descriptions.map(sanitizeStr).filter(Boolean)
+        const bullets = Array.isArray(e?.bullets)
+          ? e.bullets.map(sanitizeStr).filter(Boolean)
+          : Array.isArray(e?.descriptions)
+            ? e.descriptions.map(sanitizeStr).filter(Boolean)
           : [];
         return {
           title: sanitizeStr(e?.title ?? e?.roleTitle) || "",
           companyName: sanitizeStr(e?.companyName) || "",
           companyLocation: sanitizeStr(e?.companyLocation) || "",
-          descriptions: dedupeStrings([legacySummary, ...descriptions]),
+          bullets: dedupeStrings([legacySummary, ...bullets]),
           startDate: sanitizeStr(e?.startDate) || "",
           endDate: sanitizeStr(e?.endDate) || "",
         };

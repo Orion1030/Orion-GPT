@@ -16,7 +16,7 @@ const MONGO = process.env.MONGO_URI || process.env.MONGO || 'mongodb://localhost
 const dryRun = process.argv.includes('--dry-run') || !process.argv.includes('--commit');
 const commit = process.argv.includes('--commit');
 
-function keyPointsToDescriptions(value) {
+function keyPointsToBullets(value) {
   if (Array.isArray(value)) {
     return value.map((v) => String(v || '').trim()).filter(Boolean);
   }
@@ -63,7 +63,7 @@ async function main() {
             title: exp.roleTitle || exp.title || '',
             companyName: exp.companyName || '',
             companyLocation: '',
-            descriptions: [exp.companySummary || '', ...keyPointsToDescriptions(exp.keyPoints)].filter(Boolean),
+            bullets: [exp.companySummary || '', ...keyPointsToBullets(exp.keyPoints)].filter(Boolean),
             startDate: exp.startDate || '',
             endDate: exp.endDate || '',
           }));

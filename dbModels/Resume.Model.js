@@ -41,7 +41,9 @@ const resumeSchema = new mongoose.Schema(
           title: { type: String, default: '' },
           companyName: { type: String, default: '' },
           companyLocation: { type: String, default: '' },
-          descriptions: { type: [String], default: [] },
+          bullets: { type: [String], default: [] },
+          // Legacy storage key retained so older resumes can be read and rewritten as bullets.
+          descriptions: { type: [String], default: undefined },
           startDate: { type: String, default: '' },
           endDate: { type: String, default: '' },
         },

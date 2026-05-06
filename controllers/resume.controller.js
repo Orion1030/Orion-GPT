@@ -61,7 +61,7 @@ function flattenArrayOneLevel(value) {
   return out;
 }
 
-function normalizeLegacyDescriptionList(value) {
+function normalizeLegacyBulletList(value) {
   if (Array.isArray(value)) {
     return value.map(toCleanString).filter(Boolean);
   }
@@ -87,28 +87,41 @@ function normalizeLegacyDescriptionList(value) {
   return single ? [single] : [];
 }
 
+function readExperienceBullets(e) {
+  if (Array.isArray(e?.bullets)) return e.bullets.map(toCleanString).filter(Boolean);
+  if (typeof e?.bullets === "string") return normalizeLegacyBulletList(e.bullets);
+  if (Array.isArray(e?.descriptions)) return e.descriptions.map(toCleanString).filter(Boolean);
+  if (typeof e?.descriptions === "string") return normalizeLegacyBulletList(e.descriptions);
+  if (Array.isArray(e?.keyPoints)) return e.keyPoints.map(toCleanString).filter(Boolean);
+  return normalizeLegacyBulletList(e?.keyPoints);
+}
+
 function normalizeExperiences(experiences) {
   if (!Array.isArray(experiences)) return [];
   return experiences.map((e) => {
     const legacySummary = toCleanString(e?.summary ?? e?.companySummary);
-    const descriptions = Array.isArray(e?.descriptions)
-      ? e.descriptions.map(toCleanString).filter(Boolean)
-      : typeof e?.descriptions === "string"
-        ? normalizeLegacyDescriptionList(e.descriptions)
-        : Array.isArray(e?.keyPoints)
-          ? e.keyPoints.map(toCleanString).filter(Boolean)
-          : normalizeLegacyDescriptionList(e?.keyPoints);
-    const mergedDescriptions = [...new Set([legacySummary, ...descriptions].filter(Boolean))];
+    const bullets = readExperienceBullets(e);
+    const mergedBullets = [...new Set([legacySummary, ...bullets].filter(Boolean))];
 
     return {
       title: toCleanString(e?.title ?? e?.roleTitle),
       companyName: toCleanString(e?.companyName),
       companyLocation: toCleanString(e?.companyLocation),
-      descriptions: mergedDescriptions,
+      bullets: mergedBullets,
       startDate: toCleanString(e?.startDate),
       endDate: toCleanString(e?.endDate),
     };
   });
+}
+
+function normalizeResumeForResponse(resume) {
+  if (!resume) return resume;
+  const plain = typeof resume.toObject === "function" ? resume.toObject() : { ...resume };
+  return {
+    ...plain,
+    id: plain._id ? String(plain._id) : plain.id,
+    experiences: normalizeExperiences(plain.experiences),
+  };
 }
 
 function normalizeSkills(skills) {
@@ -360,7 +373,7 @@ exports.createResume = asyncErrorHandler(async (req, res) => {
     .populate("profileId")
     .populate("templateId")
     .populate("stackId");
-  return sendJsonResult(res, true, populated, "Resume created successfully", 201);
+  return sendJsonResult(res, true, normalizeResumeForResponse(populated), "Resume created successfully", 201);
 });
 
 exports.getResume = asyncErrorHandler(async (req, res) => {
@@ -377,7 +390,7 @@ exports.getResume = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
 
-  return sendJsonResult(res, true, { ...resumeDoc, id: String(resumeDoc._id) });
+  return sendJsonResult(res, true, normalizeResumeForResponse(resumeDoc));
 });
 
 exports.getResumeByProfileAndId = asyncErrorHandler(async (req, res) => {
@@ -394,7 +407,7 @@ exports.getResumeByProfileAndId = asyncErrorHandler(async (req, res) => {
     return sendJsonResult(res, false, null, "Resume not found", 404);
   }
 
-  return sendJsonResult(res, true, { ...resumeDoc, id: String(resumeDoc._id) });
+  return sendJsonResult(res, true, normalizeResumeForResponse(resumeDoc));
 });
 
 exports.updateResume = asyncErrorHandler(async (req, res) => {
@@ -449,7 +462,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
       .populate("profileId")
       .populate("templateId")
       .populate("stackId");
-    return sendJsonResult(res, true, populated);
+    return sendJsonResult(res, true, normalizeResumeForResponse(populated));
   }
 
   const updatedResume = await ResumeModel.findOneAndUpdate(
@@ -472,7 +485,7 @@ exports.updateResume = asyncErrorHandler(async (req, res) => {
     .populate("profileId")
     .populate("templateId")
     .populate("stackId");
-  return sendJsonResult(res, true, withEmbedding || updatedResume);
+  return sendJsonResult(res, true, normalizeResumeForResponse(withEmbedding || updatedResume));
 });
 
 exports.deleteResume = asyncErrorHandler(async (req, res) => {
@@ -535,7 +548,7 @@ exports.getAllResumes = asyncErrorHandler(async (req, res) => {
     .populate("templateId")
     .populate("stackId")
     .sort({ updatedAt: -1 });
-  return sendJsonResult(res, true, resumes);
+  return sendJsonResult(res, true, resumes.map(normalizeResumeForResponse));
 });
 
 exports.downloadResume = asyncErrorHandler(async (req, res) => {

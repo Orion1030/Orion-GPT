@@ -11,9 +11,13 @@ function buildResumeTextForEmbedding(r) {
   const parts = [r.summary || ''];
   (r.experiences || []).forEach((e) => {
     const legacySummary = String(e?.summary || '').trim();
-    const descriptions = Array.isArray(e?.descriptions) ? e.descriptions : [];
-    const mergedDescriptions = [...new Set([legacySummary, ...descriptions].filter(Boolean))];
-    parts.push(e.title || '', mergedDescriptions.join(' '));
+    const bullets = Array.isArray(e?.bullets)
+      ? e.bullets
+      : Array.isArray(e?.descriptions)
+        ? e.descriptions
+        : [];
+    const mergedBullets = [...new Set([legacySummary, ...bullets].filter(Boolean))];
+    parts.push(e.title || '', mergedBullets.join(' '));
   });
   (r.skills || []).forEach((s) => {
     if (s?.items) parts.push(s.items.join(' '));

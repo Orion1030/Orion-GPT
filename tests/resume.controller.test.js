@@ -1,52 +1,19 @@
-const { parseTextResume } = require('../controllers/resume.controller');
+jest.mock('../dbModels', () => ({
+  ResumeModel: {},
+  ProfileModel: {},
+  ApplicationModel: {},
+  ApplicationEventModel: {},
+}));
 
-describe('parseTextResume controller', () => {
-  const OLD_ENV = process.env;
-  beforeEach(() => {
-    jest.resetModules();
-    process.env = { ...OLD_ENV, OPENAI_API_KEY: 'test-key' };
-    // mock global fetch to return a chat completion with JSON body
-    global.fetch = jest.fn().mockResolvedValue({
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                profile: { fullName: 'Jane Doe', title: 'Engineer', contactInfo: { email: null } },
-                summary: 'Experienced engineer.',
-                skills: ['JS', 'Node'],
-                meta: { confidence: 0.9, missingFields: [] }
-              })
-            }
-          }
-        ]
-      })
-    });
-  });
+jest.mock('../services/resumeEmbedding.service', () => ({
+  queueResumeEmbeddingRefresh: jest.fn(),
+}));
 
-  afterEach(() => {
-    process.env = OLD_ENV;
-    jest.resetAllMocks();
-  });
+jest.mock('../services/applicationHistory.service', () => ({
+  appendApplicationHistory: jest.fn(),
+}));
 
-  it('parses text and returns structured JSON', async () => {
-    // mock ProfileModel.find to return empty array
-    jest.doMock('../dbModels', () => ({ ProfileModel: { find: jest.fn().mockResolvedValue([]) } }));
-    const controller = require('../controllers/resume.controller');
-    const req = { body: { text: 'Some resume text' }, user: { _id: 'u1' } };
-    const res = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn()
-    };
-    await controller.parseTextResume(req, res, jest.fn());
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalled();
-    const payload = res.json.mock.calls[0][0];
-    expect(payload.success).toBe(true);
-    expect(payload.data).toBeDefined();
-    expect(payload.data.parsed.profile.fullName).toBe('Jane Doe');
-  });
-
+describe('resume controller payload mapping', () => {
   it('maps payload to model including experiences and skills', () => {
     const controller = require('../controllers/resume.controller');
     const payload = {
@@ -57,7 +24,7 @@ describe('parseTextResume controller', () => {
           title: 'Engineer',
           companyName: 'Acme',
           summary: 'Legacy summary',
-          descriptions: ['Did stuff'],
+          bullets: ['Did stuff'],
           startDate: '2020-01-01',
           endDate: '2021-01-01'
         }
@@ -72,7 +39,7 @@ describe('parseTextResume controller', () => {
     expect(Array.isArray(out.experiences)).toBe(true);
     expect(Array.isArray(out.skills)).toBe(true);
     expect(out.experiences[0].title).toBe('Engineer');
-    expect(out.experiences[0].descriptions).toEqual(expect.arrayContaining(['Legacy summary', 'Did stuff']));
+    expect(out.experiences[0].bullets).toEqual(expect.arrayContaining(['Legacy summary', 'Did stuff']));
     expect(out.experiences[0].summary).toBeUndefined();
     expect(out.skills[0].items).toContain('JS');
   });

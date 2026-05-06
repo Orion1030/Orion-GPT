@@ -51,7 +51,7 @@ describe("profileImport.service parseProfileImportText", () => {
             {
               title: "Senior Data Engineer",
               companyName: "Acme",
-              descriptions: ["Built batch pipelines on AWS and Spark"],
+              bullets: ["Built batch pipelines on AWS and Spark"],
               startDate: "2021-01",
               endDate: "Present",
             },
@@ -238,14 +238,14 @@ describe("profileImport.service parseProfileImportText", () => {
             {
               title: "Senior Data Engineer",
               companyName: "Restaurant365",
-              descriptions: ["Modernized ETL"],
+              bullets: ["Modernized ETL"],
               startDate: "01/2025",
               endDate: "07/2025",
             },
             {
               title: "Senior Data Platform Engineer | Aug. 2025 - Present",
               companyName: "Axos Bank",
-              descriptions: ["Built data pipelines"],
+              bullets: ["Built data pipelines"],
               startDate: "",
               endDate: "",
             },
@@ -330,7 +330,7 @@ describe("profileImport.service parseProfileImportText", () => {
           {
             title: "Backend Engineer",
             companyName: "SchemaCo",
-            descriptions: ["Built APIs"],
+            bullets: ["Built APIs"],
             startDate: "2020",
             endDate: "Present",
           },
